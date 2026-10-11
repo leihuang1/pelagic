@@ -23,11 +23,12 @@ constructed single-frequency fluid cases (twelve lossless, five with bottom loss
 `tools/reference/compare-kraken.sh CASE.env` regenerates reference outputs and
 compares mode counts, coordinates, wavenumbers, attenuation, phase/group speeds,
 phase-aligned shapes, and every complex pressure sample. The same comparator
-runs without Docker on committed goldens; CI also compares fresh outputs for
-all seventeen cases and the unmodified upstream `MunkK.env`/`.flp` (102 modes,
-501,501 complex pressures). CI also compares the unmodified upstream
-`MunkAnalytic.env` with a separately derived coherent FIELD `.flp` (102 modes,
-25 pressures); its original three-line `.flp` fails in pinned v2023.5 FIELD.
+runs without Docker on committed goldens; local full acceptance also compares
+fresh outputs for all seventeen cases and the unmodified upstream `MunkK.env`/
+`.flp` (102 modes, 501,501 complex pressures). Local full acceptance also
+compares the unmodified upstream `MunkAnalytic.env` with a separately derived
+coherent FIELD `.flp` (102 modes, 25 pressures); its original three-line `.flp`
+fails in pinned v2023.5 FIELD.
 The unmodified official sduct has leaky modes and is **not** covered by the
 derived KRAKEN trapped-mode comparison; its separate KRAKENC original-pair
 comparison is described below. Measured errors and provenance accompany the goldens.
@@ -38,12 +39,13 @@ modes), a three-mesh Richardson derivative (four modes and nine pressures),
 two-point graded `N`-profiles in both directions (four modes each),
 and a **derived**, truncated seven-knot MunkLeaky water column with and without
 0.8 dB/wavelength bottom loss (30 modes, nine leaky each) against pinned
-`.mod/.prt` goldens and fresh CI output. A third seven-knot derivative changes
-only `N` to `C` interpolation (30 modes). Separately derived coherent `.flp`
-inputs compare nine complex line-source pressures for `PekerisComplexBlank`
-and 36 point-source pressures for each of the two lossy seven-knot cases with
-committed `.shd` goldens and fresh CI output. Fresh CI compares unmodified
-upstream `MunkKleaky` (329 modes, 150,801 pressures), `MunkKwb` (63, 150,801),
+`.mod/.prt` goldens and local full-acceptance output. A third seven-knot
+derivative changes only `N` to `C` interpolation (30 modes). Separately derived
+coherent `.flp` inputs compare nine complex line-source pressures for
+`PekerisComplexBlank` and 36 point-source pressures for each of the two lossy
+seven-knot cases with committed `.shd` goldens and local full-acceptance output.
+Local full acceptance compares unmodified `MunkKleaky` (329 modes, 150,801
+pressures), `MunkKwb` (63, 150,801),
 `MunkKbb` (102, 150,801), `sductK` (1,077, 201,201) and Richardson-refined
 `calibK` (33, 101,101) `.env/.flp` pairs end to end against `.mod/.prt/.shd`.
 The `.env` determines modal samples; the
@@ -74,7 +76,8 @@ run through both KRAKEN and KRAKENC; the leaky PCHIP partial-Munk derivative
 runs through KRAKENC only: 27 workflows, 36 frequency blocks, 404 modes and
 432 pressures. Three pinned runs yield identical `.mod/.shd`; all samples pass
 local API and actual CLI-HDF5 comparisons at unchanged tolerances. Raw goldens,
-hashes and derivation details are committed; fresh CI is configured for all 27.
+hashes and derivation details are committed; local full acceptance is configured
+for all 27.
 Biological attenuation is sampled at SSP knots, not mesh nodes, and excluded
 from half-spaces as in `UpdateHSLoss` (HUGE depth). This is not original upstream
 VolAtt acceptance and does not add physical density gradients or layers.
@@ -82,10 +85,11 @@ VolAtt acceptance and does not add physical density gradients or layers.
 Discrete multi-frequency regressions use two **derived** Pekeris `.env/.flp`
 pairs (KRAKEN and KRAKENC): unsorted 75/50/62.5 Hz, fractional mesh scaling,
 three refinement levels, `W` bottom loss, and nine pressures per frequency.
-Committed `.mod/.prt/.shd` and fresh CI compare every frequency block. Fresh
-CI also compares the **unmodified** `tests/BroadBand/MunkK.env/.flp` through
-both engines: 102 modes at 50 Hz, 1,023 at 500 Hz, and 501,501 pressures at each
-frequency (1,003,002 per engine). Three pinned runs yield identical `.mod/.shd`.
+Committed `.mod/.prt/.shd` and local full acceptance compare every frequency
+block. Local full acceptance also compares the **unmodified**
+`tests/BroadBand/MunkK.env/.flp` through both engines: 102 modes at 50 Hz,
+1,023 at 500 Hz, and 501,501 pressures at each frequency (1,003,002 per engine).
+Three pinned runs yield identical `.mod/.shd`.
 API and actual legacy/JSON CLI-HDF5 comparisons check the complete products.
 The reference
 reader checks frequency order, per-frequency mode counts and offsets, shapes,
@@ -95,8 +99,9 @@ domain results, not a wideband time-domain acceptance. KRAKENC's narrow,
 single lossless-fluid spacing predictor (cHigh ≤ bottom cp) brings 500 Hz to
 152,546,495 work, below the unchanged 300M ceiling; max |dp|=1.5360e-8.
 WRITE-only reference tracing leaves MOD/SHD bytes unchanged. Other seed paths,
-secant tolerance, deflation, inputs and goldens are unchanged. A fresh-CI CLI
-regression separately derives a 7500 Hz third block to verify exit 3, no partial
+secant tolerance, deflation, inputs and goldens are unchanged. A local
+full-acceptance CLI regression separately derives a 7500 Hz third block to
+verify exit 3, no partial
 publication, preservation of old output and scratch cleanup after 50/500 Hz
 succeed. That rejection is protection evidence, not numerical acceptance.
 
@@ -129,8 +134,9 @@ remain excluded.
 The [KRAKEN CLI/HDF5 adapter](../guide/kraken-hdf5.md) is independently checked
 through its actual serialized output: `KRAKEN_HDF5_RESULT` makes the same test-only
 comparator read `.h5` modes and FIELD instead of recomputing the in-memory
-result. Fresh CI exercises both Pekeris broadband derivatives, original MunkK,
-all five original fluid KRAKENC pairs, original BroadBand/MunkK, four table
+result. Local full acceptance exercises both Pekeris broadband derivatives,
+original MunkK, all five original fluid KRAKENC pairs, original BroadBand/MunkK,
+four table
 derivatives, the three original TabRefCoef workflows, four cubic/analytic
 derivatives, the broadband PCHIP derivative and the two unmodified MunkS/analytic
 environments with derived FIELD geometry through this path,
@@ -187,7 +193,7 @@ actual CLI/HDF5. The original scholte/normal/flused environments and official
 shared fieldbat.flp are byte copies of the pinned TLslices sources; no shear is
 removed and NG is unchanged. All .mod/.shd agree in three runs; local maximum
 pressure error is 6.67e-8 at unchanged tolerances. The 149-record
-`golden/elastic-halfspace.sha256` manifest and fresh CI source-byte comparisons
+`golden/elastic-halfspace.sha256` manifest and local full-acceptance source-byte comparisons
 lock provenance. Real elastic tops retain shared isolation/Brent, non-deflated
 Solve2 and MINLOC selection; failed slow-interface and 75 Hz broadband probes
 remain unaccepted. Original elsed/ice pass the distinct finite-cap checkpoint.
@@ -227,7 +233,7 @@ tolerances, with local maximum |dp| `4.1159031748919954e-10`. All four MOD/SHD
 pairs are byte-identical across three pinned runs. Seven inputs (including the
 three original Gulf files) and six small reference files are SHA-locked in
 `golden/multi-profile.sha256`; original Gulf binaries are fresh-run artifacts,
-not committed large goldens. CI checks original input bytes against the pinned
+not committed large goldens. Local full acceptance checks original input bytes against the pinned
 source tree. See [profile propagation](../kraken/field.md).
 
 The [self-contained KRAKEN JSON checkpoint](../kraken/json.md#validation) reuses

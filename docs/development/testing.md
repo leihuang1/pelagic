@@ -26,7 +26,8 @@ mode work-budget regression stays in the daily suite.
 Linux CI retains format, Clippy, all-feature workspace tests, reference hashes
 and documentation. Windows retains its existing release-profile serial tests
 (native HDF5 handle inheritance), DLL checks, actual extracted ZIP executions
-and independent output readback. Both install the repository-pinned toolchain.
+and independent output readback. The Windows workflow name/build profile does
+not mean a PR publishes a release. Both install the repository-pinned toolchain.
 PRs run once: branch pushes no longer duplicate PR jobs; pushes to `main` and
 manual workflow dispatch still run. Superseded runs are cancelled, but published
 release runs are not cancelled by this policy.
@@ -56,10 +57,11 @@ not a claim about every possible edit. Ordinary tests changed from 232 passed /
 existing tests and redundant count-only tests removed.
 
 The local full fresh-reference diagnostic passed all 25 stages in 568 s. It ran
-on an uncommitted worktree and correctly exited 2: **not release acceptance**.
-The named repository toolchain was also installed in an isolated `RUSTUP_HOME`
-and passed fmt, Clippy, ordinary tests and documentation checks. Windows ZIP
-execution and the 3-minute hosted PR target still require an actual CI run.
+on an uncommitted worktree and correctly exited 2, so it is **not release
+acceptance**. The named repository toolchain was also installed in an isolated
+`RUSTUP_HOME` and passed fmt, Clippy, ordinary tests and documentation checks.
+Windows ZIP execution and the 3-minute hosted PR target still require an actual
+CI run.
 
 ## Coverage responsibilities
 
