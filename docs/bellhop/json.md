@@ -62,6 +62,14 @@ must match the base profile. Receiver depths and ranges must have equal lengths
 for an `irregular` receiver grid. Beam families are omitted for ray runs and
 required for all other run kinds. Cerveny families require `trace.cerveny`.
 
+Legacy `RG` ray runs retain reference-specific internal beam-state initialization
+that JSON does not encode. `crates/bellhop/tests/ray_solver.rs` checks actual solver
+outcomes for 12 derived inputs, with beam shifts on/off and normal/two-step limits:
+exported ray values agree bit-for-bit, and a non-finite reflection reached by the
+shifted Munk fan is rejected through both input paths. Only legacy provenance is
+excluded from result comparison. This bounded characterization is not a proof for
+all extreme inputs; the legacy initialization and finiteness guards are preserved.
+
 ## CLI conversion and use
 
 Convert a legacy environment and all of its referenced auxiliary files:

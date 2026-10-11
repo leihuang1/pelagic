@@ -81,10 +81,12 @@ fn load_file_cases(
 ) -> Result<Vec<Case>, DiagnosticReport> {
     let env = read_file(env_path)?;
     let flp = read_file(flp_path)?;
-    let bottom = bottom_table_extension(&env, env_path, mode_solver)?
+    let [surface, brc, irc] = first_environment_table_extensions(&env, env_path, mode_solver)?;
+    let bottom = brc
+        .or(irc)
         .map(|extension| read_file(&env_path.with_extension(extension)))
         .transpose()?;
-    let surface = surface_table_extension(&env, env_path, mode_solver)?
+    let surface = surface
         .map(|extension| read_file(&env_path.with_extension(extension)))
         .transpose()?;
     let pattern = source_pattern_extension(&flp, flp_path)?
@@ -193,13 +195,8 @@ pub fn bottom_table_extension(
     path: &Path,
     solver: ModeSolver,
 ) -> Result<Option<&'static str>, DiagnosticReport> {
-    check_input_size(source, path)?;
-    let env = read_environment(&mut Reader::new(source, path)?, solver)?;
-    Ok(match env.bottom_boundary {
-        BottomBoundary::Reflection(_) => Some("brc"),
-        BottomBoundary::Impedance { .. } => Some("irc"),
-        _ => None,
-    })
+    let [_, brc, irc] = first_environment_table_extensions(source, path, solver)?;
+    Ok(brc.or(irc))
 }
 
 /// Return the same-stem top reflection resource consumed by this environment.
@@ -210,9 +207,7 @@ pub fn surface_table_extension(
     path: &Path,
     solver: ModeSolver,
 ) -> Result<Option<&'static str>, DiagnosticReport> {
-    check_input_size(source, path)?;
-    let env = read_environment(&mut Reader::new(source, path)?, solver)?;
-    Ok(matches!(env.surface_boundary, SurfaceBoundary::Reflection(_)).then_some("trc"))
+    Ok(first_environment_table_extensions(source, path, solver)?[0])
 }
 
 /// Return the same-stem source-pattern resource consumed by this FIELD input.
@@ -273,6 +268,18 @@ pub fn load_frequency_cases_with_boundary_tables(
         bottom_table,
         None,
     )
+}
+
+// Single-environment discovery deliberately leaves trailing profiles to assembly;
+// FIELD discovery below scans them all. Preserve each loader's diagnostic order.
+fn first_environment_table_extensions(
+    source: &str,
+    path: &Path,
+    solver: ModeSolver,
+) -> Result<[Option<&'static str>; 3], DiagnosticReport> {
+    check_input_size(source, path)?;
+    let environment = read_environment(&mut Reader::new(source, path)?, solver)?;
+    Ok(environment_table_extensions(&environment))
 }
 
 fn environment_table_extensions(environment: &Environment) -> [Option<&'static str>; 3] {
