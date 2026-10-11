@@ -29,7 +29,7 @@ fn layered_fluid_legacy_input_is_accepted_by_both_backends() {
             .remove(0);
         assert_eq!(case.additional_fluid_layers.len(), 1);
         assert_eq!(case.total_depth_m().to_bits(), 140.0_f64.to_bits());
-        assert_eq!(solve(&case).unwrap().field.pressure.len(), 63);
+        // Full modes and all 63 pressures are checked by the layered-fluid goldens.
     }
 }
 

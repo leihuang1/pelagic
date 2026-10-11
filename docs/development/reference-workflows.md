@@ -1,5 +1,35 @@
 # Reference reproduction workflows
 
+## Full pre-release acceptance
+
+From a clean commit, run **before every release** (also on deliberate Rust
+upgrades):
+
+```sh
+tools/reference/full-acceptance.sh
+```
+
+This is the former heavy CI sequence, not a reduced smoke suite. It adds the
+18 irregular BELLHOP comparisons and the new small coverage cases. It stops
+on the first failure, retains completed outputs and failure work/logs, and
+writes `target/acceptance/<UTC>-<pid>/report.md` plus `run.log` and `reference/`.
+The report records SHA, platform/toolchain, stage results and explicit NOT RUN
+stages; the traced log records each case/engine/test and its result. Focused
+tests must run exactly once: renamed/missing filters fail instead of passing
+with zero tests. Each invocation has fresh destinations, without overwriting
+previous evidence. `--allow-dirty` is diagnostic only and can never report
+release acceptance (even an otherwise successful run exits 2).
+
+Manually match the report's **clean, unchanged commit** to the release commit
+and that commit's existing Windows test/ZIP verification. A focused retry is
+not complete acceptance. No automatic credentials gate or cross-machine
+artifact system is involved. The oracle remains Linux amd64 Fortran; Rust runs
+on the host except the existing fixed Linux Rust 1.88 critical-ray checks.
+
+Daily Linux/Windows CI uses real Rust solvers with committed references, without
+Docker. The historical “fresh CI” sequences described below now belong to this
+local full-acceptance entry, not every PR. See [testing layers](testing.md).
+
 ## Pinned Fortran differential reference
 
 `tools/reference/Dockerfile` builds the official Acoustics Toolbox `v2023.5`
@@ -437,9 +467,11 @@ Fresh reference outputs are written below `target/reference/` and are not
 committed automatically. Ordinary parser and numerical tests use curated
 fixtures under `crates/bellhop/tests/fixtures` and `crates/kraken/tests/fixtures`.
 
-For the complete acceptance sequence, use the run steps in
-[CI](../../.github/workflows/ci.yml). Start from a clean snapshot and fresh
-`target/reference/` destinations; each focused invocation must actually run
-its named test, never report zero tests. All committed SHA manifests and the
-BELLHOP README hash block must verify. Numerical tolerances, case lists,
-exclusions and quotas are not adjustable acceptance shortcuts.
+The complete acceptance sequence is
+[`full-acceptance.sh`](../../tools/reference/full-acceptance.sh); the focused
+commands above are reproduction aids, not a substitute for a complete run.
+Standalone helpers still default to `target/reference/`; the full entry isolates
+them using `PELAGIC_REFERENCE_DIR`. Verify all committed references with
+`python3 tools/reference/verify-goldens.py`, which also rejects missing numerical
+manifest entries. Numerical tolerances, case lists, exclusions and quotas are
+not adjustable acceptance shortcuts.

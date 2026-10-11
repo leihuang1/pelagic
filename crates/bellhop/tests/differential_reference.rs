@@ -39,6 +39,13 @@ fn ray_trajectories_match_pinned_linux_reference() {
         .sources
         .iter()
         .flat_map(|source| &source.rays)
+        .chain(
+            result
+                .eigenray_sources
+                .iter()
+                .flat_map(|source| &source.receivers)
+                .flat_map(|receiver| &receiver.eigenrays),
+        )
         .collect();
     let expected = parse_reference_rays(&reference_path);
     assert_eq!(actual.len(), expected.len(), "ray count differs");

@@ -6,7 +6,7 @@ if [[ $# -gt 1 ]]; then
   exit 2
 fi
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-output=${1:-$root/target/reference/TabRefCoef}
+output=${1:-${PELAGIC_REFERENCE_DIR:-$root/target/reference}/TabRefCoef}
 mkdir -p "$output/inputs"
 output=$(cd "$output" && pwd)
 image=${BELLHOP_REFERENCE_IMAGE:-pelagic-reference:v2023.5-amd64}

@@ -13,5 +13,5 @@ base=$(basename "$input")
 stem=${base%.*}
 "$root/target/release/pelagic" kraken run "$input" --format both --output "$output" "$@"
 KRAKEN_HDF5_RESULT="$output/$stem.h5" KRAKEN_DIFFERENTIAL_ENV="$input" \
-  cargo test --release --manifest-path "$root/Cargo.toml" -p cli --test native_output \
+  "$root/tools/reference/test-one.sh" --release --manifest-path "$root/Cargo.toml" -p cli --test native_output \
     actual_cli_native_layouts_match_all_hdf5_values -- --ignored --exact --nocapture

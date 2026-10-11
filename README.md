@@ -24,8 +24,10 @@ the optional HTTP server is built separately.
 
 ### Build from source
 
-You'll need **Rust 1.88 or later**, a C/C++ build toolchain and **CMake**.
-HDF5 is built and linked statically.
+You'll need Rust, a C/C++ build toolchain and **CMake**.
+Development and CI use the exact version in `rust-toolchain.toml` (currently
+**1.99.0**); the declared MSRV remains **1.88**. HDF5 is built and linked statically.
+See [daily tests and pre-release acceptance](docs/development/testing.md).
 
 ```sh
 git clone https://github.com/leihuang1/pelagic.git

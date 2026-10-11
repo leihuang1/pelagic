@@ -1,5 +1,12 @@
 # Numerical reference
 
+**Execution policy:** ordinary Linux/Windows CI runs real Rust solvers against
+committed goldens. The historical fresh-Fortran CI matrix documented below now
+runs locally **before every release**, via
+[`tools/reference/full-acceptance.sh`](../../tools/reference/full-acceptance.sh).
+Its case lists and tolerances are retained; see [workflow/report requirements](reference-workflows.md#full-pre-release-acceptance)
+and [daily testing](testing.md). Fresh comparisons are no longer a PR job.
+
 The compatibility oracle is the official Acoustics Toolbox release `v2023.5`:
 
 - Repository: <https://github.com/oalib-acoustics/Acoustics-Toolbox>
@@ -139,7 +146,12 @@ beams, caustics, arrival combination, and multi-depth/multi-range receiver
 grids. Pressure-field goldens cover coherent, semi-coherent, and incoherent
 scaling, simple-Gaussian beams, and Cartesian/ray-centered Cerveny beams.
 Dedicated reflection goldens cover acousto-elastic, grain-size, and `.irc`
-impedance-table amplitude and phase.
+impedance-table amplitude and phase. Additional small fixed-Linux cases cover
+coherent hat and incoherent Gaussian **line sources**, Thorp and overlapping
+biological losses (33 pressures each), beam-shift trajectory coordinates and
+all simple-Gaussian eigenray coordinates. Option-removal controls ensure the
+line/loss/shift options actually affect the result. These are representative
+paths, not acceptance of every beam/option combination.
 
 Layered-fluid acceptance adds twenty-two **derived** pairs, twenty-one through both
 engines and a leaky broadband pair through KRAKENC: 43 workflows, 52 frequency

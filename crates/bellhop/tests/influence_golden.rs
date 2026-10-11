@@ -1,9 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use bellhop::Case;
 use bellhop::legacy::load_case;
-use bellhop::model::BeamFamily;
 use bellhop::solver::{Arrival, SimulationLimits, run};
 
 fn fixture(name: &str) -> PathBuf {
@@ -13,50 +11,34 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 #[test]
-fn geometric_hat_eigenrays_match_v2023_5_golden() {
-    let case = load_case(&fixture("GeoHat_eigen.env")).unwrap().value;
-    let result = run(&case, SimulationLimits::default()).unwrap();
-    let actual = &result.eigenray_sources[0].receivers[0].eigenrays;
-    let expected = read_reference_rays(&fixture("GeoHat_eigen.ray"));
+fn geometric_and_simple_gaussian_eigenrays_match_v2023_5_golden() {
+    for stem in ["GeoHat_eigen", "SimpleGaussian_eigen"] {
+        let case = load_case(&fixture(&format!("{stem}.env"))).unwrap().value;
+        let result = run(&case, SimulationLimits::default()).unwrap();
+        let actual = &result.eigenray_sources[0].receivers[0].eigenrays;
+        let expected = read_reference_rays(&fixture(&format!("{stem}.ray")));
 
-    assert_eq!(actual.len(), expected.len());
-    for (ray_index, (actual_ray, expected_ray)) in actual.iter().zip(&expected).enumerate() {
-        assert_eq!(
-            actual_ray.points.len(),
-            expected_ray.len(),
-            "ray {ray_index}"
-        );
-        for (point_index, (actual_point, expected_point)) in
-            actual_ray.points.iter().zip(expected_ray).enumerate()
-        {
-            assert!(
-                (actual_point.range_m - expected_point[0]).abs() <= 1.0e-10,
-                "ray {ray_index} point {point_index} range"
+        assert_eq!(actual.len(), expected.len());
+        for (ray_index, (actual_ray, expected_ray)) in actual.iter().zip(&expected).enumerate() {
+            assert_eq!(
+                actual_ray.points.len(),
+                expected_ray.len(),
+                "ray {ray_index}"
             );
-            assert!(
-                (actual_point.depth_m - expected_point[1]).abs() <= 1.0e-10,
-                "ray {ray_index} point {point_index} depth"
-            );
+            for (point_index, (actual_point, expected_point)) in
+                actual_ray.points.iter().zip(expected_ray).enumerate()
+            {
+                assert!(
+                    (actual_point.range_m - expected_point[0]).abs() <= 1.0e-10,
+                    "ray {ray_index} point {point_index} range"
+                );
+                assert!(
+                    (actual_point.depth_m - expected_point[1]).abs() <= 1.0e-10,
+                    "ray {ray_index} point {point_index} depth"
+                );
+            }
         }
     }
-}
-
-#[test]
-fn simple_gaussian_eigenray_detection_matches_v2023_5_counts() {
-    let mut definition = load_case(&fixture("GeoHat_eigen.env"))
-        .unwrap()
-        .value
-        .into_definition();
-    definition.environment.run.beam_family = Some(BeamFamily::SimpleGaussian);
-    let case = Case::from_definition(definition).unwrap().value;
-    let result = run(&case, SimulationLimits::default()).unwrap();
-    let eigenrays = &result.eigenray_sources[0].receivers[0].eigenrays;
-
-    assert_eq!(eigenrays.len(), 3);
-    assert_eq!(
-        eigenrays.iter().map(|ray| ray.points.len()).sum::<usize>(),
-        314
-    );
 }
 
 #[test]

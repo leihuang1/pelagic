@@ -90,8 +90,8 @@ byte controls; no seed or tolerance perturbation supplies acceptance evidence.
 Original environments are byte copies of `tests/TLslices/{scholte,normal,flused}.env`.
 Their FLPs are byte copies of `tests/TLslices/fieldbat.flp`, selected by upstream
 `runtests.m`. Original normal retains bottom cs=2000, independently of the earlier
-shear-removed LayeredNormalization. Fresh CI checks source bytes before the
-complete comparisons. See [golden provenance](../../crates/kraken/tests/fixtures/golden/README.md)
+shear-removed LayeredNormalization. [Full pre-release acceptance](../development/reference-workflows.md#full-pre-release-acceptance)
+checks source bytes before the complete comparisons. See [golden provenance](../../crates/kraken/tests/fixtures/golden/README.md)
 and the **149-record** `golden/elastic-halfspace.sha256` manifest.
 
 WriteMode can leave bounded stale first-mesh records after a smaller declared

@@ -61,28 +61,15 @@ fn data<T: H5Type>(group: &Group, name: &str, shape: &[usize], unit: &str) -> Ve
 #[test]
 fn cli_round_trips_single_and_multifrequency_results() {
     let root = directory("round-trip");
+    // CLI representatives cover serialization branches, not the solver's golden matrix.
+    // TRC/BRC/IRC/SBP round-trips live in the resource-protection test below.
     for (name, solver) in [
-        ("Pekeris", "kraken"),
         ("PekerisFiltered", "kraken"),
-        ("PekerisHardBoth", "kraken"),
-        ("MunkBottomLoss", "kraken"),
         ("PekerisComplexBlank", "krakenc"),
-        ("PekerisComplexRefined", "krakenc"),
-        ("MunkLeakyPartialC", "krakenc"),
-        ("MunkLeakyPartialP", "krakenc"),
-        ("MunkLeakyPartialS", "krakenc"),
-        ("PekerisComplexSpline3", "krakenc"),
-        ("MunkAnalyticComplex", "krakenc"),
         ("MunkLeakyPchipBroadband", "krakenc"),
-        ("TabRefBrcN", "krakenc"),
-        ("TabRefBrcC", "krakenc"),
-        ("TabRefIrcN", "krakenc"),
-        ("TabRefIrcC", "krakenc"),
         ("FieldScaled", "kraken"),
-        ("FieldPattern", "krakenc"),
         ("FieldIncoherent", "krakenc"),
         ("PekerisBroadband", "kraken"),
-        ("PekerisComplexBroadband", "krakenc"),
     ] {
         let env = fixture(name).with_extension("env");
         let output = root.join(name).with_extension("h5");
@@ -163,26 +150,8 @@ fn original_complex_spline_broadband_is_complete_and_preserves_late_failure() {
 #[test]
 fn cli_round_trips_water_material_results() {
     let root = directory("water-materials");
-    for name in [
-        "WaterLossN",
-        "WaterLossC",
-        "WaterLossP",
-        "WaterLossS",
-        "WaterLossUnitN",
-        "WaterLossUnitM",
-        "WaterLossUnitF",
-        "WaterLossUnitQ",
-        "WaterLossUnitL",
-        "WaterLossPower",
-        "WaterLossThorp",
-        "WaterLossFg",
-        "WaterLossBio",
-        "WaterLossLeaky",
-    ] {
+    for name in ["WaterLossPower"] {
         for engine in ["kraken", "krakenc"] {
-            if name == "WaterLossLeaky" && engine == "kraken" {
-                continue;
-            }
             let env = fixture(name).with_extension("env");
             let output = root.join(format!("{name}-{engine}.h5"));
             let process = run(&env, &output, engine, &[]);
@@ -200,24 +169,15 @@ fn cli_round_trips_water_material_results() {
 #[test]
 fn cli_round_trips_smooth_boundaries_and_top_tables() {
     let root = directory("fluid-boundaries");
+    // Each end exercises V/R/A through each solver; Air adds the radiating top.
     for name in [
-        "FluidBoundaryVV",
         "FluidBoundaryVR",
-        "FluidBoundaryVA",
-        "FluidBoundaryRV",
-        "FluidBoundaryRR",
         "FluidBoundaryRA",
         "FluidBoundaryAV",
-        "FluidBoundaryAR",
-        "FluidBoundaryAA",
-        "FluidRigidPlaneLoss",
         "FluidBoundaryAir",
-        "FluidTrcN",
-        "FluidTrcC",
-        "FluidTrcRigid",
     ] {
         for engine in ["kraken", "krakenc"] {
-            if engine == "kraken" && (name == "FluidBoundaryAir" || name.starts_with("FluidTrc")) {
+            if engine == "kraken" && name == "FluidBoundaryAir" {
                 continue;
             }
             let env = fixture(name).with_extension("env");
@@ -237,35 +197,8 @@ fn cli_round_trips_smooth_boundaries_and_top_tables() {
 #[test]
 fn cli_round_trips_layered_fluids() {
     let root = directory("layered-fluids");
-    for name in [
-        "LayeredFluidN",
-        "LayeredFluidC",
-        "LayeredFluidP",
-        "LayeredFluidS",
-        "LayeredBoundaryVV",
-        "LayeredBoundaryVR",
-        "LayeredBoundaryRV",
-        "LayeredBoundaryRR",
-        "LayeredBoundaryRA",
-        "LayeredBoundaryAV",
-        "LayeredBoundaryAR",
-        "LayeredBoundaryAA",
-        "LayeredFluidThree",
-        "LayeredFluidThreeWide",
-        "LayeredFluidThreeWideRefined",
-        "LayeredFluidPlane",
-        "LayeredFluidPower",
-        "LayeredFluidBio",
-        "LayeredFluidLeaky",
-        "LayeredDoubleRefined",
-        "OriginalLayeredDouble",
-        "LayeredNormalization",
-        "LayeredFluidFractional",
-    ] {
+    for name in ["LayeredFluidPower"] {
         for engine in ["kraken", "krakenc"] {
-            if name == "LayeredFluidLeaky" && engine == "kraken" {
-                continue;
-            }
             let env = fixture(name).with_extension("env");
             let output = root.join(format!("{name}-{engine}.h5"));
             let process = run(&env, &output, engine, &[]);
@@ -283,43 +216,14 @@ fn cli_round_trips_layered_fluids() {
 #[test]
 fn cli_round_trips_finite_elastic_layers() {
     let root = directory("finite-elastic-products");
+    // Empty top/bottom groups, homogeneous/graded stacks, per-frequency material state.
     for name in [
-        "FiniteElasticBothC",
-        "FiniteElasticBothN",
-        "FiniteElasticBothP",
-        "FiniteElasticBothS",
-        "FiniteElasticBottomC",
         "FiniteElasticBottomN",
-        "FiniteElasticBottomP",
-        "FiniteElasticBottomS",
-        "FiniteElasticPower",
-        "FiniteElasticRigid",
-        "FiniteElasticShearOnly",
-        "FiniteElasticStack",
-        "FiniteElasticTopC",
         "FiniteElasticTopN",
-        "FiniteElasticTopP",
-        "FiniteElasticTopS",
-        "FiniteElasticVacuum",
-        "GradedElasticTopN",
-        "GradedElasticTopC",
-        "GradedElasticTopP",
-        "GradedElasticTopS",
-        "GradedElasticBottomN",
-        "GradedElasticBottomC",
-        "GradedElasticBottomP",
-        "GradedElasticBottomS",
+        "FiniteElasticPower",
+        "FiniteElasticStack",
         "GradedElasticStack",
         "GradedElasticPower",
-        "GradedElasticBio",
-        "FiniteSingleIceC",
-        "FiniteSingleIceP",
-        "FiniteSingleIceS",
-        "FiniteSingleSedimentC",
-        "FiniteSingleSedimentP",
-        "FiniteSingleSedimentS",
-        "OriginalElasticIce",
-        "OriginalElasticSediment",
     ] {
         for solver in ["kraken", "krakenc"] {
             let env = fixture(&format!("{name}.env"));
@@ -385,31 +289,8 @@ fn finite_elastic_failures_preserve_output_and_remove_scratch() {
 #[test]
 fn cli_round_trips_elastic_half_spaces() {
     let root = directory("elastic-half-spaces");
-    for name in [
-        "ElasticHalfBottomN",
-        "ElasticHalfBottomC",
-        "ElasticHalfBottomP",
-        "ElasticHalfBottomS",
-        "ElasticHalfTopN",
-        "ElasticHalfTopC",
-        "ElasticHalfTopP",
-        "ElasticHalfTopS",
-        "ElasticHalfBothN",
-        "ElasticHalfBothC",
-        "ElasticHalfBothP",
-        "ElasticHalfBothS",
-        "ElasticHalfLeaky",
-        "ElasticHalfTopBroadband",
-        "ElasticHalfPower",
-        "ElasticHalfShearOnly",
-        "OriginalElasticScholte",
-        "OriginalElasticNormal",
-        "OriginalElasticFlused",
-    ] {
+    for name in ["ElasticHalfBothS", "ElasticHalfTopBroadband"] {
         for engine in ["kraken", "krakenc"] {
-            if engine == "kraken" && name == "ElasticHalfLeaky" {
-                continue;
-            }
             let env = fixture(name).with_extension("env");
             let output = root.join(format!("{name}-{engine}.h5"));
             let process = run(&env, &output, engine, &[]);
@@ -455,6 +336,37 @@ fn finite_elastic_metadata_checks_the_last_frequency() {
         .is_err()
     );
     drop(file);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn graded_elastic_metadata_detects_corruption_in_each_profile_column() {
+    let root = directory("graded-metadata-corruption");
+    let env = fixture("GradedElasticStack.env");
+    let output = root.join("stack.h5");
+    assert!(run(&env, &output, "krakenc", &[]).status.success());
+    let case = kraken::legacy::load_complex_case(&env, env.with_extension("flp")).unwrap();
+    let file = File::open_rw(h5(&output, &env)).unwrap();
+    let group = file.group("frequencies/0").unwrap();
+    assert_finite_elastic_metadata(&group, &case);
+    let profile = group
+        .group("elastic_media/bottom/1/material_profile")
+        .unwrap();
+    for name in profile.member_names().unwrap() {
+        let dataset = profile.dataset(&name).unwrap();
+        let original = dataset.read_raw::<f64>().unwrap();
+        let mut damaged = original.clone();
+        *damaged.last_mut().unwrap() += 1.0;
+        dataset.write_raw(&damaged).unwrap();
+        assert!(
+            std::panic::catch_unwind(|| assert_finite_elastic_metadata(&group, &case)).is_err(),
+            "{name}"
+        );
+        dataset.write_raw(&original).unwrap();
+    }
+    drop(profile);
+    drop(group);
+    file.close().unwrap();
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -583,6 +495,7 @@ fn layered_failures_preserve_output_and_remove_scratch() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[allow(clippy::too_many_lines)]
 fn assert_finite_elastic_metadata(group: &hdf5::Group, case: &kraken::Case) {
     let count = case.top_elastic_layers.len() + case.bottom_elastic_layers.len();
     assert_eq!(
@@ -649,6 +562,68 @@ fn assert_finite_elastic_metadata(group: &hdf5::Group, case: &kraken::Case) {
                     attr.read_scalar::<f64>().unwrap().to_bits(),
                     expected.to_bits()
                 );
+            }
+            let points = &layer.material_profile;
+            assert_eq!(
+                material
+                    .attr("material_profile_point_count")
+                    .unwrap()
+                    .read_scalar::<u64>()
+                    .unwrap(),
+                points.len() as u64
+            );
+            if points.is_empty() {
+                assert!(!material.link_exists("material_profile"));
+            } else {
+                let profile = material.group("material_profile").unwrap();
+                assert_eq!(profile.member_names().unwrap().len(), 6);
+                for (name, unit, expected) in [
+                    (
+                        "depth_m",
+                        "m",
+                        points.iter().map(|p| p.depth_m).collect::<Vec<_>>(),
+                    ),
+                    (
+                        "compressional_sound_speed_mps",
+                        "m/s",
+                        points
+                            .iter()
+                            .map(|p| p.compressional_sound_speed_mps)
+                            .collect(),
+                    ),
+                    (
+                        "shear_sound_speed_mps",
+                        "m/s",
+                        points.iter().map(|p| p.shear_sound_speed_mps).collect(),
+                    ),
+                    (
+                        "density_g_cm3",
+                        "g/cm^3",
+                        points.iter().map(|p| p.density_g_cm3).collect(),
+                    ),
+                    (
+                        "compressional_attenuation_db_per_wavelength",
+                        "dB/wavelength",
+                        points
+                            .iter()
+                            .map(|p| p.compressional_attenuation_db_per_wavelength)
+                            .collect(),
+                    ),
+                    (
+                        "shear_attenuation_db_per_wavelength",
+                        "dB/wavelength",
+                        points
+                            .iter()
+                            .map(|p| p.shear_attenuation_db_per_wavelength)
+                            .collect(),
+                    ),
+                ] {
+                    assert_eq!(
+                        data::<f64>(&profile, name, &[points.len()], unit),
+                        expected,
+                        "{side}/{index}/{name}"
+                    );
+                }
             }
             top = layer.bottom_depth_m;
         }

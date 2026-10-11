@@ -81,16 +81,25 @@ profile. Any failure preserves the previous output and removes reserved scratch.
 |---|---|---:|---:|
 | `ProfilesAd` | constructed Pekeris derivative, four profiles, changing depth | 3/4/3/3 | 24 |
 | `ProfilesCm` | same environments, coupled FIELD, initial cap 2 | 3/4/3/3 | 24 |
+| `ProfilesAdIncoherent` | unchanged ProfilesAd ENV, FLP addition C→I | 3/4/3/3 | 24 |
 | `GulfAd` | byte-original `Gulf/gulf_rd.env` + `gulf_ad.flp` | 63 + 7 × 62 | 501,501 |
 | `GulfCm` | byte-original `Gulf/gulf_rd.env` + `gulf_cm.flp` | 63 + 7 × 62 | 501,501 |
 
-All four KRAKEN workflows compare every profile's wavenumbers, attenuation,
+The original four KRAKEN workflows compare every profile's wavenumbers, attenuation,
 normalized/aligned shapes and every complex pressure sample, both via API and
 actual CLI HDF5. MOD/SHD are byte-identical in three pinned runs. Local maximum
 pressure error is `4.1159031748919954e-10`, at unchanged tolerances. Ordinary tests
 use only the two small committed golden pairs; original Gulf outputs are fresh
 reference artifacts, not committed large binaries. Seven input files and six
 small reference artifacts are locked in `golden/multi-profile.sha256`.
+
+`ProfilesAdIncoherent.flp` reuses the exact `ProfilesAd.env` bytes. Three new
+fixed-oracle runs have identical MOD/SHD; all 13 modes and 24 RMS pressures
+compare at unchanged tolerances (local max |dp| `2.3283064365386963e-10`). A
+zero-pressure corruption control fails the comparator, replacing the former
+nonnegative/real-only check. It runs without Docker daily and through API/actual
+CLI HDF5 in [full pre-release acceptance](../development/reference-workflows.md#full-pre-release-acceptance).
+`multi-profile.sha256` now has 17 records; the earlier 13 remain unchanged.
 
 The oracle remains AT v2023.5 `475108519289c6fb488b58980c644ea14eccc604`, Linux
 amd64 / GNU Fortran 12.2.0, with no modified Fortran. Input aliasing only pairs

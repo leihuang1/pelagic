@@ -12,11 +12,11 @@ if [[ ! -f ${case_path%.env}.flp ]]; then
   echo "FIELD comparison requires ${case_path%.env}.flp" >&2
   exit 2
 fi
-output="$root/target/reference/$stem-kraken"
+output="${PELAGIC_REFERENCE_DIR:-$root/target/reference}/$stem-kraken"
 "$root/tools/reference/run-kraken-case.sh" kraken "$case_path" "$output"
 
 KRAKEN_DIFFERENTIAL_ENV="$case_path" \
 KRAKEN_DIFFERENTIAL_ROOT="$output/$stem" \
-cargo test --release --manifest-path "$root/Cargo.toml" --package kraken \
+"$root/tools/reference/test-one.sh" --release --manifest-path "$root/Cargo.toml" --package kraken \
   --test differential_reference fluid_matches_fresh_reference \
   -- --ignored --exact --nocapture

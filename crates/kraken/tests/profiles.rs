@@ -54,30 +54,7 @@ fn profile_validation_and_source_blocks_are_stateless() {
         );
         assert_eq!(result.field.pressure[block..], baseline.field.pressure);
     }
-    let adiabatic = load("ProfilesAd");
-    let profiles = adiabatic
-        .profiles()
-        .iter()
-        .map(|c| {
-            let mut input = c.clone().into_definition();
-            input.mode_addition = ModeAddition::Incoherent;
-            Case::from_definition(input).unwrap()
-        })
-        .collect();
-    let incoherent = FieldCase::new(
-        profiles,
-        adiabatic.ranges_m().to_vec(),
-        adiabatic.propagation(),
-    )
-    .unwrap();
-    assert!(
-        solve_field(&incoherent)
-            .unwrap()
-            .field
-            .pressure
-            .iter()
-            .all(|p| p.im == 0.0 && p.re >= 0.0)
-    );
+    // Incoherent AD pressures are compared pointwise by ProfilesAdIncoherent's golden.
     let case = load("ProfilesCm");
     let mut profiles = case.profiles().to_vec();
     let mut input = profiles[3].clone().into_definition();

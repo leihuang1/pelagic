@@ -189,7 +189,12 @@ fn cerveny_cartesian_uses_leading_depth_for_irregular_grids() {
 #[test]
 #[ignore = "requires the pinned Fortran Docker image"]
 fn irregular_pairing_matches_pinned_reference() {
-    let directory = temporary_directory();
+    let retained = std::env::var_os("PELAGIC_REFERENCE_DIR");
+    let directory = retained.as_ref().map_or_else(temporary_directory, |root| {
+        let path = PathBuf::from(root).join("irregular-pairing");
+        fs::create_dir(&path).unwrap();
+        path
+    });
     let runner =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/reference/run-case.sh");
     for family in ['G', 'B', 'g', 'S', 'C', 'R'] {
@@ -250,7 +255,9 @@ fn irregular_pairing_matches_pinned_reference() {
             if baseline == 2 { "paired" } else { "leading" }
         );
     }
-    fs::remove_dir_all(directory).unwrap();
+    if retained.is_none() {
+        fs::remove_dir_all(directory).unwrap();
+    }
 }
 
 #[test]

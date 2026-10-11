@@ -9,12 +9,12 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 engine=$1
 case_path=$(cd "$(dirname "$2")" && pwd)/$(basename "$2")
 stem=$(basename "$case_path" .env)
-reference="$root/target/reference/$stem-$engine/$stem"
+reference="${PELAGIC_REFERENCE_DIR:-$root/target/reference}/$stem-$engine/$stem"
 "$root/tools/reference/run-kraken-case.sh" "$engine" "$case_path"
 
 compare() {
   KRAKEN_FREQUENCY_SOLVER="$engine" KRAKEN_DIFFERENTIAL_ENV="$case_path" KRAKEN_DIFFERENTIAL_ROOT="$reference" \
-    cargo test --release --manifest-path "$root/Cargo.toml" -p kraken --test differential_reference \
+    "$root/tools/reference/test-one.sh" --release --manifest-path "$root/Cargo.toml" -p kraken --test differential_reference \
       multifrequency_fluid_matches_fresh_reference -- --ignored --exact --nocapture
 }
 compare

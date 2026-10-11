@@ -303,7 +303,8 @@ physical/payload quotas and failure after a successful first frequency.
 HDF5 schemas and numerical assertions are unchanged; CLI tests now use result
 directories and verify complete native readback alongside the same HDF5 checks.
 
-Fresh pinned CI additionally passes CLI-produced `.h5` files back through the
+[Local full pre-release acceptance](../development/reference-workflows.md#full-pre-release-acceptance)
+additionally passes CLI-produced `.h5` files back through the
 same strict `.mod/.prt/.shd` comparator (`KRAKEN_HDF5_RESULT`): both derived
 Pekeris broadband pairs, original single-frequency MunkK, all five original
 KRAKENC pairs, and original BroadBand/MunkK (both engines/frequencies,

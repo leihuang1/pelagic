@@ -99,29 +99,6 @@ fn elastic_top_and_unvalidated_combinations_are_explicit() {
 }
 
 #[test]
-fn real_elastic_top_and_both_boundaries_keep_complete_pinned_spectra() {
-    for (name, count) in [
-        ("ElasticHalfTopN", 4),
-        ("ElasticHalfTopC", 4),
-        ("ElasticHalfTopP", 4),
-        ("ElasticHalfTopS", 4),
-        ("ElasticHalfBothN", 3),
-        ("ElasticHalfBothC", 3),
-        ("ElasticHalfBothP", 3),
-        ("ElasticHalfBothS", 3),
-    ] {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures")
-            .join(name);
-        let case =
-            legacy::load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
-        let result = solve(&case).unwrap();
-        assert_eq!(result.modes.modes.len(), count, "{name}");
-        assert_eq!(result.field.pressure.len(), 63);
-    }
-}
-
-#[test]
 fn elastic_top_frequency_runs_preserve_order_duplicates_and_reset() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ElasticHalfTopBroadband");
     for (solver, counts) in [

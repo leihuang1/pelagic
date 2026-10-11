@@ -21,12 +21,47 @@ fn field_modes_match_v2023_5_golden_pressures() {
         "Field_CervenyW",
         "ShadedField",
         "FreeFGB_grid",
+        "Field_ThorpLine",
+        "Field_BioLine",
     ] {
         let case = load_case(&fixture(&format!("{stem}.env"))).unwrap().value;
         let result = run(&case, SimulationLimits::default()).unwrap();
         let actual = &result.field_sources[0].samples;
         let expected = read_pressure(&fixture(&format!("{stem}.csv")));
         assert_eq!(actual.len(), expected.len(), "{stem}");
+        if matches!(stem, "Field_ThorpLine" | "Field_BioLine") {
+            assert_eq!(
+                case.environment.run.source_geometry,
+                bellhop::model::SourceGeometry::Line
+            );
+            // Neither line scaling nor volume loss may become a dormant fixture option.
+            for remove_loss in [false, true] {
+                let mut definition = case.clone().into_definition();
+                if remove_loss {
+                    definition.environment.top_options.volume_attenuation =
+                        bellhop::model::VolumeAttenuation::None;
+                } else {
+                    definition.environment.run.source_geometry =
+                        bellhop::model::SourceGeometry::Point;
+                }
+                let control = run(
+                    &Case::from_definition(definition).unwrap().value,
+                    SimulationLimits::default(),
+                )
+                .unwrap();
+                assert!(
+                    control.field_sources[0]
+                        .samples
+                        .iter()
+                        .zip(actual)
+                        .any(|(a, b)| (a.pressure.re - b.pressure.re)
+                            .abs()
+                            .max((a.pressure.im - b.pressure.im).abs())
+                            > PRESSURE_TOLERANCE),
+                    "{stem}: inactive option, remove_loss={remove_loss}"
+                );
+            }
+        }
 
         for (sample_index, (sample, (real, imaginary))) in actual.iter().zip(expected).enumerate() {
             assert!(

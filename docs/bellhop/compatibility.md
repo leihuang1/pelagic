@@ -69,11 +69,14 @@ The pinned source sets `NRz_per_range=1` in `Bellhop/bellhop.f90:202`.
 `Bellhop/influence.f90:64,252,322,693` then use `Rz(iz)`, while lines 458/578
 explicitly select `Rz(ir)`. Six ordinary Rust characterization tests and an
 opt-in fresh-reference test cover coherent fields with mixed depths `[20,90]`
-and uniform controls `[20,20]`/`[90,90]`. The latter runs all 18 derived cases,
+and uniform controls `[20,20]`/`[90,90]`. The latter is included in
+[full pre-release acceptance](../development/reference-workflows.md#full-pre-release-acceptance),
+not ordinary PR CI, and runs all 18 derived cases,
 checks reference pairing byte-for-byte, and compares receiver 1's Rust pressure
 with Fortran at the unchanged `5e-8` absolute component tolerance:
 
 ```sh
 # Requires the pinned image; see ../development/reference-workflows.md.
-cargo test --release -p bellhop --test irregular_pairing -- --include-ignored --nocapture
+tools/reference/test-one.sh --release -p bellhop --test irregular_pairing \
+  irregular_pairing_matches_pinned_reference -- --ignored --exact --nocapture
 ```

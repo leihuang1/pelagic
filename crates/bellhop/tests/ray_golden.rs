@@ -19,6 +19,7 @@ fn all_ssp_models_match_v2023_5_golden_trajectories() {
         "MunkP_one_ray",
         "Quadrilateral_one_ray",
         "Analytic_one_ray",
+        "BeamShift",
     ] {
         let case = load_case(&golden(&format!("{stem}.env"))).unwrap().value;
         let result = run(&case, SimulationLimits::default()).unwrap();
@@ -26,6 +27,23 @@ fn all_ssp_models_match_v2023_5_golden_trajectories() {
         let (top_bounces, bottom_bounces, expected) =
             read_single_ray(&golden(&format!("{stem}.ray")));
 
+        if stem == "BeamShift" {
+            assert!(case.environment.run.beam_shift && actual.bottom_bounces > 0);
+            let mut definition = case.clone().into_definition();
+            definition.environment.run.beam_shift = false;
+            let unshifted = run(
+                &bellhop::Case::from_definition(definition).unwrap().value,
+                SimulationLimits::default(),
+            )
+            .unwrap();
+            assert!(
+                actual
+                    .points
+                    .iter()
+                    .zip(&unshifted.sources[0].rays[0].points)
+                    .any(|(a, b)| (a.range_m - b.range_m).abs() > 1.0e-5)
+            );
+        }
         assert_eq!(actual.top_bounces, top_bounces, "{stem}");
         assert_eq!(actual.bottom_bounces, bottom_bounces, "{stem}");
         assert_eq!(actual.points.len(), expected.len(), "{stem}");

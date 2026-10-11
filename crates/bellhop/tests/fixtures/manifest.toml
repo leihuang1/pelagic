@@ -287,3 +287,39 @@ ati_sha256 = "79a869352b0e7f89582a07480e740b904a0cccdd3ef129d774c79bf73d8ad484"
 bty_sha256 = "4405a8f99f87ed4de182aa9b67a0caace4002d88496e216c68415d721ab3eb97"
 output_sha256 = "e9d469e7be81629785718b547e5b468ff69f47347e1247e3619458a8caa0a3f3"
 
+[[golden]]
+stem = "Field_ThorpLine"
+provenance = "Field_G.env, 5000 Hz, Thorp loss and coherent line source"
+modified = true
+platform = "linux-x86_64"
+coverage = ["C", "geometric-hat-cartesian", "line-source", "thorp-attenuation"]
+input_sha256 = "533b354ccf86f3c68a93b3616a7c2e079d4bece899384143a897ab339715f774"
+output_sha256 = "4ecb5e6710d494dc3ac0b3d2833361409a5910dee5ebbf68e86802e3989bba65"
+
+[[golden]]
+stem = "Field_BioLine"
+provenance = "Field_G.env, incoherent Gaussian line source, two overlapping biological layers and SSP knots at their edges"
+modified = true
+platform = "linux-x86_64"
+coverage = ["I", "geometric-gaussian-cartesian", "line-source", "biological-attenuation"]
+input_sha256 = "b9cb6503adeff03aac0d0ad67adf6f08083a4b0ecb9a164b4f890f48ffc0587e"
+output_sha256 = "e97880431c0a68a400891f2a5be7f18d101c0b775a24900ea935f19d395eb0b5"
+
+[[golden]]
+stem = "SimpleGaussian_eigen"
+provenance = "GeoHat_eigen.env with ES run option and derived title"
+modified = true
+platform = "linux-x86_64"
+coverage = ["E", "simple-gaussian", "eigenray-coordinates"]
+input_sha256 = "410873b17489783140ff29cadc59080e289b7c418798f34891fab9a78766d261"
+output_sha256 = "82d9d2cdbcb90b30fa8fa1ac0f6ccb02c7a089674bea51fa4ec5eea076dda970"
+
+[[golden]]
+stem = "BeamShift"
+provenance = "ElasticReflection.env with RG    S run option and derived title"
+modified = true
+platform = "linux-x86_64"
+coverage = ["R", "acousto-elastic", "beam-shift", "trajectory-coordinates"]
+input_sha256 = "d4cecc8083f91f4c34e1d22063f8401ad56db15bd3c47dacc102951ca0f89cbe"
+output_sha256 = "554fd53388666edc308a63cb078e206c091b46615c903f728304be157bba432d"
+

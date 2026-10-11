@@ -3,7 +3,10 @@
 See [current capabilities and the unchanged target](../kraken/compatibility.md)
 and [legacy input contract and budgets](../kraken/input.md). These records retain
 accepted evidence and historical stage boundaries; they are not an alternate
-current support matrix.
+current support matrix. References below to fresh CI describe the historical
+execution schedule; the same fresh-reference matrix now runs in
+[local full pre-release acceptance](reference-workflows.md#full-pre-release-acceptance),
+while ordinary CI retains committed-golden regression.
 
 ## Implementation checkpoints
 
