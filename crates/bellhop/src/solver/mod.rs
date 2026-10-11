@@ -501,6 +501,10 @@ fn trace_ray(
             .sin()
             .abs();
     }
+    // Preserve reference RG initialization: p/q are not exported for ray runs,
+    // but still participate in non-finite-state rejection. JSON round-trip ray
+    // outcomes are characterized in tests/ray_solver.rs; that is not proof this
+    // legacy branch is safe to remove for all inputs.
     let geometric_q = case.environment.run.beam_family == Some(BeamFamily::GeometricHatCartesian)
         || case
             .environment

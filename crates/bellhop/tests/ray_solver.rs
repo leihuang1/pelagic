@@ -64,6 +64,111 @@ fn traces_official_munk_ray_fan_deterministically() {
 }
 
 #[test]
+fn legacy_rg_json_round_trip_preserves_ray_outcomes() {
+    use bellhop::json::{export_case_document, load_case_document};
+
+    // Six SSP models, material/IRC reflection, shaped boundaries and a multi-source fan.
+    // Derived RG inputs: the committed reference fixtures remain unchanged.
+    for name in [
+        "golden/N2_one_ray.env",
+        "golden/CLinear_one_ray.env",
+        "golden/Spline_one_ray.env",
+        "golden/MunkP_one_ray.env",
+        "golden/Quadrilateral_one_ray.env",
+        "golden/Analytic_one_ray.env",
+        "golden/ElasticReflection.env",
+        "golden/GrainReflection.env",
+        "golden/InternalReflection.env",
+        "golden/DickinsCritical.env",
+        "golden/ParaBotCritical.env",
+        "MunkB_ray.env",
+    ] {
+        let directory = TemporaryDirectory::new();
+        let path = directory.join("case.env");
+        let (_, source, inputs) = bellhop::legacy::load_case_with_inputs(&fixture(name))
+            .unwrap()
+            .into_parts();
+        for input in inputs.iter().skip(1) {
+            fs::copy(input, path.with_extension(input.extension().unwrap())).unwrap();
+        }
+        for options in ["RG", "RG    S"] {
+            let derived = source.replace("'R'", &format!("'{options}'"));
+            assert_ne!(derived, source, "{name}: expected a ray run record");
+            fs::write(&path, derived).unwrap();
+            let legacy = load_case(&path).unwrap().value;
+            assert!(legacy.environment.run.legacy.starts_with("RG"));
+            assert!(legacy.environment.run.beam_family.is_none());
+            let document = export_case_document(&legacy).unwrap();
+            let json = serde_json::to_vec(&document).unwrap();
+            let modern = load_case_document(&json).unwrap().value;
+            assert_eq!(modern.environment.run.legacy, "");
+            assert!(modern.environment.run.beam_family.is_none());
+            for max_steps_per_ray in [SimulationLimits::default().max_steps_per_ray, 2] {
+                let limits = SimulationLimits {
+                    max_steps_per_ray,
+                    ..SimulationLimits::default()
+                };
+                let expected = run(&legacy, limits);
+                let actual = run(&modern, limits);
+                if let Err(expected) = expected {
+                    // This derived beam-shift fan reaches a non-finite reflection on
+                    // the host. JSON must retain the failure, not turn it into success.
+                    assert_eq!((name, options), ("MunkB_ray.env", "RG    S"));
+                    assert!(max_steps_per_ray > 2);
+                    let actual = actual.unwrap_err();
+                    assert_eq!(expected.diagnostics().len(), 1);
+                    assert_eq!(actual.diagnostics().len(), 1);
+                    let mut expected = expected.diagnostics()[0].clone();
+                    assert_eq!(expected.code, "BH0302");
+                    assert!(expected.message.contains("non-finite ray state"));
+                    expected
+                        .location
+                        .path
+                        .clone_from(&actual.diagnostics()[0].location.path);
+                    assert_eq!(expected, actual.diagnostics()[0]);
+                    continue;
+                }
+                let mut expected = expected.unwrap();
+                let actual = actual.unwrap();
+                // Provenance is intentionally different; compare every exported numerical
+                // product, ray count, bounce count and termination, not option strings.
+                assert_ne!(expected.legacy_run_options, actual.legacy_run_options);
+                expected
+                    .legacy_run_options
+                    .clone_from(&actual.legacy_run_options);
+                assert_eq!(
+                    expected, actual,
+                    "{name}: {options}, step limit {max_steps_per_ray}"
+                );
+                for (a, b) in expected.sources.iter().zip(&actual.sources) {
+                    assert_eq!(a.source_depth_m.to_bits(), b.source_depth_m.to_bits());
+                    for (a, b) in a.rays.iter().zip(&b.rays) {
+                        assert_eq!(
+                            a.launch_angle_degrees.to_bits(),
+                            b.launch_angle_degrees.to_bits()
+                        );
+                        for (a, b) in a.points.iter().zip(&b.points) {
+                            let bits = |p: &bellhop::result::RayPoint| {
+                                [
+                                    p.range_m,
+                                    p.depth_m,
+                                    p.travel_time_s,
+                                    p.attenuation_time_s,
+                                    p.amplitude,
+                                    p.phase_radians,
+                                ]
+                                .map(f64::to_bits)
+                            };
+                            assert_eq!(bits(a), bits(b), "{name}: {options}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn rejects_ray_fans_above_the_configured_limit() {
     let case = load_case(&fixture("MunkB_ray.env")).unwrap().value;
     let report = run(
