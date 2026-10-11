@@ -14,7 +14,12 @@ adds no physics or new acceptance requirements.
 - `crates/kraken/src/input/mod.rs` owns legacy acquisition and exact consumed-input
   snapshots; ENV and FLP can own different resource stems.
 - `input/legacy/mod.rs` owns records, inheritance, profile/frequency ordering, resource
-  selection and source-location diagnostics.
+  selection and source-location diagnostics. Single-environment file loading discovers
+  top/bottom tables together, then parses again for assembly (two ENV parses, formerly
+  three). Discovery deliberately inspects only the first environment; FIELD discovery
+  still scans every profile. Bottom-before-top resource errors and input-size limits
+  are unchanged. Reusing parsed state across acquisition/assembly is not part of this
+  optimization; FLP still has separate discovery and assembly parses.
 - `input/legacy/material.rs` owns **Legacy materials**: raw absorption and power laws
   travel with each fluid, solid or half-space, never in canonical loss fields.
   Its `case_definition` selects one frequency and converts the whole material
