@@ -1,0 +1,220 @@
+ _________________________________________________
+
+ KRAKEN- Derived profile 0: 100 m
+ Nominal Frequency =   50.00    Hz
+ NMedia    =   1
+
+
+     N2-Linear approximation to SSP
+     Attenuation units: nepers/m
+     VACUUM
+
+       ( # mesh points =  1000  RMS roughness =   0.00     m )
+
+ Sound speed profile:
+      z         alphaR      betaR     rho        alphaI     betaI
+     (m)         (m/s)      (m/s)   (g/cm^3)      (m/s)     (m/s)
+
+      0.00      1500.00      0.00     1.00       0.0000    0.0000
+    100.00      1500.00      0.00     1.00       0.0000    0.0000
+
+                              ( RMS roughness =   0.00     m )
+     ACOUSTO-ELASTIC half-space
+    100.00      1700.00      0.00     1.50       0.0000    0.0000
+
+ cLow =   1400.0     m/s      cHigh =   1700.0     m/s
+ RMax =   0.0000     km
+
+ __________________________________________________________________________
+
+    Number of Source   z-coordinates, Sz =            1
+    Source   z-coordinates, Sz (m)
+                 75.0000
+
+
+ __________________________________________________________________________
+
+    Number of Receiver z-coordinates, Rz =           11
+    Receiver z-coordinates, Rz (m)
+                 0.00000       10.0000       20.0000       30.0000
+   40.0000       50.0000       60.0000       70.0000       80.0000
+   90.0000
+          ...
+   100.000
+
+
+ Mesh multiplier   CPU seconds
+                --- Number of modes =            3
+        1            0.312E-02s
+
+    I       k             alpha     Phase Speed     Group Speed
+          (1/m)           (1/m)        (m/s)           (m/s)
+    1  0.2076486528       0.0       1512.936690       1490.38
+    2  0.2021046276       0.0       1554.438753       1459.18
+    3  0.1924506022       0.0       1632.415080       1406.66
+ _________________________________________________
+
+ KRAKEN- Derived profile 1: 120 m
+ Nominal Frequency =   50.00    Hz
+ NMedia    =   1
+
+
+     N2-Linear approximation to SSP
+     Attenuation units: nepers/m
+     VACUUM
+
+       ( # mesh points =  1000  RMS roughness =   0.00     m )
+
+ Sound speed profile:
+      z         alphaR      betaR     rho        alphaI     betaI
+     (m)         (m/s)      (m/s)   (g/cm^3)      (m/s)     (m/s)
+
+      0.00      1500.00      0.00     1.00       0.0000    0.0000
+    120.00      1500.00      0.00     1.00       0.0000    0.0000
+
+                              ( RMS roughness =   0.00     m )
+     ACOUSTO-ELASTIC half-space
+    120.00      1700.00      0.00     1.50       0.0000    0.0000
+
+ cLow =   1400.0     m/s      cHigh =   1700.0     m/s
+ RMax =   0.0000     km
+
+ __________________________________________________________________________
+
+    Number of Source   z-coordinates, Sz =            1
+    Source   z-coordinates, Sz (m)
+                 75.0000
+
+
+ __________________________________________________________________________
+
+    Number of Receiver z-coordinates, Rz =           11
+    Receiver z-coordinates, Rz (m)
+                 0.00000       12.0000       24.0000       36.0000
+   48.0000       60.0000       72.0000       84.0000       96.0000
+   108.000
+          ...
+   120.000
+
+
+ Mesh multiplier   CPU seconds
+                --- Number of modes =            4
+        1            0.575E-03s
+
+    I       k             alpha     Phase Speed     Group Speed
+          (1/m)           (1/m)        (m/s)           (m/s)
+    1  0.2081430268       0.0       1509.343215       1492.72
+    2  0.2041664164       0.0       1538.741145       1469.62
+    3  0.1972942667       0.0       1592.338544       1429.04
+    4  0.1874305706       0.0       1676.136739       1386.06
+ _________________________________________________
+
+ KRAKEN- Derived profile 2: 80 m
+ Nominal Frequency =   50.00    Hz
+ NMedia    =   1
+
+
+     N2-Linear approximation to SSP
+     Attenuation units: nepers/m
+     VACUUM
+
+       ( # mesh points =  1000  RMS roughness =   0.00     m )
+
+ Sound speed profile:
+      z         alphaR      betaR     rho        alphaI     betaI
+     (m)         (m/s)      (m/s)   (g/cm^3)      (m/s)     (m/s)
+
+      0.00      1500.00      0.00     1.00       0.0000    0.0000
+     80.00      1500.00      0.00     1.00       0.0000    0.0000
+
+                              ( RMS roughness =   0.00     m )
+     ACOUSTO-ELASTIC half-space
+     80.00      1700.00      0.00     1.50       0.0000    0.0000
+
+ cLow =   1400.0     m/s      cHigh =   1700.0     m/s
+ RMax =   0.0000     km
+
+ __________________________________________________________________________
+
+    Number of Source   z-coordinates, Sz =            1
+    Source   z-coordinates, Sz (m)
+                 75.0000
+
+
+ __________________________________________________________________________
+
+    Number of Receiver z-coordinates, Rz =           11
+    Receiver z-coordinates, Rz (m)
+                 0.00000       8.00000       16.0000       24.0000
+   32.0000       40.0000       48.0000       56.0000       64.0000
+   72.0000
+          ...
+   80.0000
+
+
+ Mesh multiplier   CPU seconds
+                --- Number of modes =            3
+        1            0.445E-03s
+
+    I       k             alpha     Phase Speed     Group Speed
+          (1/m)           (1/m)        (m/s)           (m/s)
+    1  0.2068031769       0.0       1519.122046       1486.71
+    2  0.1985207640       0.0       1582.500787       1442.48
+    3  0.1848370609       0.0       1699.655166       1562.72
+ _________________________________________________
+
+ KRAKEN- Derived profile 3: 100 m
+ Nominal Frequency =   50.00    Hz
+ NMedia    =   1
+
+
+     N2-Linear approximation to SSP
+     Attenuation units: nepers/m
+     VACUUM
+
+       ( # mesh points =  1000  RMS roughness =   0.00     m )
+
+ Sound speed profile:
+      z         alphaR      betaR     rho        alphaI     betaI
+     (m)         (m/s)      (m/s)   (g/cm^3)      (m/s)     (m/s)
+
+      0.00      1500.00      0.00     1.00       0.0000    0.0000
+    100.00      1500.00      0.00     1.00       0.0000    0.0000
+
+                              ( RMS roughness =   0.00     m )
+     ACOUSTO-ELASTIC half-space
+    100.00      1700.00      0.00     1.50       0.0000    0.0000
+
+ cLow =   1400.0     m/s      cHigh =   1700.0     m/s
+ RMax =   0.0000     km
+
+ __________________________________________________________________________
+
+    Number of Source   z-coordinates, Sz =            1
+    Source   z-coordinates, Sz (m)
+                 75.0000
+
+
+ __________________________________________________________________________
+
+    Number of Receiver z-coordinates, Rz =           11
+    Receiver z-coordinates, Rz (m)
+                 0.00000       10.0000       20.0000       30.0000
+   40.0000       50.0000       60.0000       70.0000       80.0000
+   90.0000
+          ...
+   100.000
+
+
+ Mesh multiplier   CPU seconds
+                --- Number of modes =            3
+        1            0.443E-03s
+
+    I       k             alpha     Phase Speed     Group Speed
+          (1/m)           (1/m)        (m/s)           (m/s)
+    1  0.2076486528       0.0       1512.936690       1490.38
+    2  0.2021046276       0.0       1554.438753       1459.18
+    3  0.1924506022       0.0       1632.415080       1406.66
+ _________________________________________________
+
+ End of environmental file

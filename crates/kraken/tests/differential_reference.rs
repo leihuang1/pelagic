@@ -421,14 +421,35 @@ fn compare_complex_with_flp(env: &Path, flp: &Path, reference: &Path) {
 
 #[test]
 fn profile_fields_match_pinned_goldens() {
-    for name in ["ProfilesAd", "ProfilesCm"] {
+    for (name, environment) in [
+        ("ProfilesAd", "ProfilesAd"),
+        ("ProfilesCm", "ProfilesCm"),
+        ("ProfilesAdIncoherent", "ProfilesAd"),
+    ] {
         compare_profiles(
-            &fixtures().join(name).with_extension("env"),
+            &fixtures().join(environment).with_extension("env"),
             &fixtures().join(name).with_extension("flp"),
             &fixtures().join("golden").join(format!("{name}-kraken")),
             kraken::ModeSolver::Kraken,
         );
     }
+}
+
+#[test]
+fn incoherent_profile_comparator_rejects_zero_pressure() {
+    let cases = kraken::legacy::load_field_cases(
+        fixtures().join("ProfilesAd.env"),
+        fixtures().join("ProfilesAdIncoherent.flp"),
+        kraken::ModeSolver::Kraken,
+    )
+    .unwrap();
+    let case = &cases[0].profiles()[0];
+    let mut field = kraken::solve_field(&cases[0]).unwrap().field;
+    assert!(field.pressure.iter().all(|p| p.im == 0.0 && p.re >= 0.0));
+    let reference = Records::read(&fixtures().join("golden/ProfilesAdIncoherent-kraken.shd"));
+    compare_field(case, &field, &reference);
+    field.pressure.fill(Complex64::new(0.0, 0.0));
+    assert!(std::panic::catch_unwind(|| compare_field(case, &field, &reference)).is_err());
 }
 
 #[test]

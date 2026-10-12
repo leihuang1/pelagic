@@ -370,40 +370,6 @@ fn finite_loss_and_mesh_scaling_preserve_frequency_order() {
 }
 
 #[test]
-fn real_multifluid_finite_elastic_cases_keep_complete_pinned_spectra() {
-    for (name, counts) in [
-        ("FiniteElasticTopN", vec![4]),
-        ("FiniteElasticShearOnly", vec![3]),
-        ("FiniteElasticPower", vec![8, 6, 6, 6]),
-    ] {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures")
-            .join(name);
-        let cases = legacy::load_field_cases(
-            root.with_extension("env"),
-            root.with_extension("flp"),
-            ModeSolver::Kraken,
-        )
-        .unwrap();
-        assert_eq!(cases.len(), counts.len());
-        for ((case, result), count) in cases
-            .iter()
-            .zip(kraken::solve_frequencies(&cases))
-            .zip(counts)
-        {
-            let result = result.unwrap();
-            assert_eq!(
-                result.modes[0].modes.len(),
-                count,
-                "{name}: {} Hz",
-                case.profiles()[0].frequency_hz
-            );
-            assert_eq!(result.field.pressure.len(), 63);
-        }
-    }
-}
-
-#[test]
 fn frequency_runs_reset_search_state_and_stop_after_failure() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/FiniteElasticPower");
     let cases = legacy::load_field_cases(

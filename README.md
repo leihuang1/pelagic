@@ -1,16 +1,20 @@
 # Pelagic
 
-Underwater acoustics, from model inputs to results—without a Fortran toolchain.
+Pelagic runs two-dimensional underwater acoustics models from familiar input
+files and writes results you can inspect, archive or pass to other tools. It is
+a Rust command-line program, so common workflows do not require a local Fortran
+Acoustics Toolbox build.
 
-Pelagic brings two families of **2D acoustic models** to one Rust command-line tool:
+Pelagic includes two independent model families:
 
-- **BELLHOP** traces rays and computes eigenrays, arrivals and sound fields.
-- **KRAKEN / KRAKENC** solve normal modes and compute acoustic fields.
+- **BELLHOP** for rays, eigenrays, arrivals and sound fields.
+- **KRAKEN / KRAKENC** for normal modes and acoustic fields.
 
-Use familiar Acoustics Toolbox input files or self-contained JSON, then save
-native numerical files, HDF5, or both from a single calculation.
+You can start from Acoustics Toolbox-style legacy inputs or from Pelagic's
+self-contained JSON. One calculation can write native numerical files, HDF5, or
+both.
 
-## Get Pelagic
+## Install
 
 ### Windows x64
 
@@ -18,14 +22,15 @@ Download `pelagic-vX.Y.Z-windows-x64.zip` from
 [Releases](https://github.com/leihuang1/pelagic/releases), extract it, and run
 `pelagic.exe`. No separate HDF5 installation or MSVC runtime is needed.
 
-Each ZIP comes with a SHA-256 checksum file, license notices and build information
-that identifies the exact source commit. The prebuilt package contains the CLI;
-the optional HTTP server is built separately.
+Each ZIP is accompanied by a SHA-256 checksum file. The archive includes license
+notices and build information identifying the exact source commit. It contains
+the CLI; the optional HTTP server is built separately.
 
 ### Build from source
 
-You'll need **Rust 1.88 or later**, a C/C++ build toolchain and **CMake**.
-HDF5 is built and linked statically.
+Install Rust, a C/C++ build toolchain and **CMake**. Development and CI use the
+exact Rust version in `rust-toolchain.toml` (currently **1.99.0**); the declared
+MSRV remains **1.88**. HDF5 is built and linked statically.
 
 ```sh
 git clone https://github.com/leihuang1/pelagic.git
@@ -33,10 +38,13 @@ cd pelagic
 cargo install --locked --path crates/cli
 ```
 
-## Run your first model
+For test and release-verification policy, see
+[daily tests and pre-release acceptance](docs/development/testing.md).
 
-The repository includes small [example inputs](examples/README.md) to get started.
-From the repository root, try:
+## Run a model
+
+The repository includes small [example inputs](examples/README.md). From the
+repository root:
 
 ```sh
 # Check a BELLHOP input before calculating.
@@ -50,40 +58,55 @@ pelagic kraken run examples/kraken-pekeris.json --format both --output results/p
 ```
 
 Using the Windows ZIP? Download the example JSON files and point the commands at
-your local copies. Use `.\pelagic.exe` instead of `pelagic` if the executable isn't
-on your `PATH`.
+your local copies. Use `.\pelagic.exe` instead of `pelagic` if the executable
+isn't on your `PATH`.
 
-For legacy inputs, BELLHOP accepts `.env` files. KRAKEN/KRAKENC use an `.env`
-file together with FIELD geometry in `.flp`; `--solver krakenc` selects KRAKENC.
-You can also export legacy inputs to portable JSON:
+Legacy BELLHOP inputs use `.env` files. Legacy KRAKEN/KRAKENC runs use an `.env`
+file plus FIELD geometry in `.flp`; `--solver krakenc` selects KRAKENC. You can
+also export legacy inputs to portable JSON:
 
 ```sh
 pelagic bellhop export path/to/case.env > case.json
 pelagic kraken export path/to/case.env --solver krakenc > case.json
 ```
 
-Use `pelagic --help` or a subcommand's `--help` to explore the available options.
+Use `pelagic --help` or a subcommand's `--help` for the full argument list.
 
-## Choose your output
+## Choose outputs
 
-| `--format` | What you get |
+| `--format` | Result |
 | --- | --- |
 | `legacy` *(default)* | Native numerical files for the selected model/run |
 | `hdf5` | A structured HDF5 result |
-| `both` | Both formats, without calculating twice |
+| `both` | Native files and HDF5 from the same solve |
 
-`--output` names a **result directory**, not a single file. If you leave it out,
+`--output` names a **result directory**, not a single file. If you omit it,
 Pelagic uses the input filename's stem in the current directory.
 
 Rerunning a model updates only Pelagic's verified, owned outputs. Unrelated files
-stay untouched; modified outputs and input files are protected from replacement.
-See the [CLI guide](docs/guide/cli.md) and
+are left in place; modified outputs and input files are protected from
+replacement. See the [CLI guide](docs/guide/cli.md) and
 [output formats and directory safety](docs/guide/native-output.md) for details.
 
-## Need an HTTP API?
+## Model support and limits
 
-The separate `pelagic-server` provides a **BELLHOP-only** API, including HDF5 and
-JSON responses, validation and interactive API documentation.
+Pelagic uses Acoustics Toolbox **v2023.5** as its fixed numerical reference.
+Pinned reference results document the cases that have been checked; they do not
+imply support for every Toolbox option or every option combination.
+
+Start with the model-specific compatibility guide before preparing a new study:
+
+- [BELLHOP capabilities and limitations](docs/bellhop/compatibility.md)
+- [KRAKEN/KRAKENC capabilities and limitations](docs/kraken/compatibility.md)
+
+For output schemas and examples, use the [documentation index](docs/README.md).
+For how numerical comparisons are made and reproduced, see
+[reference verification](docs/development/reference.md).
+
+## Optional HTTP API
+
+`pelagic-server` is a separate **BELLHOP-only** HTTP service. It accepts
+self-contained JSON cases and returns HDF5 or focused JSON responses.
 
 ```sh
 cargo install --locked --path crates/server
@@ -100,19 +123,15 @@ curl --fail-with-body -H 'Content-Type: application/json' \
 Building the server also downloads Swagger UI assets. Before exposing it to a
 network, review [authentication, configuration and limits](docs/guide/http.md).
 
-## Models, compatibility and documentation
+## Documentation map
 
-Pelagic uses Acoustics Toolbox **v2023.5** as its fixed numerical reference.
-Supported cases are checked against pinned reference results; not every Toolbox
-option or combination is supported. Check the model-specific guides when choosing
-inputs for a new problem:
-
-- [BELLHOP capabilities and limitations](docs/bellhop/compatibility.md)
-- [KRAKEN/KRAKENC capabilities and limitations](docs/kraken/compatibility.md)
-- [Documentation index](docs/README.md)—input schemas, output layouts, examples
-  and development guides
-- [Reference verification](docs/development/reference.md)—how numerical comparisons
-  and reproducibility checks work
+- [CLI guide](docs/guide/cli.md): validation, export, computation and exit codes
+- [Native output guide](docs/guide/native-output.md): result directories,
+  manifests and safe replacement rules
+- [BELLHOP HDF5 schema v3](docs/guide/bellhop-hdf5.md)
+- [KRAKEN/KRAKENC HDF5 schema v1](docs/guide/kraken-hdf5.md)
+- [Examples](examples/README.md)
+- [Development and verification docs](docs/README.md#develop-and-verify)
 
 ## License
 

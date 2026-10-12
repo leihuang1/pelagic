@@ -5,6 +5,7 @@
 *.ray
 *.arr
 *.shd
+!/crates/bellhop/tests/fixtures/golden/*.ray
 !/crates/kraken/tests/fixtures/golden/*.prt
 !/crates/kraken/tests/fixtures/golden/*.shd
 .DS_Store

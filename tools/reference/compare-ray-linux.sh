@@ -11,7 +11,7 @@ case_path=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 case_dir=$(dirname "$case_path")
 case_name=$(basename "$case_path")
 stem=${case_name%.env}
-output="$root/target/reference/$stem"
+output="${PELAGIC_REFERENCE_DIR:-$root/target/reference}/$stem"
 rust_image='rust:1.88.0-bookworm@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0'
 reference_image=${BELLHOP_REFERENCE_IMAGE:-pelagic-reference:v2023.5-amd64}
 
@@ -35,6 +35,6 @@ docker run --rm \
   --volume pelagic-linux-target:/target \
   --workdir /repo \
   "$rust_image" \
-  cargo test --package bellhop --test differential_reference \
+  tools/reference/test-one.sh --package bellhop --test differential_reference \
     ray_trajectories_match_pinned_linux_reference \
-    -- --ignored --nocapture --test-threads=1
+    -- --ignored --exact --nocapture --test-threads=1

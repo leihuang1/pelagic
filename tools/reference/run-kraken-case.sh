@@ -23,7 +23,7 @@ has_field=0
 if [[ -f $case_dir/$stem.flp ]]; then
   has_field=1
 fi
-output=${3:-$root/target/reference/$stem-$engine}
+output=${3:-${PELAGIC_REFERENCE_DIR:-$root/target/reference}/$stem-$engine}
 mkdir -p "$output"
 output=$(cd "$output" && pwd)
 image=${BELLHOP_REFERENCE_IMAGE:-pelagic-reference:v2023.5-amd64}
@@ -33,7 +33,7 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
 fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/kraken-reference.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+trap 'code=$?; if (( code != 0 )); then cp -R "$work" "$output/failed-work-$$"; fi; rm -rf "$work"; exit "$code"' EXIT
 for input in "$case_dir/$stem".*; do
   case ${input##*.} in
     env|flp|ssp|ati|bty|brc|trc|sbp|irc) cp "$input" "$work/" ;;

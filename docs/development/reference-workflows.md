@@ -1,5 +1,35 @@
 # Reference reproduction workflows
 
+## Full pre-release acceptance
+
+From a clean commit, run **before every release** (also on deliberate Rust
+upgrades):
+
+```sh
+tools/reference/full-acceptance.sh
+```
+
+This is the former heavy CI sequence, not a reduced smoke suite. It adds the
+18 irregular BELLHOP comparisons and the new small coverage cases. It stops
+on the first failure, retains completed outputs and failure work/logs, and
+writes `target/acceptance/<UTC>-<pid>/report.md` plus `run.log` and `reference/`.
+The report records SHA, platform/toolchain, stage results and explicit NOT RUN
+stages; the traced log records each case/engine/test and its result. Focused
+tests must run exactly once: renamed/missing filters fail instead of passing
+with zero tests. Each invocation has fresh destinations, without overwriting
+previous evidence. `--allow-dirty` is diagnostic only and can never report
+release acceptance (even an otherwise successful run exits 2).
+
+Manually match the report's **clean, unchanged commit** to the release commit
+and that commit's existing Windows test/ZIP verification. A focused retry is
+not complete acceptance. No automatic credentials gate or cross-machine
+artifact system is involved. The oracle remains Linux amd64 Fortran; Rust runs
+on the host except the existing fixed Linux Rust 1.88 critical-ray checks.
+
+Daily Linux/Windows CI uses real Rust solvers with committed references, without
+Docker. The historical “fresh CI” sequences described below now belong to this
+local full-acceptance entry, not every PR. See [testing layers](testing.md).
+
 ## Pinned Fortran differential reference
 
 `tools/reference/Dockerfile` builds the official Acoustics Toolbox `v2023.5`
@@ -53,14 +83,15 @@ tools/reference/compare-kraken-hdf5.sh krakenc crates/kraken/tests/fixtures/Laye
 
 The helper runs fresh Fortran first and writes CLI `both` products into a
 separate result directory, then independently reads every native value and
-compares HDF5 with the oracle. CI shares this sequence across the six material/FIELD groups; their
-case lists, exclusions, reference checks and tolerances remain independent.
+compares HDF5 with the oracle. Full acceptance shares this sequence across the
+six material/FIELD groups; their case lists, exclusions, reference checks and
+tolerances remain independent.
 
 For the derived KRAKENC Pekeris and reduced 1 km, seven-knot MunkLeakyPartial
 cases (`PekerisComplexBlank`, `PekerisComplexRefined`,
 `MunkLeakyPartialLoss` and `MunkLeakyPartialC` also have separately derived
 coherent FIELD `.flp` files), run the same pinned Fortran calculation
-and comparator used by CI:
+and comparator used by full acceptance:
 
 ```sh
 for case in PekerisComplex PekerisComplexBlank PekerisComplexSlow PekerisComplexCLow PekerisComplexRefined PekerisComplexGradient PekerisComplexReverseGradient MunkLeakyPartial MunkLeakyPartialLoss MunkLeakyPartialC MunkLeakyPartialP MunkLeakyPartialS PekerisComplexSpline3 MunkAnalyticComplex TabRefBrcN TabRefBrcC TabRefIrcN TabRefIrcC; do
@@ -160,9 +191,10 @@ KRAKEN_JSON_ENV="$env" KRAKEN_JSON_REFERENCE_ROOT="$reference" \
     json_fields_match_fresh_reference -- --ignored --exact --nocapture
 ```
 
-CI repeats the fixed [JSON validation workflow list](../kraken/json.md#validation),
-including original BRC/IRC, BroadBand/MunkK and both Gulf paths. JSON/HDF5 are not Fortran goldens; the
-numerical tolerances and source provenance remain unchanged.
+Full acceptance repeats the fixed
+[JSON validation workflow list](../kraken/json.md#validation), including
+original BRC/IRC, BroadBand/MunkK and both Gulf paths. JSON/HDF5 are not Fortran
+goldens; the numerical tolerances and source provenance remain unchanged.
 
 KRAKENC P/S/fixed-Munk-A interpolation uses the same lossless `Profile`; four
 cubic/analytic fixtures above compare full modes and FIELD. `MunkS.env` is an
@@ -228,7 +260,7 @@ All 56/54/42 modes and 50,601 pressures per pair are checked, including original
 FIELD endpoints. Generated `.brc/.irc` are not upstream-original resources;
 Rust does not implement BOUNCE. Small `TabRefBrcN/C` and `TabRefIrcN/C` fixtures
 above have **constructed** tables and derived reduced geometry, not the original
-input/resource workflow. Fresh CI also checks their CLI/HDF5 output.
+input/resource workflow. Full acceptance also checks their CLI/HDF5 output.
 
 For multi-frequency runs, the same comparator reads every frequency block in
 `.mod/.prt/.shd`. The two Pekeris inputs below are **derived**; the extracted
@@ -264,9 +296,9 @@ order, NG=803, meshes 1/2/4, 45/30/37/30 modes and 36 pressures per block.
 The full original BroadBand/MunkK comparison now passes **both engines** at
 50/500 Hz (102/1,023 modes and 1,003,002 pressures per engine), including
 legacy/JSON CLI-HDF5. KRAKENC's narrow lossless-fluid predictor, bounded by
-bottom cp, uses 153M of the unchanged 300M ceiling at 500 Hz. Three unmodified MOD/SHD runs
-agree. CI separately derives a 7500 Hz late failure after both original blocks
-succeed to retain atomic-output protection:
+bottom cp, uses 153M of the unchanged 300M ceiling at 500 Hz. Three unmodified
+MOD/SHD runs agree. Full acceptance separately derives a 7500 Hz late failure
+after both original blocks succeed to retain atomic-output protection:
 
 ```sh
 KRAKEN_DIFFERENTIAL_ENV="$PWD/target/reference/cases/BroadBand/MunkK.env" \
@@ -288,8 +320,8 @@ KRAKEN_DIFFERENTIAL_ROOT="$PWD/target/reference/BroadBand-MunkK-kraken/MunkK" \
     multifrequency_fluid_matches_fresh_reference -- --ignored --exact --nocapture
 ```
 
-CI additionally runs this serialized-output path for both broadband Pekeris
-derivatives, original single-frequency MunkK and all five original KRAKENC
+Full acceptance additionally runs this serialized-output path for both
+broadband Pekeris derivatives, original single-frequency MunkK and all five original KRAKENC
 pairs, the four cubic/analytic derivatives, broadband PCHIP Munk and unmodified
 MunkS/analytic environments with derived FIELD geometry. The optional reader
 checks schema identity, native datatypes, axes and
@@ -314,7 +346,8 @@ KRAKEN_DIFFERENTIAL_ENV="$env" KRAKEN_DIFFERENTIAL_ROOT="$reference" \
 ```
 
 These are derived material/volume-loss cases, not original VolAtt acceptance.
-The CI step checks all 27 workflows through both direct and serialized paths.
+The full-acceptance step checks all 27 workflows through both direct and
+serialized paths.
 
 The same command also accepts derived `FluidBoundary{V,R,A}{V,R,A}` and
 `FluidRigidPlaneLoss` through either engine; `FluidBoundaryAir` and
@@ -326,8 +359,9 @@ These are constructed/derived tests, not original TRC input-pair acceptance.
 
 Layered-fluid fixtures use the same commands and comparator (for example,
 `case=LayeredFluidPower` and either engine). Twenty-two **derived** pairs provide
-43 API/actual-CLI-HDF5 workflows, including wide refined three-layer KRAKENC: N/C/P/S interfaces, all V/R/A combinations,
-unequal/fractional meshes, per-layer power laws, biological loss, broadband
+43 API/actual-CLI-HDF5 workflows, including wide refined three-layer KRAKENC:
+N/C/P/S interfaces, all V/R/A combinations, unequal/fractional meshes,
+per-layer power laws, biological loss, broadband
 leaky roots and cross-layer FIELD. `LayeredDoubleRefined` is a denser-mesh
 **derivative**, separately labelled from original TLslices `double`. The
 byte-identical `OriginalLayeredDouble.env` plus official shared `fieldbat.flp`
@@ -343,8 +377,9 @@ all finite fluid media and has a last-medium corruption regression.
 Elastic half-spaces use the same full comparator and actual-CLI-HDF5 commands
 (for example, `case=ElasticHalfTopBroadband`). Nineteen pairs give 37 workflows:
 16 derived inputs plus original TLslices scholte/normal/flused with the official
-shared fieldbat.flp. CI verifies those originals against the installed fixed
-source, then compares every mode/pressure and elastic P/S material record.
+shared fieldbat.flp. Full acceptance verifies those originals against the
+installed fixed source, then compares every mode/pressure and elastic P/S
+material record.
 The HDF5 reader checks solve-frequency shear-loss and attenuation-model metadata.
 Both engines accept top/bottom elasticity. Real tops retain shared isolation,
 Brent and non-deflated Solve2, with top-A compressional but not shear/bottom
@@ -359,7 +394,8 @@ TLslices elsed/ice with official fieldbat.flp. Their 200-record
 multi-frequency comparator now checks absolute fluid intervals and all finite
 solid HDF5 material attributes; finite loss uses the existing lossy tolerance,
 not a relaxed comparison. Both engines support contiguous fluid stacks;
-comparisons use `solve_frequencies` to preserve real Solve2's search bound. See [finite-cap limits and real-stiffness semantics](../kraken/finite-elastic-layers.md).
+comparisons use `solve_frequencies` to preserve real Solve2's search bound. See
+[finite-cap limits and real-stiffness semantics](../kraken/finite-elastic-layers.md).
 
 Depth-varying finite material adds 12 derived input pairs / 23 workflows / 29
 frequency blocks / 158 modes / 1,827 pressures. `golden/graded-elastic.sha256`
@@ -379,9 +415,9 @@ The minimal N² arithmetic fix now passes the unmodified oracle; perturbed
 reference products remain diagnostic only.
 
 This compares every mode and pressure sample, including modal print precision,
-mode-shape phase alignment, dimensions, and coordinate vectors. CI runs all
-seventeen single-frequency KRAKEN cases, the KRAKENC derivatives above and
-three derived broadband cases with fixed
+mode-shape phase alignment, dimensions, and coordinate vectors. Full acceptance
+runs all seventeen single-frequency KRAKEN cases, the KRAKENC derivatives above
+and three derived broadband cases with fixed
 tolerances, plus the full unmodified upstream MunkK and BroadBand/MunkK pairs
 and the unmodified upstream MunkAnalytic `.env` with a derived coherent
 FIELD `.flp`. The original MunkAnalytic three-line `.flp` fails in v2023.5
@@ -437,9 +473,11 @@ Fresh reference outputs are written below `target/reference/` and are not
 committed automatically. Ordinary parser and numerical tests use curated
 fixtures under `crates/bellhop/tests/fixtures` and `crates/kraken/tests/fixtures`.
 
-For the complete acceptance sequence, use the run steps in
-[CI](../../.github/workflows/ci.yml). Start from a clean snapshot and fresh
-`target/reference/` destinations; each focused invocation must actually run
-its named test, never report zero tests. All committed SHA manifests and the
-BELLHOP README hash block must verify. Numerical tolerances, case lists,
-exclusions and quotas are not adjustable acceptance shortcuts.
+The complete acceptance sequence is
+[`full-acceptance.sh`](../../tools/reference/full-acceptance.sh); the focused
+commands above are reproduction aids, not a substitute for a complete run.
+Standalone helpers still default to `target/reference/`; the full entry isolates
+them using `PELAGIC_REFERENCE_DIR`. Verify all committed references with
+`python3 tools/reference/verify-goldens.py`, which also rejects missing numerical
+manifest entries. Numerical tolerances, case lists, exclusions and quotas are
+not adjustable acceptance shortcuts.

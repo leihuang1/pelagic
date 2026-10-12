@@ -88,8 +88,9 @@ self-contained JSON API and actual JSON CLI-HDF5. Maximum pressure error for the
 fixed KRAKENC case is `1.4725502861e-9`; KRAKEN's is `1.3969838619e-9`.
 Three unmodified reference runs per engine have identical MOD/SHD. The new
 `golden/layered-refinement.sha256` records two derived inputs and six artifacts;
-old inputs/goldens remain unchanged. CI adds this pair to the layered group and
-KRAKENC to the JSON group. Offline goldens compare complete modes and FIELD,
+old inputs/goldens remain unchanged. The former fresh CI, now
+[local full acceptance](reference-workflows.md#full-pre-release-acceptance), includes
+this pair in the layered group and KRAKENC in the JSON group. Offline goldens compare complete modes and FIELD,
 not only the four-root count.
 
 FIELD receiver ranges remain 0.5/1/2 km: RMax=1000 km controls refinement, not
