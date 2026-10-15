@@ -94,4 +94,5 @@ exit 17
     assert (report.parent / "run.log").is_file()
     shutil.rmtree(report.parent)  # Only this self-check's uniquely created output.
 
+subprocess.run([sys.executable, str(HERE / "bellhop-business.py"), "--self-test"], check=True)
 print("reference tooling guards: passed")

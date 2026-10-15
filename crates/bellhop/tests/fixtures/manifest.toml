@@ -323,3 +323,75 @@ coverage = ["R", "acousto-elastic", "beam-shift", "trajectory-coordinates"]
 input_sha256 = "d4cecc8083f91f4c34e1d22063f8401ad56db15bd3c47dacc102951ca0f89cbe"
 output_sha256 = "554fd53388666edc308a63cb078e206c091b46615c903f728304be157bba432d"
 
+[[golden]]
+stem = "Field_WkbGradientC"
+provenance = "constructed business shelf 089-shelf-cerveny-CWZ-1-P; all two-source pressures"
+modified = true
+platform = "linux-x86_64"
+coverage = ["C", "cerveny-cartesian", "WKB", "signed-zero", "multiple-sources"]
+input_sha256 = "7a3fbfdddc38a4df15879a4908532177b37d0bd136185de0203e9d551932b1be"
+output_sha256 = "9fdcdacd2870c5029e61b2152b5774fe014567380731a62f7dd2f5dc8d5fd589"
+
+[[golden]]
+stem = "Field_WkbGradientR"
+provenance = "constructed business shelf 094-shelf-cerveny-RWZ-1-P; all two-source pressures"
+modified = true
+platform = "linux-x86_64"
+coverage = ["C", "cerveny-ray-centered", "WKB", "signed-zero", "multiple-sources"]
+input_sha256 = "3f23b3fdfcdffc9d02e3931ae9fb84a88eed20c56466565ea3be96b8dc534c3f"
+output_sha256 = "3930cf0f8490c631b53af4cb9f18d6ee126d26f6d552ddca737b6675a680b6f9"
+
+[[golden]]
+stem = "Field_LineS"
+provenance = "constructed business shelf 027-shelf-CS-X; all two-source pressures"
+modified = true
+platform = "linux-x86_64"
+coverage = ["C", "simple-gaussian", "line-source", "multiple-sources"]
+input_sha256 = "53f2c8074878b308f55afe66414937f99d737fe091d756d2dc3685592da6a2ee"
+output_sha256 = "dd0cac40c665941087112e00c8ce52863115da11edd93f234a08c22b347b5cc0"
+
+[[golden]]
+stem = "Field_LineCervenyC"
+provenance = "constructed business shelf 028-shelf-CC-X; all two-source pressures"
+modified = true
+platform = "linux-x86_64"
+coverage = ["C", "cerveny-cartesian", "line-source", "multiple-sources"]
+input_sha256 = "cb3bfdf6fb812134f6f32e3d47f65ccb8ec3922935c8d13ab04516ea96b21087"
+output_sha256 = "26746f07e3488b78712a0c67905237c24f7f50db1ba31972b15ccbcd9a7abd38"
+
+[[golden]]
+stem = "Field_LineCervenyR"
+provenance = "constructed business shelf 029-shelf-CR-X; all two-source pressures"
+modified = true
+platform = "linux-x86_64"
+coverage = ["C", "cerveny-ray-centered", "line-source", "multiple-sources"]
+input_sha256 = "2db7f935678ac104785f2e0214000cd76c98e58c776eb28802ff84e72c8028db"
+output_sha256 = "739a7e238212a2a2f9f07ff72daf01436e7bcdf37aae07b31ad044a2a0e789c5"
+
+[[golden]]
+stem = "Field_LineSemiG"
+provenance = "constructed business shelf 030-shelf-SG-X; all two-source pressures"
+modified = true
+platform = "linux-x86_64"
+coverage = ["S", "geometric-hat-cartesian", "line-source", "multiple-sources"]
+input_sha256 = "f5fb469d2055e281e8ba8331d41469bf001c066f5e922d76a1eeeeaf9d4d9da7"
+output_sha256 = "ae39f53eec41eb2e46087761937040f794265c202527397aea468595461289d7"
+
+[[golden]]
+stem = "Field_LineSemiB"
+provenance = "constructed business shelf 032-shelf-SB-X; all two-source pressures"
+modified = true
+platform = "linux-x86_64"
+coverage = ["S", "geometric-gaussian-cartesian", "line-source", "multiple-sources"]
+input_sha256 = "5c6409f20c0fe6bd21229eb78e86ce18cc9202ea374753e46b1e44cb60282753"
+output_sha256 = "74b43ebffbf5b59e622ac7b3668b42228e32420e929aecf4c47ef1878ce8fa26"
+
+[[golden]]
+stem = "Field_NearGaussian"
+provenance = "constructed two-source shelf, CB X, depths 24/50/66 m, ranges 2–10 m, 1 m trace step; all pressures"
+modified = true
+platform = "linux-x86_64"
+coverage = ["C", "geometric-gaussian-cartesian", "near-field", "line-source", "multiple-sources"]
+input_sha256 = "8f398a6f56f7339b90ec63bdb0bcc888142fe370fbc82e8102114dc392fb70c1"
+output_sha256 = "d419b82178cd80828afbf35338dbeec6d0a9a0e937331202867b587009d13ef9"
+

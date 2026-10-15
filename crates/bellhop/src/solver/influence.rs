@@ -163,7 +163,8 @@ pub(super) fn cerveny_cartesian(
             if interpolated_gamma.im > 0.0 {
                 continue;
             }
-            let mut constant = ratio * (speed * epsilon.norm() / q).sqrt();
+            // A complex numerator preserves -0 on the WKB square-root branch cut.
+            let mut constant = ratio * (Complex64::new(speed * epsilon.norm(), 0.0) / q).sqrt();
             let mut branch_index = branch[state_index - 1];
             branch_cut(q_beam[state_index - 1], q, options.width, &mut branch_index);
             if branch_index < 0 {
@@ -356,7 +357,7 @@ pub(super) fn cerveny_ray_centered(
                     let speed = states[state_index - 1].speed_mps;
                     let mut contribution = ratio
                         * states[state_index].amplitude
-                        * (speed * epsilon.norm() / q).sqrt()
+                        * (Complex64::new(speed * epsilon.norm(), 0.0) / q).sqrt()
                         * (Complex64::new(0.0, -1.0)
                             * (angular_frequency
                                 * (delay + 0.5 * interpolated_gamma * normal.powi(2))
@@ -790,7 +791,7 @@ pub(super) fn simple_gaussian(
     let launch_angle_degrees = launch_angle_radians.to_degrees();
     let angular_frequency = 2.0 * PI * case.environment.frequency_hz;
     let ratio = launch_angle_radians.cos().sqrt();
-    let beam_factor = 0.98_f64;
+    let beam_factor = f64::from(0.98_f32); // Reference BETA promotes a default-real literal.
     let decay = -4.0 * beam_factor.ln() / angular_spacing_radians.powi(2);
     let normalization = angular_spacing_radians * (decay / PI).sqrt();
     let step_m = if case.environment.trace.step_m == 0.0 {
@@ -945,8 +946,10 @@ pub(super) fn geo_gaussian_cartesian(
         let wavelength = previous.speed_mps / case.environment.frequency_hz;
         let mut projected_sigma =
             previous.q[0].abs().max(current.q[0].abs()) / q0.abs() / tangent[0].abs();
+        // The reference's near-field coefficient is a default-real literal.
         let diffraction_floor =
-            (0.2 * case.environment.frequency_hz * current.travel_time_s.re).min(PI * wavelength);
+            (f64::from(0.2_f32) * case.environment.frequency_hz * current.travel_time_s.re)
+                .min(PI * wavelength);
         projected_sigma = projected_sigma.max(diffraction_floor);
         let radius = 4.0 * projected_sigma;
         let (minimum_depth, maximum_depth) = if tangent[0].abs() > 0.5 {
@@ -1129,7 +1132,8 @@ pub(super) fn scale_pressure(
         .enumerate()
     {
         let factor = match case.environment.run.source_geometry {
-            SourceGeometry::Line => -4.0 * PI.sqrt() * constant,
+            // ScalePressure declares its local pi and square root in single precision.
+            SourceGeometry::Line => f64::from(-4.0 * std::f32::consts::PI.sqrt()) * constant,
             SourceGeometry::Point if range_m == 0.0 => 0.0,
             SourceGeometry::Point => constant / range_m.abs().sqrt(),
         } as f32;

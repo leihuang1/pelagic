@@ -1,0 +1,11 @@
+# Use the unmodified oracle binary and its pinned runtime in the same Linux process environment.
+FROM pelagic-reference:v2023.5-amd64
+RUN apt-get update && apt-get install --yes --no-install-recommends \
+    python3 python3-venv git pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && test "$(dpkg-query -W -f='${Version}' libc6)" = '2.36-9+deb12u14' \
+    && test "$(dpkg-query -W -f='${Version}' libgfortran5)" = '12.2.0-14+deb12u1'
+RUN python3 -m venv /opt/build-tools \
+    && /opt/build-tools/bin/pip install --no-cache-dir cmake==3.31.6
+ENV PATH="/opt/rust/bin:/opt/build-tools/bin:${PATH}"
+ENTRYPOINT []

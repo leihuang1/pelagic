@@ -50,6 +50,7 @@ evidence, not numerical acceptance.
 - [KRAKEN/KRAKENC checkpoint history and fixed evidence](development/kraken-checkpoints.md)
 - [Daily tests, CI and coverage responsibilities](development/testing.md)
 - [Full pre-release acceptance and reproduction commands](development/reference-workflows.md)
+- [BELLHOP business-case coverage and outstanding differences](development/bellhop-business-coverage.md)
 - [Fortran-to-Rust porting map](development/porting-map.md)
 - [Fixed three-layer KRAKENC refinement and historical diagnosis](development/krakenc-three-layer-refinement.md)
 - [BELLHOP golden provenance](../crates/bellhop/tests/fixtures/golden/README.md)

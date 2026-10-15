@@ -30,6 +30,31 @@ Daily Linux/Windows CI uses real Rust solvers with committed references, without
 Docker. The historical “fresh CI” sequences described below now belong to this
 local full-acceptance entry, not every PR. See [testing layers](testing.md).
 
+## Broad BELLHOP business-case diagnostic
+
+```sh
+# Both implementations on Linux, Rust 1.99.0:
+tools/reference/bellhop-business-linux.sh /absolute/path/to/linux-rust-toolchain \
+  --output target/bellhop-business/my-linux-run --timeout 600
+
+# Host Rust against Linux Fortran (not a same-platform comparison):
+python3 tools/reference/bellhop-business.py
+# Focused retry; not a complete matrix run:
+python3 tools/reference/bellhop-business.py --only 'constructed/.*shelf-ssp'
+```
+
+Requires the pinned image and project Rust toolchain. The Linux wrapper requires
+a Linux x86-64 toolchain directory containing `bin/rustc` and `bin/cargo`; it builds
+`Dockerfile.business` without replacing the pinned Fortran binary or runtime.
+Each invocation creates a new directory under `target/bellhop-business/`, retaining inputs, hashes, fresh
+Fortran products, canonical JSON, actual CLI products, logs and `report.md` /
+`results.json`. It continues after case failures, returns nonzero if any case is
+not accepted, and lists unrun cases explicitly. Tolerances and solver quotas are
+unchanged; no failure is an expected-pass waiver. See [coverage and measured
+limitations](bellhop-business-coverage.md). This diagnostic is separate from the
+release acceptance gate above and does not add a heavy PR job. Its lightweight
+`--self-test` runs with the ordinary reference tooling guards.
+
 ## Pinned Fortran differential reference
 
 `tools/reference/Dockerfile` builds the official Acoustics Toolbox `v2023.5`

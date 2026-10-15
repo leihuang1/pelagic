@@ -44,6 +44,17 @@ SHD/RAY bytes. CSV extraction reads little-endian complex32 pressures from
 SHD records 10+depth (zero-based), ordered range then depth, without rounding.
 Full acceptance reruns these inputs against fresh Fortran (not Rust goldens).
 
+The seven `Field_WkbGradientC/R`, `Field_LineS`, `Field_LineCervenyC/R`
+and `Field_LineSemiG/B` cases are the constructed two-source shelf inputs from
+`tools/reference/bellhop-business.py`. Each CSV contains all 30 complex pressures,
+in source-major, range-major, depth-major order. They are extracted without
+rounding from unmodified pinned Linux Fortran SHD, not Rust output. These lock
+WKB signed-zero square-root branches and the reference's default-real BETA,
+line-scaling pi and semi-coherent SQRT(2) constants. The raw WKB SHD files are
+byte-identical across three runs. `Field_NearGaussian` adds a 2–10 m line-source
+shelf regression for the Gaussian diffraction floor's default-real `0.2`.
+See the business coverage report for provenance.
+
 SHA-256:
 
 ```text
@@ -114,6 +125,22 @@ e97880431c0a68a400891f2a5be7f18d101c0b775a24900ea935f19d395eb0b5  Field_BioLine.
 82d9d2cdbcb90b30fa8fa1ac0f6ccb02c7a089674bea51fa4ec5eea076dda970  SimpleGaussian_eigen.ray
 d4cecc8083f91f4c34e1d22063f8401ad56db15bd3c47dacc102951ca0f89cbe  BeamShift.env
 554fd53388666edc308a63cb078e206c091b46615c903f728304be157bba432d  BeamShift.ray
+7a3fbfdddc38a4df15879a4908532177b37d0bd136185de0203e9d551932b1be  Field_WkbGradientC.env
+9fdcdacd2870c5029e61b2152b5774fe014567380731a62f7dd2f5dc8d5fd589  Field_WkbGradientC.csv
+3f23b3fdfcdffc9d02e3931ae9fb84a88eed20c56466565ea3be96b8dc534c3f  Field_WkbGradientR.env
+3930cf0f8490c631b53af4cb9f18d6ee126d26f6d552ddca737b6675a680b6f9  Field_WkbGradientR.csv
+53f2c8074878b308f55afe66414937f99d737fe091d756d2dc3685592da6a2ee  Field_LineS.env
+dd0cac40c665941087112e00c8ce52863115da11edd93f234a08c22b347b5cc0  Field_LineS.csv
+cb3bfdf6fb812134f6f32e3d47f65ccb8ec3922935c8d13ab04516ea96b21087  Field_LineCervenyC.env
+26746f07e3488b78712a0c67905237c24f7f50db1ba31972b15ccbcd9a7abd38  Field_LineCervenyC.csv
+2db7f935678ac104785f2e0214000cd76c98e58c776eb28802ff84e72c8028db  Field_LineCervenyR.env
+739a7e238212a2a2f9f07ff72daf01436e7bcdf37aae07b31ad044a2a0e789c5  Field_LineCervenyR.csv
+f5fb469d2055e281e8ba8331d41469bf001c066f5e922d76a1eeeeaf9d4d9da7  Field_LineSemiG.env
+ae39f53eec41eb2e46087761937040f794265c202527397aea468595461289d7  Field_LineSemiG.csv
+5c6409f20c0fe6bd21229eb78e86ce18cc9202ea374753e46b1e44cb60282753  Field_LineSemiB.env
+74b43ebffbf5b59e622ac7b3668b42228e32420e929aecf4c47ef1878ce8fa26  Field_LineSemiB.csv
+8f398a6f56f7339b90ec63bdb0bcc888142fe370fbc82e8102114dc392fb70c1  Field_NearGaussian.env
+d419b82178cd80828afbf35338dbeec6d0a9a0e937331202867b587009d13ef9  Field_NearGaussian.csv
 ```
 
 This small golden catches computation-order regressions. The eventual pinned
