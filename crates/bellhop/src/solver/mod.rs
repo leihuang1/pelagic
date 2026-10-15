@@ -322,6 +322,17 @@ pub fn run(case: &Case, limits: SimulationLimits) -> Result<SimulationResult, Di
                     source_speed_mps,
                     &mut pressure,
                 );
+                if pressure
+                    .iter()
+                    .any(|value| !value.re.is_finite() || !value.im.is_finite())
+                {
+                    return Err(report(Diagnostic::error(
+                        "BH0302",
+                        "pressure field scaling produced a non-finite value",
+                        "pressure_field",
+                        SourceLocation::file(&case.environment.source_path),
+                    )));
+                }
                 field_sources.push(SourceField {
                     source_depth_m,
                     samples: receiver_coordinates(case)
@@ -494,7 +505,8 @@ fn trace_ray(
     let mut amplitude = source_amplitude(case.source_beam_pattern.as_ref(), launch_angle_degrees);
     if case.environment.run.kind == RunKind::SemiCoherent {
         let angular_frequency = 2.0 * std::f64::consts::PI * case.environment.frequency_hz;
-        amplitude *= 2.0_f64.sqrt()
+        // The reference evaluates SQRT(2.0) in default (single) precision.
+        amplitude *= f64::from(2.0_f32.sqrt())
             * (angular_frequency / source_sample.speed_mps
                 * source_depth_m
                 * launch_angle_radians.sin())

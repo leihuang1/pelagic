@@ -17,6 +17,14 @@ single-precision reference. Critical rays and the 501,501-sample Munk coherent
 field retain their previous tolerances. Arrival values and pressure remain
 single precision at their documented output rounding points.
 
+The same-version Linux business diagnostic isolates this difference in the two
+Ellipse fields, SBCX pressure, and Arctic pressure: replacing only receiver
+depths in diagnostic JSON with the oracle's actual grid makes all four pass the
+unchanged `5e-8` pressure tolerance. Both Ellipse fields then agree exactly;
+SBCX/Arctic maximum errors are below `6e-11`. Original ENV cases remain failed,
+not waived. See the [business report](../development/bellhop-business-coverage.md)
+for the controls and depth discrepancies; production inputs remain `f64`.
+
 ## Precalculated `.irc` bottom reflection
 
 Acoustics Toolbox BELLHOP `v2023.5` reads a bottom `P` option and loads the

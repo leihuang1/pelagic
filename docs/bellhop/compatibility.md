@@ -38,6 +38,19 @@ Numerically implemented:
 - Cerveny space-filling, minimum-width, and WKB epsilon selection; image beams, windows, branch cuts, and boundary-curvature conditions
 - point and line source scaling, rectilinear and irregular receiver grids, caustic phases, arrival combination, and strongest-arrival retention
 
+Implementation coverage is not blanket numerical acceptance. The
+[broad business-case diagnostic](../development/bellhop-business-coverage.md)
+now runs both implementations on Linux x86-64, with Rust 1.99.0 and the pinned
+Fortran oracle. Graded-water WKB branch cuts and several default-real constant
+mismatches are fixed and regression-tested. Strict failures remain in three
+Gaussian fields, four intentionally double-precision receiver-grid cases, and
+two resource-limited ATOC cases. Its simple-Gaussian semi-coherent/incoherent
+(`SS`/`IS`) shelf cases produce non-finite reference pressure; Rust now rejects
+non-finite scaled fields in the solver (`BH0302`), before any output format is
+written. These combinations are not usable field acceptance evidence.
+Consult that report before treating an untested option combination as a drop-in
+numerical replacement.
+
 Unavailable because the corresponding reference paths are incomplete:
 
 - `W` table generation: BELLHOP v2023.5 only prints that it is writing an IRC file; it has no generator, does not read a layered medium for this option, and reaches its unknown-boundary error if a ray reflects

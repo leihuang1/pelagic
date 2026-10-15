@@ -15,6 +15,7 @@ struct ReferenceRay {
 
 #[test]
 #[ignore = "requires a pinned external Fortran reference run"]
+#[allow(clippy::too_many_lines)]
 fn ray_trajectories_match_pinned_linux_reference() {
     let environment = required_path("BELLHOP_DIFFERENTIAL_ENV");
     let reference_path = required_path("BELLHOP_DIFFERENTIAL_RAY");
@@ -22,7 +23,7 @@ fn ray_trajectories_match_pinned_linux_reference() {
         .map_or(Ok(1.0e-5), |value| value.parse::<f64>())
         .expect("position tolerance must be a number");
 
-    let case = load_case(&environment).unwrap().value;
+    let case = comparison_case(&environment);
     let base_step_m = if case.environment.trace.step_m == 0.0 {
         (case.environment.sound_speed.bottom_depth_m - case.environment.sound_speed.top_depth_m)
             / 10.0
@@ -35,7 +36,7 @@ fn ray_trajectories_match_pinned_linux_reference() {
     assert!(minimum_step_factor >= 1.0);
     let minimum_step_tolerance = (minimum_step_factor * 1.0e-4 * base_step_m).max(tolerance);
     let result = run(&case, SimulationLimits::default()).unwrap();
-    let actual: Vec<&RayTrajectory> = result
+    let mut actual: Vec<&RayTrajectory> = result
         .sources
         .iter()
         .flat_map(|source| &source.rays)
@@ -47,8 +48,43 @@ fn ray_trajectories_match_pinned_linux_reference() {
                 .flat_map(|receiver| &receiver.eigenrays),
         )
         .collect();
-    let expected = parse_reference_rays(&reference_path);
+    let mut expected = parse_reference_rays(&reference_path);
     assert_eq!(actual.len(), expected.len(), "ray count differs");
+    // Fortran emits eigenrays beam-major; the public result groups them by receiver.
+    if !result.eigenray_sources.is_empty() {
+        actual.sort_by(|a, b| {
+            ray_order(
+                [
+                    a.points[0].depth_m,
+                    a.launch_angle_degrees,
+                    a.points.last().unwrap().range_m,
+                    a.points.last().unwrap().depth_m,
+                ],
+                [
+                    b.points[0].depth_m,
+                    b.launch_angle_degrees,
+                    b.points.last().unwrap().range_m,
+                    b.points.last().unwrap().depth_m,
+                ],
+            )
+        });
+        expected.sort_by(|a, b| {
+            ray_order(
+                [
+                    a.points[0][1],
+                    a.launch_angle_degrees,
+                    a.points.last().unwrap()[0],
+                    a.points.last().unwrap()[1],
+                ],
+                [
+                    b.points[0][1],
+                    b.launch_angle_degrees,
+                    b.points.last().unwrap()[0],
+                    b.points.last().unwrap()[1],
+                ],
+            )
+        });
+    }
 
     let mut maximum_error = 0.0_f64;
     let mut maximum_minimum_step_error = 0.0_f64;
@@ -102,6 +138,14 @@ fn ray_trajectories_match_pinned_linux_reference() {
         "compared {} rays; maximum aligned coordinate error {maximum_error:e} m; maximum compiler-sensitive branch error {maximum_minimum_step_error:e} m; accepted {skipped_minimum_steps} minimum-step differences",
         actual.len()
     );
+}
+
+fn ray_order(a: [f64; 4], b: [f64; 4]) -> std::cmp::Ordering {
+    a.into_iter()
+        .zip(b)
+        .map(|(a, b)| a.total_cmp(&b))
+        .find(|order| !order.is_eq())
+        .unwrap_or(std::cmp::Ordering::Equal)
 }
 
 fn align_compiler_sensitive_steps(
@@ -199,6 +243,19 @@ fn coordinate_error(range_m: f64, depth_m: f64, expected: [f64; 2]) -> f64 {
         .max((depth_m - expected[1]).abs())
 }
 
+fn comparison_case(path: &Path) -> bellhop::Case {
+    if path
+        .extension()
+        .is_some_and(|extension| extension == "json")
+    {
+        bellhop::json::load_case_document_named(&fs::read(path).unwrap(), path)
+            .unwrap()
+            .value
+    } else {
+        load_case(path).unwrap().value
+    }
+}
+
 fn required_path(variable: &str) -> PathBuf {
     std::env::var_os(variable).map_or_else(
         || panic!("{variable} must name an input file"),
@@ -252,25 +309,16 @@ fn parse_reference_rays(path: &Path) -> Vec<ReferenceRay> {
 
 #[test]
 #[ignore = "requires a pinned external Fortran reference run"]
+#[allow(clippy::too_many_lines)]
 fn arrivals_match_pinned_linux_reference() {
     let environment = required_path("BELLHOP_DIFFERENTIAL_ENV");
     let reference_path = required_path("BELLHOP_DIFFERENTIAL_ARR");
 
-    let case = load_case(&environment).unwrap().value;
+    let case = comparison_case(&environment);
     let result = run(&case, SimulationLimits::default()).unwrap();
-    let actual = &result.arrival_sources[0].receivers;
-    let expected = parse_reference_arrivals(&reference_path);
+    let expected = parse_reference_arrivals(&reference_path, &case);
     let (depth_count, range_count) = receiver_grid_shape(&case);
-    assert_eq!(
-        expected.len(),
-        depth_count * range_count,
-        "reference .arr receiver count"
-    );
-    assert_eq!(
-        actual.len(),
-        depth_count * range_count,
-        "Rust receiver count"
-    );
+    assert_eq!(result.arrival_sources.len(), expected.len(), "source count");
 
     let mut maximum_amplitude_error = 0.0_f32;
     let mut maximum_angle_error = 0.0_f32;
@@ -281,57 +329,77 @@ fn arrivals_match_pinned_linux_reference() {
     let mut field_mismatches = 0_usize;
     let mut first_mismatch = None;
     let mut count_mismatches = 0_usize;
-    for range_index in 0..range_count {
-        for depth_index in 0..depth_count {
-            // The reference writes receivers depth-major (``DO id = 1, Nrd;
-            // DO ir = 1, Nr``); Rust is range-major.
-            let actual_receiver = &actual[range_index * depth_count + depth_index];
-            let expected_receiver = &expected[depth_index * range_count + range_index].arrivals;
-            if actual_receiver.arrivals.len() != expected_receiver.len() {
-                assert_eq!(
-                    actual_receiver
-                        .arrivals
-                        .len()
-                        .abs_diff(expected_receiver.len()),
-                    1,
-                    "receiver (range {range_index}, depth {depth_index}) arrival-count difference exceeds one"
-                );
-                count_mismatches += 1;
-                continue;
-            }
-            for (arrival_index, (actual, expected)) in actual_receiver
-                .arrivals
-                .iter()
-                .zip(expected_receiver)
-                .enumerate()
-            {
-                let label = format!(
-                    "receiver (range {range_index}, depth {depth_index}) arrival {arrival_index}"
-                );
-                let result = compare_arrival(
-                    actual,
-                    expected,
-                    &label,
-                    &mut maximum_amplitude_error,
-                    &mut maximum_angle_error,
-                    &mut maximum_time_error,
-                    &mut maximum_attenuation_error,
-                    &mut maximum_phase_error,
-                );
-                if result.is_some() {
-                    field_mismatches += 1;
-                    if result == Some(MismatchKind::Phase) {
-                        phase_mismatches += 1;
-                    }
-                    if first_mismatch.is_none() {
-                        first_mismatch = result;
+    let mut arrival_count = 0_usize;
+    for (source_index, (source, expected)) in
+        result.arrival_sources.iter().zip(&expected).enumerate()
+    {
+        let actual = &source.receivers;
+        assert_eq!(actual.len(), depth_count * range_count);
+        for range_index in 0..range_count {
+            for depth_index in 0..depth_count {
+                // The reference writes receivers depth-major (``DO id = 1, Nrd;
+                // DO ir = 1, Nr``); Rust is range-major.
+                let actual_receiver = &actual[range_index * depth_count + depth_index];
+                let expected_receiver = &expected[depth_index * range_count + range_index].arrivals;
+                arrival_count += actual_receiver.arrivals.len();
+                if actual_receiver.arrivals.len() != expected_receiver.len() {
+                    assert_eq!(
+                        actual_receiver
+                            .arrivals
+                            .len()
+                            .abs_diff(expected_receiver.len()),
+                        1,
+                        "receiver (range {range_index}, depth {depth_index}) arrival-count difference exceeds one"
+                    );
+                    count_mismatches += 1;
+                    continue;
+                }
+                for (arrival_index, (actual, expected)) in actual_receiver
+                    .arrivals
+                    .iter()
+                    .zip(expected_receiver)
+                    .enumerate()
+                {
+                    let label = format!(
+                        "receiver (source {source_index}, range {range_index}, depth {depth_index}) arrival {arrival_index}"
+                    );
+                    let result = compare_arrival(
+                        actual,
+                        expected,
+                        &label,
+                        &mut maximum_amplitude_error,
+                        &mut maximum_angle_error,
+                        &mut maximum_time_error,
+                        &mut maximum_attenuation_error,
+                        &mut maximum_phase_error,
+                    );
+                    if result.is_some() {
+                        field_mismatches += 1;
+                        if result == Some(MismatchKind::Phase) {
+                            phase_mismatches += 1;
+                        }
+                        if first_mismatch.is_none() {
+                            first_mismatch = result;
+                        }
                     }
                 }
             }
         }
     }
+    let count_allowance = if case
+        .environment
+        .title
+        .starts_with("Santa Barbara Channel Experiment")
+        && depth_count == 100
+        && range_count == 500
+        && result.arrival_sources.len() == 1
+    {
+        4
+    } else {
+        0
+    };
     assert!(
-        count_mismatches <= 4,
+        count_mismatches <= count_allowance,
         "{count_mismatches} receiver arrival counts differ; expected at most four f64-grid edge differences"
     );
     if let Some(kind) = first_mismatch {
@@ -343,11 +411,12 @@ fn arrivals_match_pinned_linux_reference() {
         );
     }
     eprintln!(
-        "compared {} receivers; maximum amplitude error {maximum_amplitude_error:e}; \
+        "compared {} sources, {} receivers, {arrival_count} arrivals; maximum amplitude error {maximum_amplitude_error:e}; \
          maximum angle error {maximum_angle_error:e}; maximum travel-time error {maximum_time_error:e}; \
          maximum attenuation-time error {maximum_attenuation_error:e}; \
          phase mismatches {phase_mismatches}; arrival-count mismatches {count_mismatches}",
-        actual.len()
+        result.arrival_sources.len(),
+        result.arrival_sources.len() * depth_count * range_count
     );
 }
 
@@ -355,59 +424,117 @@ struct ReferenceArrivalReceiver {
     arrivals: Vec<Arrival>,
 }
 
-fn parse_reference_arrivals(path: &Path) -> Vec<ReferenceArrivalReceiver> {
-    let source = fs::read_to_string(path).expect("reference .arr file must be readable");
-    let header: Vec<&str> = source.lines().collect();
-    for description in [
-        "title",
-        "frequency",
-        "source depths",
-        "receiver depths",
-        "receiver ranges",
+fn parse_reference_arrivals(
+    path: &Path,
+    case: &bellhop::Case,
+) -> Vec<Vec<ReferenceArrivalReceiver>> {
+    let bytes = fs::read(path).expect("reference .arr file must be readable");
+    let values = arrival_values(&bytes);
+    let mut values = values.into_iter();
+    let frequency = values.next().unwrap();
+    assert!((frequency - case.environment.frequency_hz).abs() <= 1.0e-6 * frequency.abs().max(1.0));
+    let positions = &case.environment.positions;
+    for axis in [
+        &positions.source_depths_m,
+        &positions.receiver_depths_m,
+        &positions.receiver_ranges_m,
     ] {
-        assert!(header.get(description_index(description)).is_some());
-    }
-    // Line 6 (0-based) is MAXVAL(NArr), written before the receiver blocks.
-    let mut line_index = 6;
-    let mut receivers = Vec::new();
-    while line_index < header.len() {
-        let arrival_count: usize = header[line_index].trim().parse().unwrap_or_else(|_| {
-            panic!(
-                "reference .arr receiver {:?} arrival count is invalid",
-                receivers.len()
-            )
-        });
-        line_index += 1;
-        let mut arrivals = Vec::with_capacity(arrival_count);
-        for _ in 0..arrival_count {
-            let fields: Vec<&str> = header[line_index].split_whitespace().collect();
-            assert_eq!(fields.len(), 8, "arrival row must have eight fields");
-            arrivals.push(Arrival {
-                amplitude: fields[0].parse().unwrap(),
-                phase_radians: fields[1].parse::<f32>().unwrap().to_radians(),
-                travel_time_s: fields[2].parse().unwrap(),
-                attenuation_time_s: fields[3].parse().unwrap(),
-                source_angle_degrees: fields[4].parse().unwrap(),
-                receiver_angle_degrees: fields[5].parse().unwrap(),
-                top_bounces: fields[6].parse().unwrap(),
-                bottom_bounces: fields[7].parse().unwrap(),
-            });
-            line_index += 1;
+        assert_eq!(
+            count(values.next().unwrap()),
+            axis.len(),
+            "arrival coordinate count"
+        );
+        for &coordinate in axis {
+            let expected = values.next().unwrap();
+            assert!(
+                (coordinate - expected).abs() <= 1.0e-6 * expected.abs().max(1.0),
+                "arrival coordinate differs"
+            );
         }
-        receivers.push(ReferenceArrivalReceiver { arrivals });
     }
-    receivers
+    let (depth_count, range_count) = receiver_grid_shape(case);
+    let sources = (0..positions.source_depths_m.len())
+        .map(|_| {
+            let maximum = count(values.next().unwrap());
+            (0..depth_count * range_count)
+                .map(|_| {
+                    let arrival_count = count(values.next().unwrap());
+                    assert!(arrival_count <= maximum);
+                    let arrivals = (0..arrival_count)
+                        .map(|_| {
+                            let fields: Vec<f64> = values.by_ref().take(8).collect();
+                            assert_eq!(fields.len(), 8);
+                            #[allow(clippy::cast_possible_truncation)]
+                            Arrival {
+                                amplitude: fields[0] as f32,
+                                phase_radians: (fields[1] as f32).to_radians(),
+                                travel_time_s: fields[2] as f32,
+                                attenuation_time_s: fields[3] as f32,
+                                source_angle_degrees: fields[4] as f32,
+                                receiver_angle_degrees: fields[5] as f32,
+                                top_bounces: u32::try_from(count(fields[6])).unwrap(),
+                                bottom_bounces: u32::try_from(count(fields[7])).unwrap(),
+                            }
+                        })
+                        .collect();
+                    ReferenceArrivalReceiver { arrivals }
+                })
+                .collect()
+        })
+        .collect();
+    assert!(values.next().is_none(), "trailing arrival values");
+    sources
 }
 
-fn description_index(description: &str) -> usize {
-    match description {
-        "title" => 0,
-        "frequency" => 1,
-        "source depths" => 2,
-        "receiver depths" => 3,
-        "receiver ranges" => 4,
-        _ => 5,
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn count(value: f64) -> usize {
+    assert!(value.is_finite() && value >= 0.0 && value.fract() == 0.0 && value <= 100_000_000.0);
+    value as usize
+}
+
+fn arrival_values(bytes: &[u8]) -> Vec<f64> {
+    if bytes.iter().copied().find(|b| !b.is_ascii_whitespace()) == Some(b'\'') {
+        let mut words = std::str::from_utf8(bytes).unwrap().split_whitespace();
+        assert_eq!(words.next(), Some("'2D'"));
+        return words.map(|word| word.parse().unwrap()).collect();
     }
+    let mut records = Vec::new();
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let length = usize::try_from(read_i32(bytes, offset)).unwrap();
+        let end = offset.checked_add(4 + length).unwrap();
+        assert_eq!(
+            read_i32(bytes, end),
+            read_i32(bytes, offset),
+            "Fortran record markers"
+        );
+        records.push(&bytes[offset + 4..end]);
+        offset = end + 4;
+    }
+    assert_eq!(records[0], b"'2D'");
+    assert_eq!(records[1].len(), 4);
+    let mut values = vec![f64::from(read_f32(records[1], 0))];
+    for (index, &record) in records.iter().enumerate().skip(2) {
+        if index < 5 {
+            let size = usize::try_from(read_i32(record, 0)).unwrap();
+            let width = if index == 4 { 8 } else { 4 };
+            assert_eq!(record.len(), 4 + size * width);
+            values.push(f64::from(read_i32(record, 0)));
+            for i in 0..size {
+                values.push(if width == 8 {
+                    read_f64(record, 4 + i * width)
+                } else {
+                    f64::from(read_f32(record, 4 + i * width))
+                });
+            }
+        } else if record.len() == 4 {
+            values.push(f64::from(read_i32(record, 0)));
+        } else {
+            assert_eq!(record.len(), 32, "binary arrival has eight real32 fields");
+            values.extend((0..8).map(|i| f64::from(read_f32(record, 4 * i))));
+        }
+    }
+    values
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -504,13 +631,18 @@ fn pressure_fields_match_pinned_linux_reference() {
         .map_or(Ok(0.0), |value| value.parse::<f64>())
         .expect("relative pressure tolerance must be a number");
 
-    let case = load_case(&environment).unwrap().value;
+    let case = comparison_case(&environment);
     let result = run(&case, SimulationLimits::default()).unwrap();
-    let actual = &result.field_sources[0].samples;
     let (depth_count, range_count) = receiver_grid_shape(&case);
     let expected = read_reference_shd(&reference_path, depth_count, range_count);
 
     let positions = &case.environment.positions;
+    assert_eq!(expected.source_depths_m.len(), result.field_sources.len());
+    assert!((expected.frequency_hz - case.environment.frequency_hz).abs() < 1.0e-6);
+    for (source, &depth) in result.field_sources.iter().zip(&expected.source_depths_m) {
+        assert!((source.source_depth_m - depth).abs() <= 1.0e-6 * depth.abs().max(1.0));
+        assert_eq!(source.samples.len(), depth_count * range_count);
+    }
     assert_eq!(
         expected.receiver_depths_m.len(),
         positions.receiver_depths_m.len(),
@@ -543,33 +675,50 @@ fn pressure_fields_match_pinned_linux_reference() {
     }
 
     let mut maximum_error = 0.0_f64;
-    for range_index in 0..range_count {
-        for depth_index in 0..depth_count {
-            // The reference stores one depth row per record: ``P(iRz, :)``;
-            // Rust samples are range-major.
-            let actual_sample = &actual[range_index * depth_count + depth_index];
-            let expected_sample = expected.rows[depth_index][range_index];
-            let error = (f64::from(actual_sample.pressure.re) - f64::from(expected_sample.re))
-                .abs()
-                .max((f64::from(actual_sample.pressure.im) - f64::from(expected_sample.im)).abs());
-            maximum_error = maximum_error.max(error);
-            let magnitude = f64::from(expected_sample.re)
-                .abs()
-                .max(f64::from(expected_sample.im).abs());
-            assert!(
-                error <= tolerance + relative_tolerance * magnitude,
-                "sample (range {range_index}, depth {depth_index}): actual ({}, {}), \
-                 expected ({}, {}), error {error:e} exceeds {tolerance:e} + {relative_tolerance:e} * magnitude",
-                actual_sample.pressure.re,
-                actual_sample.pressure.im,
-                expected_sample.re,
-                expected_sample.im
-            );
+    let mut mismatches = 0_usize;
+    let mut first_mismatch = None;
+    for (source_index, source) in result.field_sources.iter().enumerate() {
+        let actual = &source.samples;
+        for range_index in 0..range_count {
+            for depth_index in 0..depth_count {
+                // The reference stores one depth row per record: ``P(iRz, :)``;
+                // Rust samples are range-major.
+                let actual_sample = &actual[range_index * depth_count + depth_index];
+                let expected_sample =
+                    expected.rows[source_index * depth_count + depth_index][range_index];
+                assert!(
+                    expected_sample.re.is_finite() && expected_sample.im.is_finite(),
+                    "reference non-finite pressure at source {source_index}, range {range_index}, depth {depth_index}"
+                );
+                assert!(
+                    actual_sample.pressure.re.is_finite() && actual_sample.pressure.im.is_finite(),
+                    "Rust non-finite pressure at source {source_index}, range {range_index}, depth {depth_index}"
+                );
+                let error = (f64::from(actual_sample.pressure.re) - f64::from(expected_sample.re))
+                    .abs()
+                    .max(
+                        (f64::from(actual_sample.pressure.im) - f64::from(expected_sample.im))
+                            .abs(),
+                    );
+                maximum_error = maximum_error.max(error);
+                let magnitude = f64::from(expected_sample.re)
+                    .abs()
+                    .max(f64::from(expected_sample.im).abs());
+                if error > tolerance + relative_tolerance * magnitude {
+                    mismatches += 1;
+                    first_mismatch.get_or_insert((source_index, range_index, depth_index));
+                }
+            }
         }
     }
     eprintln!(
-        "compared {} pressure samples; maximum absolute error {maximum_error:e}",
-        actual.len()
+        "compared {} sources, {} pressure samples; maximum absolute error {maximum_error:e}; {mismatches} samples exceed tolerance",
+        result.field_sources.len(),
+        result.field_sources.len() * depth_count * range_count
+    );
+    assert_eq!(
+        mismatches, 0,
+        "pressure mismatch: first (source, range, depth) {first_mismatch:?}; max error {maximum_error:e}; tolerance {tolerance:e} + {relative_tolerance:e} * magnitude"
     );
 }
 
@@ -585,12 +734,14 @@ fn receiver_grid_shape(case: &bellhop::Case) -> (usize, usize) {
 }
 
 struct ReferenceShd {
+    frequency_hz: f64,
+    source_depths_m: Vec<f64>,
     receiver_depths_m: Vec<f64>,
     receiver_ranges_m: Vec<f64>,
     rows: Vec<Vec<num_complex::Complex32>>,
 }
 
-#[allow(clippy::cast_sign_loss)]
+#[allow(clippy::cast_sign_loss, clippy::too_many_lines)]
 fn read_reference_shd(path: &Path, expected_depths: usize, expected_ranges: usize) -> ReferenceShd {
     let bytes = fs::read(path).expect("reference .shd file must be readable");
     let record_length_words = read_i32(&bytes, 0) as usize;
@@ -611,7 +762,10 @@ fn read_reference_shd(path: &Path, expected_depths: usize, expected_ranges: usiz
     let plot_type = std::str::from_utf8(&record(1)[..10])
         .expect("shd record 2 plot type must be UTF-8")
         .trim_end();
-    assert_eq!(plot_type, "rectilin", "reference .shd plot type");
+    assert!(
+        matches!(plot_type, "rectilin" | "irregular"),
+        "reference .shd plot type"
+    );
     let counts = record(2);
     let frequency_count = read_i32(counts, 0) as usize;
     let theta_count = read_i32(counts, 4) as usize;
@@ -623,7 +777,12 @@ fn read_reference_shd(path: &Path, expected_depths: usize, expected_ranges: usiz
     let frequency_hz = read_f64(counts, 28);
     let _attenuation = read_f64(counts, 36);
     assert_eq!(
-        shd_depth_count, expected_depths,
+        if plot_type == "irregular" {
+            1
+        } else {
+            shd_depth_count
+        },
+        expected_depths,
         "reference .shd depth count"
     );
     assert_eq!(
@@ -653,7 +812,11 @@ fn read_reference_shd(path: &Path, expected_depths: usize, expected_ranges: usiz
     record_index += 1;
     // The reference stores source depths and receiver depths single
     // precision but receiver ranges double precision.
-    let _source_depths = read_record_single(&bytes, record_bytes, record_index, z_count);
+    assert_eq!(
+        (frequency_count, theta_count, x_count, y_count),
+        (1, 1, 1, 1)
+    );
+    let source_depths = read_record_single(&bytes, record_bytes, record_index, z_count);
     record_index += 1;
     let receiver_depths_single =
         read_record_single(&bytes, record_bytes, record_index, shd_depth_count);
@@ -670,7 +833,7 @@ fn read_reference_shd(path: &Path, expected_depths: usize, expected_ranges: usiz
             .any(|&f| (f - frequency_hz).abs() <= 1.0e-9 * frequency_hz.abs().max(1.0)),
         "freqVec mismatch"
     );
-    let rows = (0..shd_depth_count)
+    let rows = (0..z_count * expected_depths)
         .map(|depth_index| {
             let record = record(record_index + depth_index);
             (0..shd_range_count)
@@ -685,11 +848,13 @@ fn read_reference_shd(path: &Path, expected_depths: usize, expected_ranges: usiz
         })
         .collect();
     assert_eq!(
-        record_index + shd_depth_count,
+        record_index + z_count * expected_depths,
         bytes.len() / record_bytes,
         "reference .shd has trailing records"
     );
     ReferenceShd {
+        frequency_hz,
+        source_depths_m: source_depths.into_iter().map(f64::from).collect(),
         receiver_depths_m: receiver_depths,
         receiver_ranges_m: receiver_ranges,
         rows,
@@ -720,6 +885,64 @@ fn read_f32(bytes: &[u8], offset: usize) -> f32 {
 
 fn read_f64(bytes: &[u8], offset: usize) -> f64 {
     f64::from_le_bytes(bytes[offset..offset + 8].try_into().expect("f64 at offset"))
+}
+
+#[test]
+fn arrival_reader_preserves_multiple_sources_and_checks_binary_records() {
+    let ascii = b"'2D'\n1000\n2 25 65\n1 50\n1 1000\n1\n1\n0.5 90 1 0 10 20 0 1\n1\n1\n0.25 180 2 0 30 40 1 2\n";
+    let mut binary = Vec::new();
+    let mut record = |data: &[u8]| {
+        let size = i32::try_from(data.len()).unwrap().to_le_bytes();
+        binary.extend(size);
+        binary.extend(data);
+        binary.extend(size);
+    };
+    record(b"'2D'");
+    record(&1000_f32.to_le_bytes());
+    for axis in [vec![25_f32, 65.0], vec![50.0]] {
+        let mut data = i32::try_from(axis.len()).unwrap().to_le_bytes().to_vec();
+        data.extend(axis.iter().flat_map(|v| v.to_le_bytes()));
+        record(&data);
+    }
+    let mut range = 1_i32.to_le_bytes().to_vec();
+    range.extend(1000_f64.to_le_bytes());
+    record(&range);
+    for fields in [
+        [0.5_f32, 90.0, 1.0, 0.0, 10.0, 20.0, 0.0, 1.0],
+        [0.25, 180.0, 2.0, 0.0, 30.0, 40.0, 1.0, 2.0],
+    ] {
+        record(&1_i32.to_le_bytes());
+        record(&1_i32.to_le_bytes());
+        record(
+            &fields
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect::<Vec<_>>(),
+        );
+    }
+    assert_eq!(arrival_values(ascii), arrival_values(&binary));
+    let path = std::env::temp_dir().join(format!("bellhop-arr-reader-{}.arr", std::process::id()));
+    let mut definition = load_case(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golden/GeoHat_arrival.env"),
+    )
+    .unwrap()
+    .value
+    .into_definition();
+    definition.environment.positions.source_depths_m = vec![25.0, 65.0];
+    let case = bellhop::Case::from_definition(definition).unwrap().value;
+    for bytes in [ascii.as_slice(), binary.as_slice()] {
+        fs::write(&path, bytes).unwrap();
+        let sources = parse_reference_arrivals(&path, &case);
+        assert_eq!(sources.len(), 2);
+        assert_eq!(
+            sources[1][0].arrivals[0].travel_time_s.to_bits(),
+            2.0_f32.to_bits()
+        );
+        assert_eq!(sources[1][0].arrivals[0].bottom_bounces, 2);
+    }
+    fs::remove_file(path).unwrap();
+    *binary.last_mut().unwrap() = 1;
+    assert!(std::panic::catch_unwind(|| arrival_values(&binary)).is_err());
 }
 
 fn parse_values<T: std::str::FromStr>(record: &str, description: &str) -> Vec<T> {

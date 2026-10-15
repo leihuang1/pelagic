@@ -23,10 +23,22 @@ fn field_modes_match_v2023_5_golden_pressures() {
         "FreeFGB_grid",
         "Field_ThorpLine",
         "Field_BioLine",
+        "Field_WkbGradientC",
+        "Field_WkbGradientR",
+        "Field_LineS",
+        "Field_LineCervenyC",
+        "Field_LineCervenyR",
+        "Field_LineSemiG",
+        "Field_LineSemiB",
+        "Field_NearGaussian",
     ] {
         let case = load_case(&fixture(&format!("{stem}.env"))).unwrap().value;
         let result = run(&case, SimulationLimits::default()).unwrap();
-        let actual = &result.field_sources[0].samples;
+        let actual: Vec<_> = result
+            .field_sources
+            .iter()
+            .flat_map(|source| &source.samples)
+            .collect();
         let expected = read_pressure(&fixture(&format!("{stem}.csv")));
         assert_eq!(actual.len(), expected.len(), "{stem}");
         if matches!(stem, "Field_ThorpLine" | "Field_BioLine") {
@@ -53,7 +65,7 @@ fn field_modes_match_v2023_5_golden_pressures() {
                     control.field_sources[0]
                         .samples
                         .iter()
-                        .zip(actual)
+                        .zip(&actual)
                         .any(|(a, b)| (a.pressure.re - b.pressure.re)
                             .abs()
                             .max((a.pressure.im - b.pressure.im).abs())
@@ -115,6 +127,24 @@ fn cerveny_velocity_components_match_v2023_5_samples() {
         .pressure;
     assert!((horizontal.re - 6.562_056_5e-3).abs() <= PRESSURE_TOLERANCE);
     assert!((horizontal.im + 1.197_408_8e-2).abs() <= PRESSURE_TOLERANCE);
+}
+
+#[test]
+fn nonfinite_pressure_scaling_is_rejected_before_publication() {
+    for kind in [
+        bellhop::model::RunKind::SemiCoherent,
+        bellhop::model::RunKind::Incoherent,
+    ] {
+        let mut definition = load_case(&fixture("Field_LineS.env"))
+            .unwrap()
+            .value
+            .into_definition();
+        definition.environment.run.kind = kind;
+        let case = Case::from_definition(definition).unwrap().value;
+        let error = run(&case, SimulationLimits::default()).unwrap_err();
+        assert_eq!(error.diagnostics()[0].code, "BH0302");
+        assert!(error.diagnostics()[0].message.contains("non-finite"));
+    }
 }
 
 #[test]
