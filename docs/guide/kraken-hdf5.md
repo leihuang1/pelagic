@@ -230,8 +230,10 @@ they carry `unit` attributes and consume the existing output-payload budget.
 These are additive KRAKEN schema-v1 metadata; older files may omit them.
 
 Each frequency also has `/frequencies/i/media/0`, `/1`, ... in depth order.
-Each layer group carries float64 `top_depth_m`, `bottom_depth_m`, `density_g_cm3`
-and uint64 `requested_mesh_points`. These are finite layers, not the A half-spaces;
+Each layer group carries float64 `top_depth_m`, `bottom_depth_m`, `density_g_cm3`,
+`top_roughness_m`, `bottom_roughness_m`, and uint64 `requested_mesh_points`.
+Roughness is RMS height in metres (zero for smooth interfaces); adjacent layers
+repeat their shared interface height. These are finite layers, not the A half-spaces;
 nominal NG is not the refined/solve-frequency mesh. All depths are absolute.
 Older v1 files may omit these additive groups/attributes; datasets and schema
 identity are unchanged. Modal samples and FIELD depths may span the whole stack.

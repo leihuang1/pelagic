@@ -13,6 +13,10 @@
   half-space record may similarly inherit omitted trailing values; a vacuum,
   rigid or tabulated boundary has **no** half-space record. In a direct `CaseDefinition`,
   its bottom sound speed, density, and loss must all be zero (absent material).
+- Nonnegative RMS roughness in medium headers and the bottom-options record is
+  supported for [fluid-interface scattering](roughness.md). The canonical optional
+  `interface_roughness_m` vector contains fluid top, internal interfaces and bottom;
+  empty means smooth. Nonzero roughness with solids or tables remains rejected.
 - Fortran null slots and repetition syntax remain unsupported and are rejected;
   this is not a general Fortran list-directed reader. All parsed numbers must
   be finite, SSP depths strictly increase between each layer's interfaces, and

@@ -132,6 +132,24 @@ impl Case {
             diagnostics.push(error("surface_boundary", message));
         }
         elastic::validate(&definition, &mut diagnostics);
+        if !definition.interface_roughness_m.is_empty()
+            && (definition.interface_roughness_m.len()
+                != definition.additional_fluid_layers.len() + 2
+                || definition
+                    .interface_roughness_m
+                    .iter()
+                    .any(|s| !s.is_finite() || *s < 0.0))
+        {
+            diagnostics.push(error("interface_roughness_m", "require one finite nonnegative RMS roughness per fluid interface (layer count + 1)"));
+        }
+        if definition.interface_roughness_m.iter().any(|&s| s != 0.0)
+            && (elastic::has_layers(&definition)
+                || elastic::has_half_space(&definition)
+                || definition.surface_boundary.is_tabulated()
+                || definition.bottom_boundary.is_tabulated())
+        {
+            diagnostics.push(error("interface_roughness_m", "roughness currently requires fluid layers and V/R/fluid-A boundaries without solids or tables"));
+        }
         if definition.surface_boundary.is_half_space() {
             if definition.surface_sound_speed_mps <= 0.0 || definition.surface_density_g_cm3 <= 0.0
             {
@@ -555,6 +573,7 @@ pub(crate) const MAX_SEQUENCE_VALUES: usize = 5_000_000;
 pub(crate) fn input_values(case: &Case) -> usize {
     case.sound_speed_profile.len()
         + case.water_attenuation_db_per_wavelength.len()
+        + case.interface_roughness_m.len()
         + case.mode_sample_depths_m.len()
         + case.source_depths_m.len()
         + case.receiver_depths_m.len()

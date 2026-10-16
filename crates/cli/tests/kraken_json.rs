@@ -84,6 +84,8 @@ fn json_cli_exports_and_runs_relocated_documents_without_auxiliary_files() {
     let root = directory("round-trip");
     for (name, solver) in [
         ("Pekeris", "kraken"),
+        ("PekerisDenseLoss", "krakenc"),
+        ("PekerisRigidLoss", "krakenc"),
         ("WaterLossPower", "krakenc"),
         ("OriginalLayeredDouble", "kraken"),
         ("OriginalLayeredDouble", "krakenc"),
@@ -103,6 +105,8 @@ fn json_cli_exports_and_runs_relocated_documents_without_auxiliary_files() {
         ("FieldPattern", "krakenc"),
         ("ProfilesAd", "kraken"),
         ("ProfilesCm", "kraken"),
+        ("ProfilesAd", "krakenc"),
+        ("ProfilesCm", "krakenc"),
     ] {
         let env = fixture(name);
         let stem = format!("{name}-{solver}");

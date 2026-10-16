@@ -66,6 +66,8 @@ fn cli_round_trips_single_and_multifrequency_results() {
     for (name, solver) in [
         ("PekerisFiltered", "kraken"),
         ("PekerisComplexBlank", "krakenc"),
+        ("PekerisDenseLoss", "krakenc"),
+        ("PekerisRigidLoss", "krakenc"),
         ("MunkLeakyPchipBroadband", "krakenc"),
         ("FieldScaled", "kraken"),
         ("FieldIncoherent", "krakenc"),

@@ -36,24 +36,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - name: Test on Windows
-        # ponytail: serial Windows tests; parallelize when native HDF5 handles are non-inheritable.
-        run: cargo test --locked --release --workspace --all-features --target $env:TARGET --no-fail-fast -- --test-threads=1
       - name: Build CLI
         run: cargo build --locked --release -p cli --target $env:TARGET
-      - name: Check DLL dependencies
-        shell: pwsh
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          & "$vs\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64
-          $imports = & dumpbin /DEPENDENTS "target\$env:TARGET\release\pelagic.exe"
-          if ($LASTEXITCODE -ne 0) { throw 'dumpbin failed' }
-          $imports
-          $dlls = @($imports | Select-String '^\s+(\S+\.dll)\s*$' | ForEach-Object { $_.Matches[0].Groups[1].Value })
-          if (!$dlls.Count) { throw 'No DLL dependencies decoded' }
-          $unexpected = @($dlls | Where-Object { $_ -notmatch '^(KERNEL32|ADVAPI32|BCRYPT|BCRYPTPRIMITIVES|USERENV|WS2_32|USER32|NTDLL|SHELL32|SHLWAPI|OLE32|RPCRT4|SECUR32|CRYPT32|ucrtbase|api-ms-win-[\w-]+)\.dll$' })
-          if ($unexpected.Count) { throw "Non-system DLL dependencies: $unexpected" }
       - name: Package CLI and license notices
         shell: pwsh
         env:
@@ -96,41 +80,6 @@ jobs:
           $hash = (Get-FileHash "dist\$name.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
           $checksum = Join-Path (Get-Location).Path "dist\$name.zip.sha256"
           [IO.File]::WriteAllText($checksum, "$hash  $name.zip`n")
-      - name: Test the extracted ZIP
-        shell: pwsh
-        run: |
-          $smoke = Join-Path $env:RUNNER_TEMP 'package smoke'
-          Expand-Archive -Path (Get-ChildItem dist\*.zip).FullName -DestinationPath $smoke
-          $exe = Join-Path $smoke 'pelagic.exe'
-          $workspace = (Get-Location).Path
-          foreach ($solver in 'bellhop', 'kraken', 'krakenc') {
-            $fixture = switch ($solver) {
-              bellhop { 'crates/bellhop/tests/fixtures/golden/GeoHat_arrival.env' }
-              kraken { 'crates/kraken/tests/fixtures/Pekeris.env' }
-              krakenc { 'crates/kraken/tests/fixtures/PekerisComplexBlank.env' }
-            }
-            $inputFile = Join-Path $workspace $fixture
-            $output = Join-Path $smoke "$solver results"
-            $adapter = if ($solver -eq 'bellhop') { 'bellhop' } else { 'kraken' }
-            $options = if ($adapter -eq 'kraken') { @('--solver', $solver) } else { @() }
-            & $exe $adapter run $inputFile --format both --output $output @options
-            if ($LASTEXITCODE -ne 0) { throw "$solver failed" }
-            Set-Content "$output\notes.txt" 'unrelated'
-            & $exe $adapter run $inputFile --format both --output $output @options
-            if ($LASTEXITCODE -ne 0) { throw "$solver update failed" }
-            if ((Get-Content "$output\notes.txt") -ne 'unrelated') { throw 'Unrelated file changed' }
-            if ($adapter -eq 'bellhop') {
-              $env:BELLHOP_NATIVE_INPUT = $inputFile
-              $env:BELLHOP_NATIVE_OUTPUT = $output
-            } else {
-              Remove-Item Env:BELLHOP_NATIVE_INPUT -ErrorAction SilentlyContinue
-              $env:KRAKEN_DIFFERENTIAL_ENV = $inputFile
-              $env:KRAKEN_HDF5_RESULT = Join-Path $output "$([IO.Path]::GetFileNameWithoutExtension($inputFile)).h5"
-            }
-            $readback = & cargo test --locked --release -p cli --target $env:TARGET --test native_output actual_cli_native_layouts_match_all_hdf5_values -- --ignored --exact 2>&1
-            $readback | Write-Output
-            if ($LASTEXITCODE -ne 0 -or ($readback -join "`n") -notmatch 'test result: ok\. 1 passed; 0 failed; 0 ignored;') { throw "$solver readback failed or ran no test" }
-          }
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64

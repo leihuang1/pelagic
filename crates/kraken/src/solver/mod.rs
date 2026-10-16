@@ -8,6 +8,7 @@ pub(crate) mod pekeris;
 pub(crate) mod profile;
 pub(crate) mod refinement;
 pub(crate) mod reflection;
+mod scattering;
 
 pub use field::{solve_field, solve_frequencies};
 

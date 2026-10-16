@@ -1,12 +1,13 @@
 Pelagic
 
-This project is a Rust adaptation of BELLHOP from the Acoustics Toolbox.
+This project is a Rust adaptation of BELLHOP and KRAKEN/KRAKENC with 2D FIELD
+from the Acoustics Toolbox.
 
-Original BELLHOP program Copyright (C) 2009 Michael B. Porter.
+Original Acoustics Toolbox programs Copyright (C) 2009 Michael B. Porter.
 
 Rust adaptation copyright belongs to its contributors.
 
-BELLHOP and this adaptation are distributed under the GNU General Public
+The original programs and this adaptation are distributed under the GNU General Public
 License, version 3 or (at your option) any later version.
 
 Compatibility reference:

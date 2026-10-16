@@ -5,14 +5,14 @@
 The latest investigation runs **both Rust and Fortran in the same Linux x86-64
 container**, using Rust **1.99.0**, LLVM 23.1.1, release builds, and the unchanged
 [pinned GNU Fortran 12.2.0 oracle](reference.md). The container runs through
-Docker Desktop on an Apple ARM64 host; this is not a physical x86-server test.
+Docker Desktop on an Apple ARM64 host.
 
 Five numerical implementation defects and one non-finite-result publication
 hole were fixed. Eight small, two-source Fortran pressure regressions were
 added; no existing golden, pressure/ray tolerance, or resource quota was changed.
 **Unconditional numerical replacement of every 2D input is still not established.**
 
-The complete final diagnostic is retained at:
+The recorded diagnostic has these local run identifiers (not files supplied by a fresh checkout):
 
 - `target/bellhop-business/linux-final/report.md`
 - `target/bellhop-business/linux-final/results.json`
@@ -39,36 +39,45 @@ trajectories**. These count the ENV differential once, not the repeated JSON and
 CLI checks. 115 passing paths have multiple sources. The final exit code is 1,
 with no `NOT RUN` cases.
 
+## Operator acceptance and deferred boundary work
+
+On **2026-10-15**, the operator accepted the current BELLHOP implementation with
+its documented limitations and explicitly deferred the boundary-reflection repair.
+This is **acceptance with known exceptions**, not a claim of universal numerical
+parity or a conversion of historical failures into passes. The matrix remains
+205 PASS / 9 FAIL / 4 ORACLE_NONFINITE / 1 EXCLUDED_3D.
+
+The production implementation remains the one merged through PR #46. The original
+reference, tolerances, quotas and golden values are unchanged. A subsequent
+experimental Fortran boundary patch and its dedicated checker/tool integration
+have been withdrawn from active project files; no candidate was ported into Rust.
+The known boundary instability, invalid SGB S/I combinations, intentional grid
+precision differences and original ATOC resource limits remain recorded above
+and below. Acceptance does not make those unsupported or incomplete calculations
+valid numerical results.
+
+The [boundary analysis](bellhop-boundary-analysis.md) and
+[latest-official-source review](bellhop-official-2026-review.md) remain as issue
+records. Candidate evidence is archived locally at
+`target/bellhop-contact/withdrawn/` and `target/bellhop-contact/`.
+Further boundary numerical changes require reopening the deferred work explicitly.
+KRAKEN/KRAKENC/FIELD has a separate [coverage record](kraken-business-coverage.md).
+
 ## Reproduction and retained evidence
 
-```sh
-tools/reference/build-image.sh   # if the pinned oracle image is absent
-
-# This must contain Linux x86-64 rustc/cargo 1.99.0, not macOS executables.
-tools/reference/bellhop-business-linux.sh /absolute/path/to/linux-rust-toolchain \
-  --output target/bellhop-business/my-linux-run --timeout 600
-
-# Smaller real-reference diagnostic:
-tools/reference/bellhop-business-linux.sh /absolute/path/to/linux-rust-toolchain \
-  --only 'constructed/.*cerveny-.*WZ|adjusted/'
-
-python3 tools/reference/bellhop-business.py --self-test
-```
-
-The measured toolchain directory was
-`target/reference/three-layer-fix/linux-rustup/toolchains/stable-x86_64-unknown-linux-gnu`.
-`Dockerfile.business` extends the pinned oracle image with build tools, retaining
-its Fortran binary, libc and libgfortran versions. Rust reports
+Use the [same-Linux business workflow](reference-workflows.md#broad-bellhop-business-case-diagnostic)
+with a fresh output directory. `Dockerfile.business` retains the pinned Fortran
+binary and runtime while mounting an installed Linux Rust toolchain.
+The recorded run reports Rust
 `1.99.0 (b940084d7 2026-09-28)`, target `x86_64-unknown-linux-gnu`;
 the measured platform is `Linux-6.12.76-linuxkit-x86_64-with-glibc2.36`.
 The oracle retains its original `-O1 -ffast-math -funroll-all-loops
 -fomit-frame-pointer -std=gnu` flags. Rust uses Cargo's release configuration.
 
-The original host-mode runner remains available. It does **not** put Rust in
-Linux; only the Linux wrapper / `--native-reference` mode does. Each invocation
-requires a new output directory. Default timeout is 120 seconds per stage; both
-complete Linux investigations used 600 seconds. Increasing this operational time
-allowance does not change a numerical tolerance or the solver's point budget.
+Both complete Linux investigations used a 600-second stage timeout. The host-mode
+runner is a distinct comparison: it does not put Rust in Linux. Neither an
+operational timeout choice nor a focused rerun changes numerical tolerances or
+the solver's point budget.
 
 The runner retains ENV/resources, canonical JSON, input and output hashes,
 compiler identities, source-file hashes, executable hashes, and logs. Executables
@@ -229,6 +238,12 @@ Evidence: `linux-investigation/single-beams/`, `more-beams/`,
 These isolate a failing path in each field; they do not claim every failing cell
 has been exhaustively instrumented.
 
+The [2026-10-15 boundary follow-up](bellhop-boundary-analysis.md) adds an analytic
+counterexample reproduced by both implementations, complete-field TL/phase metrics,
+and step-refinement controls. It confirms a shared numerical defect independently
+of cross-platform agreement, but does not validate or ship a production boundary
+fix. The original matrix outcomes above remain unchanged.
+
 ### 3. Four SGB noncoherent combinations have no meaningful reference field
 
 The original `SS` / `IS` point/line shelf cases remain `ORACLE_NONFINITE`.
@@ -298,8 +313,8 @@ produced by both Linux runs are byte-identical (`linux-final/baseline-comparison
 Earlier 20-case Linux Rust 1.88 controls remain historical only; they no longer
 stand in for a same-version full Linux run.
 
-Not covered: physical x86-server or Windows execution, private customer data,
-exhaustive option Cartesian products, regeneration of all MATLAB boundaries,
+Not covered: private customer data, exhaustive option Cartesian products,
+regeneration of all MATLAB boundaries,
 beam/step convergence, independent wave-equation accuracy, or a fresh full KRAKEN
 release-acceptance campaign. Passing implementation parity does not establish
 those properties.

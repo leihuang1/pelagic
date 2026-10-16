@@ -222,7 +222,7 @@ fn legacy_layer_diagnostics_point_to_the_offending_medium() {
         ("89.0 1480.0 0.0 1.6", "89.0 1480.0 0.0 1.7"),
         ("70.0 1450.0 0.0", "70.0 1450.0 100.0"),
         ("70.0 1450.0", "70.01 1450.0"),
-        ("83 0.0 140.0", "83 1.0 140.0"),
+        ("83 0.0 140.0", "83 -1.0 140.0"),
     ] {
         let report = cases(&base.replace(old, new), ModeSolver::Krakenc).unwrap_err();
         let diagnostic = &report.diagnostics()[0];

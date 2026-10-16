@@ -8,6 +8,32 @@ execution schedule; the same fresh-reference matrix now runs in
 [local full pre-release acceptance](reference-workflows.md#full-pre-release-acceptance),
 while ordinary CI retains committed-golden regression.
 
+## Lossy Pekeris and reference-zero comparisons (2026-10-16)
+
+Rigid-top seed selection and complex inverse-iteration polishing now pass the
+independent lossy Pekeris controls. Exact reference-zero imaginary k uses a narrow
+comparison floor, without clamping production roots. Current matrix outcomes,
+independent controls and retained reference differences are recorded only in the
+[business coverage record](kraken-business-coverage.md).
+
+## Rough-fluid-interface extension (2026-10-15)
+
+The [roughness checkpoint](../kraken/roughness.md) supersedes the earlier
+fluid-roughness exclusions below: both engines now include first-mesh
+Kuperman–Ingenito scattering for fluid V/R/A interfaces. Eight original/derived
+reference workflows add 14 blocks, 322 modes and 3,510 pressures. Elastic/table
+roughness restrictions and the historical scope of earlier evidence remain.
+
+## Separated ducts and broader business diagnostics (2026-10-15)
+
+The [numerical-fix report](kraken-business-coverage.md) records the KRAKENC
+separated-duct seed correction (Sduct C/P/S: 194/194/184 modes), independent
+Sturm-count/refinement controls and unchanged 500-Hz broadband work ceiling.
+At this checkpoint the configured 27-stage diagnostic passed; the broader
+345-path inventory retained 7 differential failures and separately classified
+unsupported/reference cases. The later Pekeris/reference-zero checkpoint
+supersedes those counts, not the retained historical evidence.
+
 ## Implementation checkpoints
 
 The capability/checkpoint sections below retain their implementation-stage

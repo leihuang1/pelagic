@@ -1,5 +1,16 @@
 # KRAKEN and KRAKENC reference artifacts
 
+## Rough-fluid-interface additions (2026-10-15)
+
+`roughness.sha256` records four ENV/FLP pairs and eight official v2023.5
+engine workflows (24 MOD/SHD/PRT artifacts), without changing earlier references.
+RoughSurface/Bottom/Interface are byte-original TLslices kupert/kuperb/kuperm
+with the official shared fieldbat.flp. RoughBroadband is an explicitly labelled
+LayeredFluidPower derivative adding sigma 0.1/0.2/0.3 m. Total: 14 frequency
+blocks, 322 modes, 3,510 pressures. See [algorithm and independent checks](../../../../../docs/kraken/roughness.md).
+
+## Existing checkpoint evidence
+
 **Current execution:** mentions of “fresh CI” below record checkpoint history.
 The complete fresh-reference matrix now runs locally before every release via
 [`full-acceptance.sh`](../../../../../tools/reference/full-acceptance.sh), while

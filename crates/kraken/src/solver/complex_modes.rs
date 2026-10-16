@@ -56,6 +56,14 @@ pub(super) fn solve(case: &Case) -> Result<ModeSet, DiagnosticReport> {
         .water_attenuation_db_per_wavelength
         .iter()
         .any(|&a| a != 0.0);
+    // Separate ducts can interleave nearly coincident roots; spacing is not one smooth sequence.
+    let stratified_trapped = !water_loss
+        && case.c_high_mps <= case.bottom_sound_speed_mps
+        && (case.interpolation == crate::Interpolation::AnalyticMunk
+            || case
+                .sound_speed_profile
+                .windows(2)
+                .any(|p| p[0].sound_speed_mps != p[1].sound_speed_mps));
     let mut refinement = crate::solver::refinement::Refinement::<Complex64>::default();
     let mut work = 0;
     for multiplier in crate::solver::refinement::MULTIPLIERS {
@@ -85,6 +93,12 @@ pub(super) fn solve(case: &Case) -> Result<ModeSet, DiagnosticReport> {
                 });
             }
         }
+        let mut decreasing_slowness = false;
+        let separated_ducts = stratified_trapped
+            && b.windows(2).any(|pair| {
+                decreasing_slowness |= pair[1].re < pair[0].re;
+                decreasing_slowness && pair[1].re > pair[0].re
+            });
         let inside_h = layers.last().unwrap().h;
         let inside_c = pekeris_root(if water_loss {
             Complex64::new(omega * omega * inside_h * inside_h, 0.0) / (2.0 + b[b.len() - 1])
@@ -140,16 +154,32 @@ pub(super) fn solve(case: &Case) -> Result<ModeSet, DiagnosticReport> {
                 "mesh_points",
             ));
         }
-        let mut roots = Vec::new();
+        // Continuing from a deflated root can skip the next mode, including below a rigid top.
+        let predict_spacing = !water_loss
+            && !separated_ducts
+            && !elastic
+            && layers.len() == 1
+            && matches!(
+                case.surface_boundary,
+                SurfaceBoundary::Vacuum | SurfaceBoundary::Rigid
+            )
+            && case.bottom_boundary == BottomBoundary::FluidHalfSpace
+            && case.c_high_mps <= case.bottom_sound_speed_mps
+            && case.c_high_mps <= 10.0 * case.c_low_mps;
+        let mut roots: Vec<Complex64> = Vec::new();
         let mut reached_lower_limit = false;
         for index in 1..=guesses {
             let vertical = (index as f64 - 0.5) * PI / case.water_depth_m;
             // ponytail: wide spectral intervals use the previous-root seed from
             // Fortran; revisit the 10x cutoff if a medium-width spectrum fails.
-            let guess = if tabulated
+            let guess = if predict_spacing && roots.len() >= 2 {
+                let previous = roots[roots.len() - 1];
+                previous + (previous - roots[roots.len() - 2])
+            } else if tabulated
+                || separated_ducts
                 || elastic
                 || layers.len() > 1
-                || case.surface_boundary != SurfaceBoundary::Vacuum
+                || (case.surface_boundary != SurfaceBoundary::Vacuum && !predict_spacing)
                 || case.bottom_boundary != BottomBoundary::FluidHalfSpace
             {
                 roots.last().copied().unwrap_or_else(|| {
@@ -164,16 +194,7 @@ pub(super) fn solve(case: &Case) -> Result<ModeSet, DiagnosticReport> {
                     |&previous| previous * 1.000_01,
                 )
             } else {
-                // ponytail: predict narrow lossless-fluid spectra bounded by
-                // bottom cp; use a safeguarded search for broader leaky spectra.
-                match roots.as_slice() {
-                    [.., before, previous]
-                        if !water_loss && case.c_high_mps <= case.bottom_sound_speed_mps =>
-                    {
-                        previous + (previous - before)
-                    }
-                    _ => Complex64::new(water_k2 - vertical * vertical, 0.0),
-                }
+                Complex64::new(water_k2 - vertical * vertical, 0.0)
             };
             // Solve2 seeds refined meshes with unmodified EVMat roots, then
             // Neville interpolation in h²; restarting from above can skip roots.
@@ -592,7 +613,7 @@ fn inverse_iteration(d: &[Complex64], e: &[f64]) -> Result<Vec<Complex64>, Diagn
     };
     c[n - 2] = Complex64::new(0.0, 0.0);
     let mut phi = vec![Complex64::new(eps4 / (n as f64).sqrt(), 0.0); n];
-    for _ in 0..3 {
+    for iteration in 0..3 {
         let mut next = Complex64::new(0.0, 0.0);
         let mut next2 = next;
         for i in (0..n).rev() {
@@ -604,7 +625,8 @@ fn inverse_iteration(d: &[Complex64], e: &[f64]) -> Result<Vec<Complex64>, Diagn
         if !norm.is_finite() || norm == 0.0 {
             break;
         }
-        if norm >= 1.0 {
+        // One large solve can still contain starting-vector error; polish before accepting it.
+        if iteration > 0 && norm >= 1.0 {
             return Ok(phi);
         }
         for value in &mut phi {
@@ -635,7 +657,7 @@ fn mode(
     bottom_c: Complex64,
     bottom: &Bottom<'_>,
     x: Complex64,
-) -> Result<NormalMode, DiagnosticReport> {
+) -> Result<(NormalMode, Complex64), DiagnosticReport> {
     let last = layers.last().unwrap();
     let n = last.node_start + last.intervals + 1;
     let h = layers[0].h;
@@ -762,7 +784,9 @@ fn mode(
             )
         })
         .collect();
-    let k = x.sqrt();
+    let perturbation =
+        super::scattering::perturbation(case, layers, x, omega, |i| b[i], |i| phi[i]);
+    let k = (x + perturbation).sqrt();
     if !k.re.is_finite()
         || !k.im.is_finite()
         // Pinned Fortran roots can carry positive imaginary roundoff near 1e-18.
@@ -780,13 +804,16 @@ fn mode(
             "modes",
         ));
     }
-    Ok(NormalMode {
-        horizontal_wavenumber_rad_per_m: k,
-        phase_speed_mps: omega / k.re,
-        group_speed_mps: group_speed,
-        attenuation_nepers_per_m: -k.im,
-        eigenfunction,
-    })
+    Ok((
+        NormalMode {
+            horizontal_wavenumber_rad_per_m: k,
+            phase_speed_mps: omega / k.re,
+            group_speed_mps: group_speed,
+            attenuation_nepers_per_m: -k.im,
+            eigenfunction,
+        },
+        perturbation,
+    ))
 }
 
 #[cfg(test)]

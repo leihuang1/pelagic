@@ -680,6 +680,7 @@ fn environment_cases(
         water_density_g_cm3: 0.0,
         water_attenuation_db_per_wavelength: Vec::new(),
         additional_fluid_layers: Vec::new(),
+        interface_roughness_m: environment.interface_roughness_m,
         top_elastic_layers: Vec::new(),
         bottom_elastic_layers: Vec::new(),
         bottom_boundary: environment.bottom_boundary,
@@ -710,6 +711,7 @@ fn environment_cases(
         _ => 0,
     };
     let values = environment.materials.input_values()
+        + definition.interface_roughness_m.len()
         + table_values
         + surface_values
         + 2 * definition.source_pattern.len()
@@ -1151,6 +1153,7 @@ struct Environment {
     surface_boundary: SurfaceBoundary,
     bottom_boundary: BottomBoundary,
     materials: material::Materials,
+    interface_roughness_m: Vec<f64>,
     c_low: f64,
     c_high: f64,
     max_range_m: f64,
@@ -1317,8 +1320,9 @@ fn read_environment(
     let mut bottom_elastic_layers = Vec::new();
     let mut top = 0.0;
     let mut profile_points = 0;
+    let mut interface_roughness_m = Vec::with_capacity(medium_count + 1);
     for index in 0..medium_count {
-        let (medium, last, point_count) = read_finite_layer(
+        let (medium, last, point_count, roughness) = read_finite_layer(
             reader,
             interpolation,
             option(2),
@@ -1328,6 +1332,7 @@ fn read_environment(
             inherited,
         )?;
         inherited = last;
+        interface_roughness_m.push(roughness);
         profile_points += point_count;
         if profile_points > MAX_PROFILE_POINTS {
             return Err(reader_error(
@@ -1408,12 +1413,12 @@ fn read_environment(
         )
         || (mode_solver == ModeSolver::Kraken
             && matches!(bottom_option.tokens[0].text.as_str(), "F" | "P"))
-        || number(&bottom_option.tokens[1], path, "bottom_roughness")? != 0.0
+        || number(&bottom_option.tokens[1], path, "bottom_roughness")? < 0.0
     {
         return Err(reader.record_error(
             &bottom_option,
             "bottom_options",
-            "requires smooth V/A/R bottom, or KRAKENC F/P table bottom",
+            "requires V/A/R bottom or KRAKENC F/P table bottom and nonnegative roughness",
         ));
     }
     if medium_count > 1 && matches!(bottom_option.tokens[0].text.as_str(), "F" | "P") {
@@ -1430,6 +1435,14 @@ fn read_environment(
             "tabulated bottoms require blank restart option (no random restarts)",
         ));
     }
+    interface_roughness_m.push(number(&bottom_option.tokens[1], path, "bottom_roughness")?);
+    if interface_roughness_m.iter().all(|&s| s == 0.0) {
+        interface_roughness_m.clear();
+    }
+    reader.locations.insert(
+        "interface_roughness_m".into(),
+        reader.locations["water_header"],
+    );
     let bottom_power_law = read_power_law(&reader, &bottom_option, 2, option(2), frequency_hz)?;
     let mut bottom_boundary = match bottom_option.tokens[0].text.as_str() {
         "V" => BottomBoundary::Vacuum,
@@ -1523,6 +1536,7 @@ fn read_environment(
             unit: option(2),
             volume: volume_loss,
         },
+        interface_roughness_m,
         c_low: limits[0],
         c_high: limits[1],
         max_range_m,
@@ -1546,7 +1560,7 @@ fn read_finite_layer(
     index: usize,
     top: f64,
     mut inherited: [f64; 6],
-) -> Result<(FiniteMedium, [f64; 6], usize), DiagnosticReport> {
+) -> Result<(FiniteMedium, [f64; 6], usize, f64), DiagnosticReport> {
     let header_field = if index == 0 {
         "water_header".into()
     } else {
@@ -1576,7 +1590,8 @@ fn read_finite_layer(
             "layer interfaces must strictly increase",
         ));
     }
-    if number(&header.tokens[1], &reader.path, &header_field)? != 0.0 {
+    let roughness = number(&header.tokens[1], &reader.path, &header_field)?;
+    if roughness < 0.0 {
         return Err(reader.record_error(
             &header,
             if index == 0 {
@@ -1584,7 +1599,7 @@ fn read_finite_layer(
             } else {
                 &header_field
             },
-            "requires smooth interfaces",
+            "interface roughness must be nonnegative",
         ));
     }
     let power = read_power_law(reader, &header, 3, unit, frequency)?;
@@ -1659,6 +1674,7 @@ fn read_finite_layer(
             }),
             inherited,
             point_count,
+            roughness,
         ));
     }
     Ok((
@@ -1678,6 +1694,7 @@ fn read_finite_layer(
         }),
         inherited,
         points.len(),
+        roughness,
     ))
 }
 

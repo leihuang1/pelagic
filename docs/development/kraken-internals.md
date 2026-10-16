@@ -47,12 +47,21 @@ spectral limits use the sampled minimum. Interpolated density, losses and bulk
 modulus are validated before shooting. Real/complex coefficient grouping and
 first-mesh normalization remain separate.
 Their root searches, precision, work limits and deflation arithmetic remain
-separate Implementations. In single lossless-fluid narrow spectra with vacuum
-top/fluid A bottom and cHigh ≤ bottom cp, KRAKENC predicts the next initial
-guess from the last two root spacings. It reduces actual dispersion evaluations, not their accounting:
+separate Implementations. In single-layer lossless-water narrow spectra with a
+vacuum or rigid top, fluid A bottom and cHigh ≤ bottom cp (also ≤ 10 × cLow),
+KRAKENC predicts the next initial guess from the last two roots only when the sampled profile has no
+inter-duct speed barrier. A decrease followed by an increase in the real mesh
+slowness coefficient identifies that barrier (plateaus retain the previous
+trend); those separated-duct cases use the original previous-root continuation
+seed. This avoids skipping interleaved mode families in Sduct C/P/S. It reduces
+actual dispersion evaluations, not their accounting:
 original BroadBand/MunkK 500 Hz uses 153M of the unchanged 300M root-work
 ceiling. Water-loss/broader-leaky/wide/layered/table/elastic seeds and secant tolerances remain
 unchanged; raw Neville seeds still take precedence on mesh three onward.
+Without a refinement seed, the eligible predictor's first two roots use bounded
+vertical-wavenumber guesses; this avoids skipped rigid-top lossy Pekeris modes.
+Complex shape inverse iteration requires a polishing pass before accepting norm
+growth (at least two passes, within the existing three-pass ceiling).
 
 `refinement.rs` owns **Modal refinement** behind `seed` and `accept`:
 
@@ -67,8 +76,9 @@ unchanged; raw Neville seeds still take precedence on mesh three onward.
   including original TLslices `double` (43 to 42). Count increases still reject
   the run: a new mode has no first-mesh shape. No reference-derived count is used;
 - KRAKEN extrapolates real k² and retains first-mesh loss; KRAKENC extrapolates
-  complex k². Standard arithmetic bounds share bookkeeping, not a new numerical
-  trait or plugin Interface.
+  complex k². Both retain an explicit complex first-mesh scattering perturbation
+  and add it after extrapolation, as described in [rough fluid interfaces](../kraken/roughness.md).
+  Standard arithmetic bounds share bookkeeping, not a new numerical trait or plugin Interface.
 
 `solve_frequencies` keeps real Solve2's run-local bound across ordered blocks,
 without retaining all results; the first error ends the iterator. Like JSON,

@@ -13,6 +13,7 @@ pub(crate) struct Refinement<T> {
     table: Vec<Vec<T>>,
     seeds: Vec<(f64, Vec<Complex64>)>,
     modes: Vec<NormalMode>,
+    perturbations: Vec<Complex64>,
 }
 
 impl<T> Refinement<T> {
@@ -65,16 +66,14 @@ impl Refinement<f64> {
         roots: Vec<f64>,
         seed_h: Option<f64>,
         case: &Case,
-        mode: impl FnMut(f64) -> Result<NormalMode, DiagnosticReport>,
+        mode: impl FnMut(f64) -> Result<(NormalMode, Complex64), DiagnosticReport>,
     ) -> Result<Option<ModeSet>, DiagnosticReport> {
         if let Some(h) = seed_h {
             self.seeds
                 .push((h, roots.iter().map(|&x| Complex64::new(x, 0.0)).collect()));
         }
-        self.advance(roots, case, mode, f64::abs, |x, mode| {
-            // KRAKEN retains the first-mesh loss perturbation, not extrapolated Im(k²).
-            let loss_k2 = mode.horizontal_wavenumber_rad_per_m.powi(2).im;
-            Complex64::new(x, loss_k2).sqrt()
+        self.advance(roots, case, mode, f64::abs, |x, perturbation| {
+            (x + perturbation).sqrt()
         })
     }
 }
@@ -85,7 +84,7 @@ impl Refinement<Complex64> {
         roots: Vec<Complex64>,
         seed_h: f64,
         case: &Case,
-        mode: impl FnMut(Complex64) -> Result<NormalMode, DiagnosticReport>,
+        mode: impl FnMut(Complex64) -> Result<(NormalMode, Complex64), DiagnosticReport>,
     ) -> Result<Option<ModeSet>, DiagnosticReport> {
         self.seeds.push((seed_h, roots.clone()));
         let high_k2 = (2.0 * std::f64::consts::PI * case.frequency_hz / case.c_low_mps).powi(2);
@@ -116,7 +115,9 @@ impl Refinement<Complex64> {
                 "mode_sample_depths_m",
             ));
         }
-        self.advance(selected, case, mode, Complex64::norm, |x, _| x.sqrt())
+        self.advance(selected, case, mode, Complex64::norm, |x, perturbation| {
+            (x + perturbation).sqrt()
+        })
     }
 }
 
@@ -126,9 +127,9 @@ impl<T: Copy + Sub<Output = T> + Div<f64, Output = T>> Refinement<T> {
         &mut self,
         roots: Vec<T>,
         case: &Case,
-        mode: impl FnMut(T) -> Result<NormalMode, DiagnosticReport>,
+        mode: impl FnMut(T) -> Result<(NormalMode, Complex64), DiagnosticReport>,
         magnitude: impl FnOnce(T) -> f64,
-        wavenumber: impl Fn(T, &NormalMode) -> Complex64,
+        wavenumber: impl Fn(T, Complex64) -> Complex64,
     ) -> Result<Option<ModeSet>, DiagnosticReport> {
         let set = self.table.len();
         let multiplier = MULTIPLIERS[set];
@@ -136,16 +137,19 @@ impl<T: Copy + Sub<Output = T> + Div<f64, Output = T>> Refinement<T> {
         // surviving first-mesh shapes/group speeds/loss and Richardson columns.
         if roots.len() < self.modes.len() {
             self.modes.truncate(roots.len());
+            self.perturbations.truncate(roots.len());
             for row in &mut self.table {
                 row.truncate(roots.len());
             }
         }
         if set == 0 {
-            self.modes = roots
+            (self.modes, self.perturbations) = roots
                 .iter()
                 .copied()
                 .map(mode)
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .unzip();
         } else if roots.len() != self.modes.len() {
             return Err(error(
                 "KR0303",
@@ -177,8 +181,13 @@ impl<T: Copy + Sub<Output = T> + Div<f64, Output = T>> Refinement<T> {
             return Ok(None);
         }
         let omega = 2.0 * std::f64::consts::PI * case.frequency_hz;
-        for (mode, &x) in self.modes.iter_mut().zip(&self.table[0]) {
-            let k = wavenumber(x, mode);
+        for ((mode, &x), &perturbation) in self
+            .modes
+            .iter_mut()
+            .zip(&self.table[0])
+            .zip(&self.perturbations)
+        {
+            let k = wavenumber(x, perturbation);
             mode.horizontal_wavenumber_rad_per_m = k;
             mode.phase_speed_mps = omega / k.re;
             mode.attenuation_nepers_per_m = -k.im;
