@@ -35,6 +35,38 @@ fn fixtures() -> PathBuf {
 }
 
 #[test]
+fn stratified_trapped_complex_spectra_are_complete() {
+    for name in ["SductTrapped", "SductPchip", "SductSpline"] {
+        compare_frequencies(
+            &fixtures().join(format!("{name}.env")),
+            &fixtures().join("golden").join(format!("{name}-krakenc")),
+            kraken::ModeSolver::Krakenc,
+        );
+    }
+}
+
+#[test]
+fn rough_fluid_interfaces_match_pinned_goldens() {
+    for name in [
+        "RoughSurface",
+        "RoughBottom",
+        "RoughInterface",
+        "RoughBroadband",
+    ] {
+        for (engine, solver) in [
+            ("kraken", kraken::ModeSolver::Kraken),
+            ("krakenc", kraken::ModeSolver::Krakenc),
+        ] {
+            compare_frequencies(
+                &fixtures().join(format!("{name}.env")),
+                &fixtures().join("golden").join(format!("{name}-{engine}")),
+                solver,
+            );
+        }
+    }
+}
+
+#[test]
 fn fluid_modes_and_field_match_pinned_goldens() {
     for name in CASES {
         compare(
@@ -461,7 +493,15 @@ fn profile_fields_match_fresh_reference() {
             .unwrap_or_else(|| env.with_extension("flp").into_os_string()),
     );
     let root = PathBuf::from(std::env::var_os("KRAKEN_PROFILE_ROOT").unwrap());
-    compare_profiles(&env, &flp, &root, kraken::ModeSolver::Kraken);
+    let solver = match std::env::var("KRAKEN_PROFILE_SOLVER")
+        .as_deref()
+        .unwrap_or("kraken")
+    {
+        "kraken" => kraken::ModeSolver::Kraken,
+        "krakenc" => kraken::ModeSolver::Krakenc,
+        other => panic!("unknown reference solver: {other}"),
+    };
+    compare_profiles(&env, &flp, &root, solver);
 }
 
 #[test]
@@ -840,6 +880,21 @@ fn result_for_comparison(case: &Case, index: usize, frequencies: usize) -> Simul
     let group = file.group(&format!("frequencies/{index}")).unwrap();
     compare_elastic_hdf5_materials(&group, case);
     compare_finite_elastic_hdf5(&group, case);
+    for interface in 0..=case.additional_fluid_layers.len() {
+        let layer = group.group(&format!("media/{interface}")).unwrap();
+        for (name, index) in [
+            ("top_roughness_m", interface),
+            ("bottom_roughness_m", interface + 1),
+        ] {
+            assert_eq!(
+                layer.attr(name).unwrap().read_scalar::<f64>().unwrap(),
+                case.interface_roughness_m
+                    .get(index)
+                    .copied()
+                    .unwrap_or(0.0)
+            );
+        }
+    }
     assert_eq!(
         hdf5_attribute(&group, "source_geometry"),
         match case.source_geometry {
@@ -1397,9 +1452,7 @@ fn compare_modes_at(
         let attenuation_tolerance = if mode.attenuation_nepers_per_m == 0.0 {
             1e-12
         } else {
-            let (mantissa, exponent) = columns[2].split_once(['E', 'e']).unwrap();
-            let digits = mantissa.split_once('.').unwrap().1.len();
-            0.5 * 10_f64.powi(exponent.parse::<i32>().unwrap() - i32::try_from(digits).unwrap())
+            printed_loss_tolerance(columns[2])
         };
         max_loss = max_loss.max(close(
             -mode.attenuation_nepers_per_m,
@@ -1426,6 +1479,7 @@ fn compare_modes_at(
             stored.im,
             if case.top_elastic_layers.iter().chain(&case.bottom_elastic_layers).any(|layer|
                 layer.compressional_attenuation_db_per_wavelength > 0.0 || layer.shear_attenuation_db_per_wavelength > 0.0)
+                || case.interface_roughness_m.iter().any(|&sigma| sigma > 0.0)
                 || case.bottom_attenuation_db_per_wavelength > 0.0
                 || case.surface_attenuation_db_per_wavelength > 0.0
                 || [&case.surface_boundary, &case.bottom_boundary].iter().any(|boundary| matches!(boundary,
@@ -1436,6 +1490,9 @@ fn compare_modes_at(
                     .any(|&a| a > 0.0)
             {
                 1e-10
+            } else if stored.im == 0.0 {
+                // Reuse the printed attenuation floor for residuals around an exact reference zero.
+                1e-12
             } else {
                 0.0
             },
@@ -1462,6 +1519,19 @@ fn compare_modes_at(
         }
     }
     (max_k, max_loss, max_binary_loss, max_shape)
+}
+
+fn printed_loss_tolerance(text: &str) -> f64 {
+    let (mantissa, exponent) = text.split_once(['E', 'e']).unwrap_or((text, "0"));
+    let digits = mantissa.split_once('.').unwrap().1.len();
+    0.5 * 10_f64.powi(exponent.parse::<i32>().unwrap() - i32::try_from(digits).unwrap())
+}
+
+#[test]
+fn printed_loss_precision_accepts_both_fortran_general_formats() {
+    assert_eq!(printed_loss_tolerance("-0.46E-09"), 5e-12);
+    assert_eq!(printed_loss_tolerance("-0.13"), 0.005);
+    assert_eq!(printed_loss_tolerance("-1.3"), 0.05);
 }
 
 fn compare_field(case: &Case, actual: &PressureField, file: &Records) -> f64 {
@@ -1633,6 +1703,29 @@ fn multifrequency_comparator_detects_later_frequency_corruption() {
     let offset = (10 + rows) * field.record_bytes;
     field.bytes[offset..offset + 4].copy_from_slice(&f32::NAN.to_le_bytes());
     assert!(std::panic::catch_unwind(|| compare_field_at(case, &result.field, &field, 1)).is_err());
+}
+
+#[test]
+fn zero_reference_loss_accepts_roundoff_but_rejects_changed_attenuation() {
+    let root = fixtures().join("Pekeris");
+    let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
+    let mut result = solve(&case).unwrap();
+    let root = fixtures().join("golden/Pekeris");
+    let modes = Records::read(&root.with_extension("mod"));
+    let printed = fs::read_to_string(root.with_extension("prt")).unwrap();
+    for residual in [-3.34e-17, 3.34e-17, -5e-13, 5e-13] {
+        result.modes.modes[0].horizontal_wavenumber_rad_per_m.im = residual;
+        result.modes.modes[0].attenuation_nepers_per_m = -residual;
+        compare_modes(&case, &result.modes, &modes, &printed);
+    }
+    for changed in [-2e-12, 2e-12, 1e-7, f64::NAN] {
+        result.modes.modes[0].horizontal_wavenumber_rad_per_m.im = changed;
+        result.modes.modes[0].attenuation_nepers_per_m = -changed;
+        assert!(
+            std::panic::catch_unwind(|| compare_modes(&case, &result.modes, &modes, &printed))
+                .is_err()
+        );
+    }
 }
 
 #[test]

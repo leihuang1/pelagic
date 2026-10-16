@@ -887,7 +887,7 @@ impl<'a> Mesh<'a> {
         clippy::many_single_char_names,
         clippy::too_many_lines
     )]
-    fn mode(&self, x: f64) -> Result<NormalMode, DiagnosticReport> {
+    fn mode(&self, x: f64) -> Result<(NormalMode, Complex64), DiagnosticReport> {
         let last = self.layers.last().unwrap();
         let n = last.node_start + last.intervals + 1;
         let h_rho = self.h * self.case.water_density_g_cm3;
@@ -1045,14 +1045,26 @@ impl<'a> Mesh<'a> {
             } else {
                 0.0
             };
-        let k = Complex64::new(x, loss_k2).sqrt();
-        Ok(NormalMode {
-            horizontal_wavenumber_rad_per_m: k,
-            phase_speed_mps: self.omega / k.re,
-            group_speed_mps: x.sqrt() * norm / (self.omega * slow),
-            attenuation_nepers_per_m: -k.im,
-            eigenfunction,
-        })
+        let perturbation = Complex64::new(0.0, loss_k2)
+            + super::scattering::perturbation(
+                self.case,
+                &self.layers,
+                x.into(),
+                self.omega,
+                |i| self.b1[i].into(),
+                |i| phi[i].into(),
+            );
+        let k = (x + perturbation).sqrt();
+        Ok((
+            NormalMode {
+                horizontal_wavenumber_rad_per_m: k,
+                phase_speed_mps: self.omega / k.re,
+                group_speed_mps: x.sqrt() * norm / (self.omega * slow),
+                attenuation_nepers_per_m: -k.im,
+                eigenfunction,
+            },
+            perturbation,
+        ))
     }
 }
 

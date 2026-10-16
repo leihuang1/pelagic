@@ -523,6 +523,7 @@ fn write_frequency(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)] // Keep each profile's material and interface metadata together.
 fn write_profile_metadata(group: &Group, case: &Case, budget: &mut Budget) -> Result<(), String> {
     write_scalar_attribute(group, "frequency_hz", &case.frequency_hz)?;
     write_string_attribute(
@@ -616,6 +617,24 @@ fn write_profile_metadata(group: &Group, case: &Case, budget: &mut Budget) -> Re
         write_scalar_attribute(&layer, "bottom_depth_m", &bottom_depth)?;
         write_scalar_attribute(&layer, "density_g_cm3", &density)?;
         write_scalar_attribute(&layer, "requested_mesh_points", &(mesh_points as u64))?;
+        write_scalar_attribute(
+            &layer,
+            "top_roughness_m",
+            &case
+                .interface_roughness_m
+                .get(index)
+                .copied()
+                .unwrap_or(0.0),
+        )?;
+        write_scalar_attribute(
+            &layer,
+            "bottom_roughness_m",
+            &case
+                .interface_roughness_m
+                .get(index + 1)
+                .copied()
+                .unwrap_or(0.0),
+        )?;
         top_depth = bottom_depth;
     }
 

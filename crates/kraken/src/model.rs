@@ -162,7 +162,7 @@ pub struct ElasticLayer {
     pub material_profile: Vec<ElasticMaterialPoint>,
 }
 
-/// Unvalidated contiguous fluid stack with smooth boundaries and optional solid caps. The water fields
+/// Unvalidated contiguous fluid stack with optional solid caps. The water fields
 /// define its first layer; `additional_fluid_layers` contains only subsequent layers.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -190,6 +190,10 @@ pub struct CaseDefinition {
     /// Values are evaluated at `frequency_hz` before complex SSP interpolation.
     pub water_attenuation_db_per_wavelength: Vec<f64>,
     pub additional_fluid_layers: Vec<FluidLayer>,
+    /// RMS roughness in metres: fluid top, internal interfaces, fluid bottom.
+    /// Empty means smooth; nonempty has fluid-layer count + 1 entries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interface_roughness_m: Vec<f64>,
     /// Ordered elastic caps above the first fluid (top starts at 0).
     pub top_elastic_layers: Vec<ElasticLayer>,
     /// Ordered elastic layers below the last fluid.

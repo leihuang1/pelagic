@@ -91,8 +91,10 @@ exit 17
     assert "\nFAILED\n" in text and "| Toolchain and committed references | FAIL |" in text
     stages = len(re.findall(r"^step '", (HERE / "full-acceptance.sh").read_text(), re.MULTILINE))
     assert text.count("| NOT RUN |") == stages - 1, text
+    assert text.rstrip().endswith("Before release, manually match this clean SHA to the release commit. A focused rerun is not full acceptance."), text
     assert (report.parent / "run.log").is_file()
     shutil.rmtree(report.parent)  # Only this self-check's uniquely created output.
 
 subprocess.run([sys.executable, str(HERE / "bellhop-business.py"), "--self-test"], check=True)
+subprocess.run([sys.executable, str(HERE / "kraken-business.py"), "--self-test"], check=True)
 print("reference tooling guards: passed")

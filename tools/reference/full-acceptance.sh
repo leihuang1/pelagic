@@ -63,7 +63,7 @@ finish() {
       printf '| %s | %s | %s |\n' "${labels[i]}" "${statuses[i]}" "${times[i]}"
     done
     printf '\nA failed stage may have a completed prefix: only its logged passing cases passed; the rest and all NOT RUN stages are unvalidated.\n'
-    printf 'Before release, manually match this clean SHA to the release commit and the Windows ZIP CI result. A focused rerun is not full acceptance.\n'
+    printf 'Before release, manually match this clean SHA to the release commit. A focused rerun is not full acceptance.\n'
   } > "$run/report.md"
   echo "Report: $run/report.md"
   exit "$code"
@@ -155,7 +155,7 @@ tools/reference/test-one.sh --release -p kraken --test differential_reference \
 step 'Single-profile FIELD extensions and actual CLI HDF5 differential'
 (cd crates/kraken/tests/fixtures && shasum -a 256 -c golden/single-profile-field.sha256)
 cargo build --locked --release -p cli
-for mapping in 'FieldScaled kraken' 'FieldPattern krakenc' 'FieldIncoherent krakenc'; do
+for mapping in 'FieldScaled kraken' 'FieldPattern krakenc' 'FieldIncoherent krakenc' 'PekerisRigidLoss krakenc'; do
   set -- $mapping
   case=$1
   engine=$2
@@ -176,18 +176,21 @@ done
 cp crates/kraken/tests/fixtures/ProfilesAd.env "$reference_root/profile-cases/ProfilesAdIncoherent.env"
 cp crates/kraken/tests/fixtures/ProfilesAdIncoherent.flp "$reference_root/profile-cases/ProfilesAdIncoherent.flp"
 cargo build --locked --release -p cli
-for case in ProfilesAd ProfilesCm ProfilesAdIncoherent GulfAd GulfCm; do
+for mapping in 'ProfilesAd kraken' 'ProfilesCm kraken' 'ProfilesAdIncoherent kraken' 'GulfAd kraken' 'GulfCm kraken' 'ProfilesAd krakenc' 'ProfilesCm krakenc'; do
+  set -- $mapping
+  case=$1
+  engine=$2
   case "$case" in
     Gulf*|ProfilesAdIncoherent) env="$PWD/$reference_root/profile-cases/$case.env" ;;
     *) env="$PWD/crates/kraken/tests/fixtures/$case.env" ;;
   esac
-  reference="$PWD/$reference_root/$case-kraken/$case"
-  tools/reference/run-kraken-case.sh kraken "$env"
-  KRAKEN_PROFILE_ENV="$env" KRAKEN_PROFILE_ROOT="$reference" \
+  reference="$PWD/$reference_root/$case-$engine/$case"
+  tools/reference/run-kraken-case.sh "$engine" "$env"
+  KRAKEN_PROFILE_SOLVER="$engine" KRAKEN_PROFILE_ENV="$env" KRAKEN_PROFILE_ROOT="$reference" \
     tools/reference/test-one.sh --release -p kraken --test differential_reference \
       profile_fields_match_fresh_reference -- --ignored --exact --nocapture
-  tools/reference/run-cli-kraken.sh "$env" "$(dirname "$reference")/pelagic"
-  KRAKEN_HDF5_RESULT="$(dirname "$reference")/pelagic/$case.h5" KRAKEN_PROFILE_ENV="$env" KRAKEN_PROFILE_ROOT="$reference" \
+  tools/reference/run-cli-kraken.sh "$env" "$(dirname "$reference")/pelagic" --solver "$engine"
+  KRAKEN_PROFILE_SOLVER="$engine" KRAKEN_HDF5_RESULT="$(dirname "$reference")/pelagic/$case.h5" KRAKEN_PROFILE_ENV="$env" KRAKEN_PROFILE_ROOT="$reference" \
     tools/reference/test-one.sh --release -p kraken --test differential_reference \
       profile_fields_match_fresh_reference -- --ignored --exact --nocapture
 done
@@ -210,6 +213,21 @@ for engine in kraken krakenc; do
   KRAKEN_DIFFERENTIAL_ROOT="$PWD/$reference_root/BroadBand-MunkK-$engine/MunkK" \
     tools/reference/test-one.sh --release -p kraken --test differential_reference \
       multifrequency_fluid_matches_fresh_reference -- --ignored --exact --nocapture
+done
+
+step 'Rough fluid interfaces, modes, FIELD and actual CLI HDF5 differential'
+(cd crates/kraken/tests/fixtures && shasum -a 256 -c golden/roughness.sha256)
+cargo build --locked --release -p cli
+for engine in kraken krakenc; do
+  for case in RoughSurface RoughBottom RoughInterface RoughBroadband; do
+    tools/reference/compare-kraken-hdf5.sh "$engine" "crates/kraken/tests/fixtures/$case.env"
+  done
+done
+
+step 'Separated-duct KRAKENC spectra and actual CLI products'
+(cd crates/kraken/tests/fixtures && shasum -a 256 -c golden/stratified-seeds.sha256)
+for case in SductTrapped SductPchip SductSpline; do
+  tools/reference/compare-kraken-hdf5.sh krakenc "crates/kraken/tests/fixtures/$case.env"
 done
 
 step 'Water material modes, FIELD and actual CLI HDF5 differential'
@@ -389,6 +407,14 @@ cargo build --locked --release -p cli
 mkdir -p $reference_root/json
 for mapping in \
   'WaterLossPower kraken crates/kraken/tests/fixtures/WaterLossPower.env $reference_root/WaterLossPower-kraken/WaterLossPower' \
+  'RoughBroadbandReal kraken crates/kraken/tests/fixtures/RoughBroadband.env $reference_root/RoughBroadband-kraken/RoughBroadband' \
+  'SductTrapped krakenc crates/kraken/tests/fixtures/SductTrapped.env $reference_root/SductTrapped-krakenc/SductTrapped' \
+  'SductPchip krakenc crates/kraken/tests/fixtures/SductPchip.env $reference_root/SductPchip-krakenc/SductPchip' \
+  'SductSpline krakenc crates/kraken/tests/fixtures/SductSpline.env $reference_root/SductSpline-krakenc/SductSpline' \
+  'RoughBroadbandComplex krakenc crates/kraken/tests/fixtures/RoughBroadband.env $reference_root/RoughBroadband-krakenc/RoughBroadband' \
+  'PekerisRigidLoss krakenc crates/kraken/tests/fixtures/PekerisRigidLoss.env $reference_root/PekerisRigidLoss-krakenc/PekerisRigidLoss' \
+  'ProfilesAdComplex krakenc crates/kraken/tests/fixtures/ProfilesAd.env $reference_root/ProfilesAd-krakenc/ProfilesAd' \
+  'ProfilesCmComplex krakenc crates/kraken/tests/fixtures/ProfilesCm.env $reference_root/ProfilesCm-krakenc/ProfilesCm' \
   'FieldPattern krakenc crates/kraken/tests/fixtures/FieldPattern.env $reference_root/FieldPattern-krakenc/FieldPattern' \
   'FluidTrcC krakenc crates/kraken/tests/fixtures/FluidTrcC.env $reference_root/FluidTrcC-krakenc/FluidTrcC' \
   'LayeredFluidPower krakenc crates/kraken/tests/fixtures/LayeredFluidPower.env $reference_root/LayeredFluidPower-krakenc/LayeredFluidPower' \

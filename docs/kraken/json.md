@@ -37,6 +37,11 @@ search bound across ordered blocks. Independent `solve`/`solve_field` calls star
 new runs; the same canonical case can consequently have a different searched
 spectrum. This does not change or cumulatively rescale its material losses.
 
+The optional `interface_roughness_m` profile field defaults to an empty (smooth)
+vector. A nonempty vector has one nonnegative RMS height per fluid interface;
+see [rough fluid interfaces](roughness.md). It is canonical geometry, not a
+frequency-dependent attenuation unit.
+
 All object fields are strict, including nested media, boundaries and complex
 numbers. Unknown/duplicate fields, unknown enum values and missing required
 fields fail as malformed input (`KR0103`). `mesh_reference_frequency_hz` is

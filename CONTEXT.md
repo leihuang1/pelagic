@@ -4,6 +4,11 @@ Vocabulary for Pelagic's independent BELLHOP and KRAKEN/KRAKENC Modules. Their v
 
 The `pelagic` CLI and BELLHOP-only `pelagic-server` are separate Adapters. CLI calculation publishes native/HDF5/both products in protected result directories; HTTP keeps its existing single-response HDF5/JSON contract.
 
+## Current numerical-validation scope
+
+Full numerical validation uses the existing macOS host and pinned Linux-container
+workflows. See [testing policy](docs/development/testing.md#current-numerical-validation-scope).
+
 ## Language
 
 **Case**:
