@@ -295,7 +295,7 @@ fn write_run(
         None
     };
     let mut report = directory
-        .map(|(root, stem, _)| super::native::create(&root.join(format!("{stem}.prt"))))
+        .map(|(root, stem, _)| native_output::create(&root.join(format!("{stem}.prt"))))
         .transpose()
         .map_err(|e| RunError::Output(e.to_string()))?;
     if let Some(report) = &mut report {

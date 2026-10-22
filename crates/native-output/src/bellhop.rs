@@ -6,7 +6,10 @@ use bellhop::{Case, result::SimulationResult};
 use std::io::{self, Write};
 use std::path::Path;
 
-pub(crate) fn write(
+/// Serialize an existing result into owned scratch; never runs the solver.
+/// # Errors
+/// Returns native representation or filesystem errors.
+pub fn write(
     root: &Path,
     stem: &str,
     case: &Case,
@@ -41,22 +44,7 @@ pub(crate) fn write(
                 &pos.receiver_depths_m,
                 &pos.receiver_ranges_m,
                 case.environment.run.receiver_grid == ReceiverGrid::Irregular,
-                // Results/HDF5 are range-major; native SHD records are depth-major.
-                result.field_sources.iter().flat_map(|source| {
-                    let depths = if case.environment.run.receiver_grid == ReceiverGrid::Irregular {
-                        1
-                    } else {
-                        pos.receiver_depths_m.len()
-                    };
-                    (0..depths).flat_map(move |depth| {
-                        source
-                            .samples
-                            .iter()
-                            .skip(depth)
-                            .step_by(depths)
-                            .map(|p| (p.pressure.re, p.pressure.im))
-                    })
-                }),
+                result.field_grid(case)?.pressures().map(|p| (p.re, p.im)),
                 u64::MAX,
             )
         }

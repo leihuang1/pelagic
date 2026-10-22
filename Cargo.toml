@@ -3,6 +3,7 @@ members = [
     "crates/bellhop",
     "crates/kraken",
     "crates/output",
+    "crates/native-output",
     "crates/cli",
     "crates/server",
 ]

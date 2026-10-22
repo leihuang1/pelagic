@@ -34,10 +34,12 @@ pub enum Format {
 }
 
 impl Format {
-    pub(crate) fn legacy(self) -> bool {
+    #[must_use]
+    pub fn legacy(self) -> bool {
         self != Self::Hdf5
     }
-    pub(crate) fn hdf5(self) -> bool {
+    #[must_use]
+    pub fn hdf5(self) -> bool {
         self != Self::Legacy
     }
 }
@@ -307,10 +309,7 @@ impl Drop for Transaction {
             if let Err(e) = removal
                 && e.kind() != std::io::ErrorKind::NotFound
             {
-                eprintln!(
-                    "warning: unable to remove owned scratch {}: {e}",
-                    path.display()
-                );
+                crate::diagnostic::cleanup(path, &e);
             }
         }
         if self.created_output {
@@ -410,7 +409,10 @@ fn verify(path: &Path, expected: &Artifact, missing_ok: bool) -> Result<bool, St
     Ok(true)
 }
 
-pub(crate) fn check_quota(path: &Path, maximum: Option<u64>) -> Result<u64, String> {
+/// Count physical artifact bytes and enforce an optional file-group quota.
+/// # Errors
+/// Returns filesystem, overflow or quota errors.
+pub fn check_quota(path: &Path, maximum: Option<u64>) -> Result<u64, String> {
     let total = fs::read_dir(path)
         .map_err(message)?
         .try_fold(0_u64, |total, entry| {
@@ -419,11 +421,8 @@ pub(crate) fn check_quota(path: &Path, maximum: Option<u64>) -> Result<u64, Stri
                 .checked_add(size)
                 .ok_or_else(|| "output size overflow".to_owned())
         })?;
-    if maximum.is_some_and(|m| total > m) {
-        return Err(format!(
-            "result directory exceeds {} bytes",
-            maximum.unwrap()
-        ));
+    if let Some(maximum) = maximum.filter(|m| total > *m) {
+        return Err(format!("result directory exceeds {maximum} bytes"));
     }
     Ok(total)
 }

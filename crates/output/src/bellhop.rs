@@ -85,7 +85,7 @@ pub fn write_directory(
             result.frequency_hz,
             Sha256::digest(input_bytes)
         );
-        let mut file = super::native::create(&scratch.join(format!("{stem}.prt")))
+        let mut file = native_output::create(&scratch.join(format!("{stem}.prt")))
             .map_err(|e| e.to_string())?;
         file.write_all(report.as_bytes())
             .and_then(|()| file.flush())
