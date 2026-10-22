@@ -1,244 +1,194 @@
 #![forbid(unsafe_code)]
 
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use crate::Diagnostics;
 use bellhop::Case;
-use bellhop::Severity;
-use bellhop::diagnostic::{Diagnostic, DiagnosticReport, LoadOutcome};
+use bellhop::diagnostic::{Diagnostic, DiagnosticReport, LoadOutcome, SourceLocation};
 use bellhop::solver::{SimulationLimits, run as run_simulation};
 use clap::Subcommand;
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Parse and validate a modern JSON or legacy BELLHOP case without running it.
-    Validate {
-        /// Path to a self-contained .json case or primary legacy .env file.
-        case: PathBuf,
-    },
-    /// Run a modern JSON or legacy case and safely update a result directory.
+    /// Validate a JSON/legacy case. Use - for self-contained JSON on stdin.
+    Validate { case: PathBuf },
+    /// Run a JSON/legacy case and safely update a result directory.
     Run {
-        /// Path to a self-contained .json case or primary legacy .env file.
+        /// Input path, or - for self-contained JSON on stdin.
         case: PathBuf,
-        /// Result directory, default `<case-stem>` in the current directory. Only owned files are replaced.
+        /// Result directory; stdin defaults to `stdin`.
         #[arg(short, long)]
         output: Option<PathBuf>,
-        /// Numerical output format; HTTP is unaffected.
         #[arg(long, value_enum, default_value = "legacy")]
         format: crate::Format,
     },
-    /// Convert a legacy or modern case to canonical, self-contained JSON.
-    Export {
-        /// Path to a primary legacy .env file or an existing .json case.
-        case: PathBuf,
-    },
+    /// Export a JSON/legacy case as self-contained JSON; accepts - on stdin.
+    Export { case: PathBuf },
 }
 
-pub fn execute(command: Command) -> ExitCode {
+#[allow(clippy::too_many_lines)] // Keep command dispatch and its exit-code handling together.
+pub fn execute(command: Command, diagnostics: Diagnostics) -> ExitCode {
+    let path = match &command {
+        Command::Validate { case } | Command::Run { case, .. } | Command::Export { case } => case,
+    };
+    let input = match load_case(path) {
+        Ok(input) => input,
+        Err(report) => {
+            diagnostics.render(report.diagnostics());
+            return ExitCode::from(2);
+        }
+    };
+    diagnostics.render(&input.outcome.warnings);
+    let case = &input.outcome.value;
     match command {
-        Command::Validate { case } => validate(&case),
-        Command::Run {
-            case,
-            output,
-            format,
-        } => run(&case, output.as_deref(), format.into()),
-        Command::Export { case } => export(&case),
-    }
-}
-
-fn validate(path: &Path) -> ExitCode {
-    match load_case(path) {
-        Ok(LoadedInput { outcome, .. }) => {
-            for diagnostic in outcome.warnings {
-                eprintln!("{diagnostic}");
-            }
+        Command::Validate { .. } => {
             println!(
                 "valid 2D BELLHOP case: {} ({:?}, {} launch angles)",
-                path.display(),
-                outcome.value.environment.run.kind,
-                outcome.value.environment.trace.launch_angles_degrees.len()
+                input.path.display(),
+                case.environment.run.kind,
+                case.environment.trace.launch_angles_degrees.len()
             );
             ExitCode::SUCCESS
         }
-        Err(report) => {
-            for diagnostic in report.diagnostics() {
-                eprintln!("{diagnostic}");
-            }
-            if report
-                .diagnostics()
-                .iter()
-                .any(|diagnostic| diagnostic.severity == Severity::Error)
+        Command::Export { .. } => {
+            let document = match bellhop::json::export_case_document(case) {
+                Ok(document) => document,
+                Err(report) => {
+                    diagnostics.render(report.diagnostics());
+                    return ExitCode::from(2);
+                }
+            };
+            let mut stdout = io::stdout().lock();
+            match serde_json::to_writer_pretty(&mut stdout, &document)
+                .and_then(|()| writeln!(stdout).map_err(serde_json::Error::io))
             {
-                ExitCode::from(2)
-            } else {
-                ExitCode::SUCCESS
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => output_error(
+                    diagnostics,
+                    &input.path,
+                    &format!("unable to write JSON output: {error}"),
+                ),
             }
         }
-    }
-}
-
-fn run(
-    path: &Path,
-    requested_output: Option<&Path>,
-    format: output::directory::Format,
-) -> ExitCode {
-    let output_path = requested_output.map_or_else(|| default_output_path(path), Path::to_path_buf);
-
-    let LoadedInput {
-        outcome,
-        bytes: input_bytes,
-        paths: input_paths,
-    } = match load_case(path) {
-        Ok(input) => input,
-        Err(report) => {
-            render_report(&report);
-            return ExitCode::from(2);
-        }
-    };
-    for diagnostic in &outcome.warnings {
-        eprintln!("{diagnostic}");
-    }
-    let result = match run_simulation(&outcome.value, SimulationLimits::default()) {
-        Ok(result) => result,
-        Err(report) => {
-            render_report(&report);
-            return ExitCode::from(3);
-        }
-    };
-
-    let input_filename = path
-        .file_name()
-        .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-    let stem = match output::directory::stem(path) {
-        Ok(stem) => stem,
-        Err(error) => {
-            eprintln!("error[BH0402]: {error}");
-            return ExitCode::from(4);
-        }
-    };
-    if let Err(error) = output::bellhop::write_directory(
-        &output_path,
-        &stem,
-        &outcome.value,
-        &input_filename,
-        &input_bytes,
-        &result,
-        &outcome.warnings,
-        &input_paths.iter().map(PathBuf::as_path).collect::<Vec<_>>(),
-        format,
-    ) {
-        eprintln!("error[BH0402]: {error}");
-        return ExitCode::from(4);
-    }
-
-    let ray_count: usize = result.sources.iter().map(|source| source.rays.len()).sum();
-    let eigenray_count: usize = result
-        .eigenray_sources
-        .iter()
-        .flat_map(|source| &source.receivers)
-        .map(|receiver| receiver.eigenrays.len())
-        .sum();
-    let arrival_count: usize = result
-        .arrival_sources
-        .iter()
-        .flat_map(|source| &source.receivers)
-        .map(|receiver| receiver.arrivals.len())
-        .sum();
-    let field_sample_count: usize = result
-        .field_sources
-        .iter()
-        .map(|source| source.samples.len())
-        .sum();
-    let point_count: usize = result
-        .sources
-        .iter()
-        .flat_map(|source| &source.rays)
-        .chain(
-            result
+        Command::Run { output, format, .. } => {
+            let output_path =
+                output.unwrap_or_else(|| PathBuf::from(input.path.file_stem().unwrap_or_default()));
+            let result = match run_simulation(case, SimulationLimits::default()) {
+                Ok(result) => result,
+                Err(report) => {
+                    diagnostics.render(report.diagnostics());
+                    return ExitCode::from(3);
+                }
+            };
+            let stem = match output::directory::stem(&input.path) {
+                Ok(stem) => stem,
+                Err(error) => return output_error(diagnostics, &output_path, &error),
+            };
+            let filename = input.path.file_name().unwrap_or_default().to_string_lossy();
+            if let Err(error) = output::bellhop::write_directory(
+                &output_path,
+                &stem,
+                case,
+                &filename,
+                &input.bytes,
+                &result,
+                &input.outcome.warnings,
+                &input.paths.iter().map(PathBuf::as_path).collect::<Vec<_>>(),
+                format.into(),
+            ) {
+                return output_error(diagnostics, &output_path, &error);
+            }
+            let ray_count: usize = result.sources.iter().map(|s| s.rays.len()).sum();
+            let eigenray_count: usize = result
                 .eigenray_sources
                 .iter()
-                .flat_map(|source| &source.receivers)
-                .flat_map(|receiver| &receiver.eigenrays),
-        )
-        .map(|ray| ray.points.len())
-        .sum();
-    println!(
-        "wrote {} ({ray_count} rays, {eigenray_count} eigenrays, {arrival_count} arrivals, {field_sample_count} field samples, {point_count} trajectory points)",
-        output_path.display()
-    );
-    ExitCode::SUCCESS
+                .flat_map(|s| &s.receivers)
+                .map(|r| r.eigenrays.len())
+                .sum();
+            let arrival_count: usize = result
+                .arrival_sources
+                .iter()
+                .flat_map(|s| &s.receivers)
+                .map(|r| r.arrivals.len())
+                .sum();
+            let field_sample_count: usize =
+                result.field_sources.iter().map(|s| s.samples.len()).sum();
+            let point_count: usize = result
+                .sources
+                .iter()
+                .flat_map(|s| &s.rays)
+                .chain(
+                    result
+                        .eigenray_sources
+                        .iter()
+                        .flat_map(|s| &s.receivers)
+                        .flat_map(|r| &r.eigenrays),
+                )
+                .map(|r| r.points.len())
+                .sum();
+            println!(
+                "wrote {} ({ray_count} rays, {eigenray_count} eigenrays, {arrival_count} arrivals, {field_sample_count} field samples, {point_count} trajectory points)",
+                output_path.display()
+            );
+            ExitCode::SUCCESS
+        }
+    }
 }
 
-fn export(path: &Path) -> ExitCode {
-    let outcome = match load_case(path) {
-        Ok(input) => input.outcome,
-        Err(report) => {
-            render_report(&report);
-            return ExitCode::from(2);
-        }
-    };
-    for diagnostic in &outcome.warnings {
-        eprintln!("{diagnostic}");
-    }
-    let document = match bellhop::json::export_case_document(&outcome.value) {
-        Ok(document) => document,
-        Err(report) => {
-            render_report(&report);
-            return ExitCode::from(2);
-        }
-    };
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
-    if let Err(error) = serde_json::to_writer_pretty(&mut stdout, &document)
-        .and_then(|()| writeln!(stdout).map_err(serde_json::Error::io))
-    {
-        eprintln!("error[BH0402]: unable to write JSON output: {error}");
-        return ExitCode::from(4);
-    }
-    ExitCode::SUCCESS
+fn output_error(diagnostics: Diagnostics, path: &Path, message: &str) -> ExitCode {
+    diagnostics.render(&[Diagnostic::error(
+        "BH0402",
+        message,
+        "output",
+        SourceLocation::file(path),
+    )]);
+    ExitCode::from(4)
 }
 
 struct LoadedInput {
+    path: PathBuf,
     outcome: LoadOutcome<Case>,
     bytes: Vec<u8>,
     paths: Vec<PathBuf>,
 }
 
 fn load_case(path: &Path) -> Result<LoadedInput, DiagnosticReport> {
-    if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
-        let bytes = read_input(path)?;
-        let outcome = bellhop::json::load_case_document_named(&bytes, path)
+    let stdin = path == Path::new("-");
+    if stdin
+        || path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+    {
+        let source = if stdin { Path::new("stdin.json") } else { path };
+        let bytes = if stdin {
+            let mut bytes = Vec::new();
+            io::stdin().read_to_end(&mut bytes).map(|_| bytes)
+        } else {
+            fs::read(path)
+        }
+        .map_err(|error| DiagnosticReport::from_diagnostic(Diagnostic::io(source, &error)))?;
+        let outcome = bellhop::json::load_case_document_named(&bytes, source)
             .map_err(bellhop::json::DocumentError::into_report)?;
         Ok(LoadedInput {
+            path: source.to_path_buf(),
             outcome,
             bytes,
-            paths: vec![path.to_path_buf()],
+            paths: if stdin {
+                vec![]
+            } else {
+                vec![path.to_path_buf()]
+            },
         })
     } else {
         let (outcome, source, paths) = bellhop::legacy::load_case_with_inputs(path)?.into_parts();
         Ok(LoadedInput {
+            path: path.to_path_buf(),
             outcome,
             bytes: source.into_bytes(),
             paths,
         })
-    }
-}
-
-fn read_input(path: &Path) -> Result<Vec<u8>, DiagnosticReport> {
-    fs::read(path).map_err(|error| DiagnosticReport::from_diagnostic(Diagnostic::io(path, &error)))
-}
-
-fn default_output_path(input: &Path) -> PathBuf {
-    let stem = input
-        .file_stem()
-        .map_or_else(|| "bellhop".into(), std::ffi::OsStr::to_os_string);
-    PathBuf::from(stem)
-}
-
-fn render_report(report: &bellhop::DiagnosticReport) {
-    for diagnostic in report.diagnostics() {
-        eprintln!("{diagnostic}");
     }
 }

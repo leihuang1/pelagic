@@ -127,7 +127,7 @@ fn strict_json_rejects_malformed_nested_fields_and_shared_semantic_failures() {
             "/frequencies/0/propagation",
             serde_json::json!("unknown"),
             "KR0103",
-            "json",
+            "frequencies[0].propagation",
         ),
         (
             "/frequencies/0/profiles/0/mesh_points",
@@ -139,19 +139,19 @@ fn strict_json_rejects_malformed_nested_fields_and_shared_semantic_failures() {
             "/frequencies/0/profiles/0/bottom_boundary/data/points/0/f",
             serde_json::json!({"real": 1.0, "imaginary": 0.0, "extra": 1}),
             "KR0103",
-            "json",
+            "frequencies[0].profiles[0].bottom_boundary",
         ),
         (
             "/frequencies/0/profiles/0/sound_speed_profile/0",
             serde_json::json!({"depth_m": 0.0, "sound_speed_mps": 1500.0, "extra": 1}),
             "KR0103",
-            "json",
+            "frequencies[0].profiles[0].sound_speed_profile[0].extra",
         ),
         (
             "/frequencies/0/profiles/0/surface_boundary",
             serde_json::json!({"type": "vacuum", "extra": 1}),
             "KR0103",
-            "json",
+            "frequencies[0].profiles[0].surface_boundary",
         ),
     ] {
         let mut value = original.clone();

@@ -27,6 +27,7 @@ See [input compatibility](../bellhop/compatibility.md),
 pelagic kraken run path/to/case.env --output results/kraken
 pelagic kraken run path/to/case.env --solver krakenc --flp geometry.flp --format both --output results/complex
 pelagic kraken export path/to/case.env --solver krakenc > case.json
+pelagic kraken validate case.json
 pelagic kraken run case.json --format hdf5 --output results/modern
 ```
 
@@ -38,6 +39,20 @@ and repetitions; solving/writing stops on the first failure.
 
 See [fixed capabilities and exclusions](../kraken/compatibility.md),
 [JSON schema](../kraken/json.md) and [HDF5 v1, quota and publication](kraken-hdf5.md).
+
+## Machine interfaces
+
+`pelagic version --json` reports the implementation, reference, case/HDF5 schema
+versions and diagnostics protocol. Global `--diagnostics json` makes stderr NDJSON
+records of `{"diagnostics":[...]}`; stdout is unchanged. Codes, severity and field
+paths are machine-readable; message wording is not a stable API.
+
+For either model, `validate`, `export` and `run` accept `-` to read self-contained
+JSON from stdin (not ENV text). Example:
+
+```sh
+pelagic --diagnostics json bellhop run - --format hdf5 --output results/stdin < case.json
+```
 
 ## Output and failures
 

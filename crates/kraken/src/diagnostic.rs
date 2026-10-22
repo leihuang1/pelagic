@@ -13,7 +13,8 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    pub(crate) fn new(
+    #[must_use]
+    pub fn new(
         code: &'static str,
         message: impl Into<String>,
         field: impl Into<String>,
@@ -29,6 +30,19 @@ impl Diagnostic {
             line,
             column,
         }
+    }
+}
+
+impl serde::Serialize for Diagnostic {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(
+            &serde_json::json!({
+                "code": self.code, "severity": "error", "message": self.message,
+                "field": self.field,
+                "source": {"path": self.path.to_string_lossy(), "line": self.line, "column": self.column}
+            }),
+            serializer,
+        )
     }
 }
 
@@ -62,7 +76,8 @@ impl DiagnosticReport {
         self.diagnostics.push(diagnostic);
     }
 
-    pub(crate) fn one(diagnostic: Diagnostic) -> Self {
+    #[must_use]
+    pub fn one(diagnostic: Diagnostic) -> Self {
         Self {
             diagnostics: vec![diagnostic],
         }

@@ -1091,7 +1091,7 @@ mod tests {
         let input = BASIC.replace("250.0", "-1.0");
         let report = parse(&input, Path::new("bad-frequency.env")).unwrap_err();
         let diagnostic = &report.diagnostics()[0];
-        assert_eq!(diagnostic.field.as_deref(), Some("frequency"));
+        assert_eq!(diagnostic.field.as_deref(), Some("frequency_hz"));
         assert_eq!(diagnostic.location.line, 3);
     }
 

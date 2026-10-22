@@ -418,17 +418,28 @@ pub fn load_case_document_named(
     bytes: &[u8],
     source_path: &Path,
 ) -> Result<LoadOutcome<Case>, DocumentError> {
-    let document: CaseDocument = serde_json::from_slice(bytes).map_err(|error| {
-        let diagnostic = Diagnostic::error(
+    let mut decoder = serde_json::Deserializer::from_slice(bytes);
+    let document: CaseDocument =
+        serde_path_to_error::deserialize(&mut decoder).map_err(|error| {
+            let diagnostic = Diagnostic::error(
+                "BH0103",
+                format!("invalid JSON case: {error}"),
+                error.path().to_string(),
+                SourceLocation::new(source_path, error.inner().line(), error.inner().column()),
+            );
+            DocumentError {
+                kind: DocumentErrorKind::Malformed,
+                report: DiagnosticReport::from_diagnostic(diagnostic),
+            }
+        })?;
+    decoder.end().map_err(|error| DocumentError {
+        kind: DocumentErrorKind::Malformed,
+        report: DiagnosticReport::from_diagnostic(Diagnostic::error(
             "BH0103",
             format!("invalid JSON case: {error}"),
             "json",
             SourceLocation::new(source_path, error.line(), error.column()),
-        );
-        DocumentError {
-            kind: DocumentErrorKind::Malformed,
-            report: DiagnosticReport::from_diagnostic(diagnostic),
-        }
+        )),
     })?;
     document.into_case(source_path)
 }
