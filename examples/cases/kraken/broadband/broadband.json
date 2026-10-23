@@ -1,0 +1,5459 @@
+{
+  "schema_version": 1,
+  "frequencies": [
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 50.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 51.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 52.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 53.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 54.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 55.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 56.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 57.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 58.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 59.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 60.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 61.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 62.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 63.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 64.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 65.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 66.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 67.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 68.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 69.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 70.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 71.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 72.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 73.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 74.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 75.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 76.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 77.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 78.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 79.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 80.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 81.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 82.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 83.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 84.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 85.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 86.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 87.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 88.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 89.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 90.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 91.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 92.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 93.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 94.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 95.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 96.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 97.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 98.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 99.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 100.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 101.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 102.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 103.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 104.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 105.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 106.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 107.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 108.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 109.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 110.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 111.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 112.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 113.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 114.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 115.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 116.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 117.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 118.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 119.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 120.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 121.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 122.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 123.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 124.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 125.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 126.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 127.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 128.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 129.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 130.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 131.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 132.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 133.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 134.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 135.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 136.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 137.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 138.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 139.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 140.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 141.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 142.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 143.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 144.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 145.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 146.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 147.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 148.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 149.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    },
+    {
+      "propagation": "range_independent",
+      "profile_ranges_m": [0.0],
+      "profiles": [
+        {
+          "title": "Pekeris waveguide: 101 frequencies for pulse synthesis",
+          "mode_solver": "kraken",
+          "frequency_hz": 150.0,
+          "mesh_reference_frequency_hz": 50.0,
+          "water_depth_m": 100.0,
+          "interpolation": "n2_linear",
+          "surface_boundary": {
+            "type": "vacuum"
+          },
+          "surface_sound_speed_mps": 0.0,
+          "surface_density_g_cm3": 0.0,
+          "surface_attenuation_db_per_wavelength": 0.0,
+          "sound_speed_profile": [
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
+          ],
+          "water_density_g_cm3": 1.0,
+          "water_attenuation_db_per_wavelength": [],
+          "additional_fluid_layers": [],
+          "top_elastic_layers": [],
+          "bottom_elastic_layers": [],
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
+          "bottom_sound_speed_mps": 1700.0,
+          "bottom_density_g_cm3": 1.5,
+          "bottom_attenuation_db_per_wavelength": 0.8,
+          "source_geometry": "point",
+          "mode_addition": "coherent",
+          "source_pattern": [],
+          "mesh_points": 101,
+          "c_low_mps": 1400.0,
+          "c_high_mps": 1700.0,
+          "max_range_m": 1000000.0,
+          "mode_sample_depths_m": [25.0, 50.0],
+          "mode_limit": 9999,
+          "source_depths_m": [25.0],
+          "receiver_depths_m": [50.0],
+          "receiver_ranges_m": [5000.0],
+          "receiver_offsets_m": [0.0]
+        }
+      ]
+    }
+  ]
+}

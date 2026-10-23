@@ -3,7 +3,7 @@
 This is the modern adapter for the **currently supported** KRAKEN/KRAKENC and
 2D FIELD workflows, not a new numerical support matrix. It is independent of
 [BELLHOP JSON](../bellhop/json.md), which has different physics and fields.
-[Complete Pekeris example](../../examples/kraken-pekeris.json).
+[Complete Pekeris example](../../examples/cases/kraken/pekeris/pekeris.json).
 
 ```console
 pelagic kraken export case.env --solver krakenc > case.json

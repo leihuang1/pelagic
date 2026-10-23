@@ -24,7 +24,7 @@ catch exception
     ds = pelagic.diagnostics(exception);
     assert(strcmp(ds(1).field, 'json'));
 end
-[c, load_diagnostics] = pelagic.bellhop.load(fullfile(root, 'examples', 'field-g.json'));
+[c, load_diagnostics] = pelagic.bellhop.load(fullfile(root, 'examples', 'cases', 'bellhop', 'field-g', 'field-g.json'));
 assert(~isempty(load_diagnostics) && strcmp(load_diagnostics{1}.severity, 'warning'));
 assert(isnumeric(c.positions.receiver_ranges_m));
 assert(max(c.positions.receiver_ranges_m) > 0);
@@ -55,7 +55,7 @@ catch exception
     assert(strcmp(ds(1).severity, 'error'));
     assert(strcmp(ds(1).field, 'frequency_hz'));
 end
-c = pelagic.kraken.load(fullfile(root, 'examples', 'kraken-pekeris.json'));
+c = pelagic.kraken.load(fullfile(root, 'examples', 'cases', 'kraken', 'pekeris', 'pekeris.json'));
 c.frequencies{2} = c.frequencies{1};
 r = pelagic.kraken.run(c);
 assert(numel(r.frequencies) == 2);
@@ -77,7 +77,7 @@ if ~ispc
     assert(javaObject('java.io.File', wrapper).setExecutable(true, true));
     setenv('PELAGIC_CLI', wrapper);
     pelagic.version(); pelagic.version();
-    pelagic.bellhop.load(fullfile(root, 'examples', 'field-g.json'));
+    pelagic.bellhop.load(fullfile(root, 'examples', 'cases', 'bellhop', 'field-g', 'field-g.json'));
     calls = regexp(strtrim(fileread(log)), '\n', 'split');
     assert(numel(calls) == 2, 'expected one version check and one export, got %d calls', numel(calls));
 end

@@ -30,24 +30,26 @@ in. To build from source, see [CONTRIBUTING](https://github.com/leihuang1/pelagi
 
 ## Quick start
 
-The example cases live in
-[`examples/`](https://github.com/leihuang1/pelagic/tree/main/examples).
+These use [`munk-tl.json`](https://github.com/leihuang1/pelagic/blob/main/examples/cases/bellhop/munk-tl/munk-tl.json),
+deep-water transmission loss. [`examples/`](https://github.com/leihuang1/pelagic/blob/main/examples/README.md)
+has 24 cases, from rays and arrivals to elastic seabeds, range-dependent modes
+and broadband pulses, each with Python, MATLAB and command-line scripts.
 
 **Python**
 
 ```python
 import pelagic as pg
 
-result = pg.bellhop.load("field-g.json").run()
+result = pg.bellhop.load("munk-tl.json").run()
 pressure = result.field.pressure            # complex64, [source, depth, range]
 loss_db = result.field.transmission_loss()
-result.write_native("results/field-g")      # .shd and friends, no re-solve
+result.write_native("results/munk-tl")      # .shd and friends, no re-solve
 ```
 
 **MATLAB / Octave**
 
 ```matlab
-c = pelagic.bellhop.load('field-g.json');
+c = pelagic.bellhop.load('munk-tl.json');
 c.frequency_hz = 200;
 r = pelagic.bellhop.run(c);
 imagesc(r.ranges_m, r.depths_m, 20*log10(abs(squeeze(r.pressure(1,:,:)))));
@@ -56,7 +58,7 @@ imagesc(r.ranges_m, r.depths_m, 20*log10(abs(squeeze(r.pressure(1,:,:)))));
 **Command line**
 
 ```sh
-pelagic bellhop run field-g.json --format both --output results/field-g
+pelagic bellhop run munk-tl.json --format both --output results/munk-tl
 pelagic kraken run case.env --solver krakenc --output results/case
 ```
 
@@ -79,6 +81,8 @@ check your options against:
   [MATLAB/Octave](https://github.com/leihuang1/pelagic/blob/main/docs/guide/matlab.md) ·
   [Command line](https://github.com/leihuang1/pelagic/blob/main/docs/guide/cli.md) ·
   [HTTP service](https://github.com/leihuang1/pelagic/blob/main/docs/guide/http.md)
+- [Examples](https://github.com/leihuang1/pelagic/blob/main/examples/README.md):
+  24 cases with Python, MATLAB, command-line and HTTP scripts
 - [Troubleshooting and error codes](https://github.com/leihuang1/pelagic/blob/main/docs/guide/troubleshooting.md)
 - [Full documentation index](https://github.com/leihuang1/pelagic/blob/main/docs/README.md),
   including file formats and JSON schemas

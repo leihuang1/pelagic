@@ -94,8 +94,14 @@ With MATLAB installed locally (it need not be on `PATH`):
 
 ```sh
 PELAGIC_CLI="$PWD/target/release/pelagic" matlab -batch \
-  "addpath('matlab/tests'); test_bindings; test_curated"
+  "addpath('matlab/tests'); test_bindings; test_curated; test_examples"
 ```
+
+`python/tests/test_examples.py` and `matlab/tests/test_examples.m` keep
+`examples/` working. They check that every case's JSON equals its Toolbox
+files, run every case and every script, and run the command-line scripts
+(bash, or PowerShell on Windows) when `PELAGIC_CLI` is set. After changing a
+case's Toolbox files, regenerate its JSON with `python3 tools/export-examples.py`.
 
 Install the `test` extra for h5py, notebook and optional conversion checks. The
 `arlpy` extra enables its separate bridge test (otherwise explicitly skipped).

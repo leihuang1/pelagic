@@ -194,6 +194,10 @@ not the numerics. Numerical correctness comes from the
   (smoke, geometry, codec, failures), and `test_curated.m`, which round-trips
   every curated fixture through the MATLAB codec.
 - **Notebook:** `examples/notebooks/bindings-gallery.ipynb` is executed.
+- **Examples:** every case in `examples/cases` must match its Toolbox files and
+  run, and every Python, MATLAB and command-line example script must run
+  (`test_examples.py`, `test_examples.m`). Examples use only public interfaces,
+  so they also catch accidental API changes.
 - **arlpy bridge:** tested separately against arlpy 1.9.
 
 Locally: see [testing](testing.md#language-adapter-checks).

@@ -17,14 +17,19 @@ can switch later without changing results.
 
 ## Get an example case
 
-The commands below use [`field-g.json`](../examples/field-g.json), a small
-BELLHOP pressure-field case. [`kraken-pekeris.json`](../examples/kraken-pekeris.json)
-is a small KRAKEN case. Download them, or clone the repository:
+The commands below use two cases from the [examples](../examples/README.md):
+[`munk-tl.json`](../examples/cases/bellhop/munk-tl/munk-tl.json), BELLHOP
+transmission loss in the deep-water Munk sound channel, and
+[`munk-modes.json`](../examples/cases/kraken/munk-modes/munk-modes.json), the
+same channel's normal modes from KRAKEN. Download them:
 
 ```sh
-curl -LO https://raw.githubusercontent.com/leihuang1/pelagic/main/examples/field-g.json
-curl -LO https://raw.githubusercontent.com/leihuang1/pelagic/main/examples/kraken-pekeris.json
+curl -LO https://raw.githubusercontent.com/leihuang1/pelagic/main/examples/cases/bellhop/munk-tl/munk-tl.json
+curl -LO https://raw.githubusercontent.com/leihuang1/pelagic/main/examples/cases/kraken/munk-modes/munk-modes.json
 ```
+
+Or clone the repository to get all 24 example cases, with Python, MATLAB and
+command-line scripts for each: `git clone https://github.com/leihuang1/pelagic.git`.
 
 You can also use your own Acoustics Toolbox files. See
 [Using existing Toolbox files](#using-existing-toolbox-files).
@@ -39,11 +44,11 @@ python -c "import pelagic; print(pelagic.__version__)"
 ```python
 import pelagic as pg
 
-result = pg.bellhop.load("field-g.json").run()
-print(result.field.pressure.shape)          # (sources, depths, ranges)
+result = pg.bellhop.load("munk-tl.json").run()
+print(result.field.pressure.shape)          # (1, 201, 501): sources, depths, ranges
 
-modes = pg.kraken.load("kraken-pekeris.json").run()
-print(modes.frequencies[0].profiles[0].modes.wavenumbers)
+modes = pg.kraken.load("munk-modes.json").run().frequencies[0].profiles[0].modes
+print(len(modes.wavenumbers), "modes")      # 102 modes
 ```
 
 Optional extras add conversions and plotting:
@@ -61,9 +66,9 @@ You need MATLAB R2023a or newer, with Java enabled (the default).
 
 ```matlab
 pelagic.version()        % reports the version and the pinned reference
-c = pelagic.bellhop.load('field-g.json');
+c = pelagic.bellhop.load('munk-tl.json');
 r = pelagic.bellhop.run(c);
-size(r.pressure)
+size(r.pressure)         % 1 201 501
 ```
 
 The toolbox includes the `pelagic` program for every supported platform, so
@@ -110,17 +115,15 @@ shasum -a 256 -c pelagic-vX.Y.Z-macos-arm64.tar.gz.sha256   # optional check
 tar -xzf pelagic-vX.Y.Z-macos-arm64.tar.gz
 cd pelagic-vX.Y.Z-macos-arm64
 ./pelagic version
-./pelagic bellhop run ../field-g.json --output ../results/field-g
+./pelagic bellhop run ../munk-tl.json --output ../results/munk-tl
 ```
 
 On Windows, extract the ZIP and run `.\pelagic.exe version` in PowerShell.
 To run `pelagic` from any directory, move it onto your `PATH`.
 
-You will see `warning[BH1003]: coherent run may use too few beams`. The
-example deliberately uses only 7 beams to keep it small. Warnings never stop a
-run. The output directory now contains `field-g.shd` (readable by the
-Toolbox's MATLAB plotting scripts), a `field-g.prt` run report and a small
-ownership manifest. Add `--format hdf5` or `--format both` for an HDF5 file. Continue
+The output directory now contains `munk-tl.shd` (readable by the Toolbox's
+MATLAB plotting scripts, such as `plotshd`), a `munk-tl.prt` run report and a
+small ownership manifest. Add `--format hdf5` or `--format both` for an HDF5 file. Continue
 with the [command-line guide](guide/cli.md).
 
 If macOS says the program "cannot be opened", see
@@ -163,5 +166,7 @@ The JSON formats are documented in [BELLHOP JSON](bellhop/json.md) and
   [BELLHOP](bellhop/compatibility.md), [KRAKEN/KRAKENC](kraken/compatibility.md).
 - Learn the output files: [native files and result directories](guide/native-output.md),
   [BELLHOP HDF5](guide/bellhop-hdf5.md), [KRAKEN HDF5](guide/kraken-hdf5.md).
-- Explore the [notebook gallery](../examples/notebooks/bindings-gallery.ipynb).
+- Work through the [examples](../examples/README.md): rays, arrivals, modes,
+  range-dependent and broadband problems, sweeps, and building cases from
+  scratch, in Python, MATLAB and the command line.
 - Something went wrong? See [Troubleshooting](guide/troubleshooting.md).

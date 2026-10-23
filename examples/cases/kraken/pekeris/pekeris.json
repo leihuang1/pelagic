@@ -12,20 +12,30 @@
           "mesh_reference_frequency_hz": null,
           "water_depth_m": 100.0,
           "interpolation": "n2_linear",
-          "surface_boundary": {"type": "vacuum"},
+          "surface_boundary": {
+            "type": "vacuum"
+          },
           "surface_sound_speed_mps": 0.0,
           "surface_density_g_cm3": 0.0,
           "surface_attenuation_db_per_wavelength": 0.0,
           "sound_speed_profile": [
-            {"depth_m": 0.0, "sound_speed_mps": 1500.0},
-            {"depth_m": 100.0, "sound_speed_mps": 1500.0}
+            {
+              "depth_m": 0.0,
+              "sound_speed_mps": 1500.0
+            },
+            {
+              "depth_m": 100.0,
+              "sound_speed_mps": 1500.0
+            }
           ],
           "water_density_g_cm3": 1.0,
           "water_attenuation_db_per_wavelength": [],
           "additional_fluid_layers": [],
           "top_elastic_layers": [],
           "bottom_elastic_layers": [],
-          "bottom_boundary": {"type": "fluid_half_space"},
+          "bottom_boundary": {
+            "type": "fluid_half_space"
+          },
           "bottom_sound_speed_mps": 1700.0,
           "bottom_density_g_cm3": 1.5,
           "bottom_attenuation_db_per_wavelength": 0.0,

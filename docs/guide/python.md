@@ -2,6 +2,9 @@
 
 The `pelagic` package runs BELLHOP and KRAKEN/KRAKENC inside Python and returns
 NumPy arrays. It does not need the command-line program, HDF5 or a Fortran build.
+The file names below are [example cases](../../examples/README.md#cases); the
+[Python examples](../../examples/README.md#python-scripts) show each topic as a
+complete, runnable script.
 
 ```sh
 python -m pip install pelagic
@@ -23,7 +26,7 @@ required dependency. Optional extras:
 ```python
 import pelagic as pg
 
-case = pg.bellhop.load("field-g.json")   # or a legacy .env file
+case = pg.bellhop.load("munk-tl.json")   # or a legacy .env file
 result = case.run()
 ```
 
@@ -91,7 +94,7 @@ table = result.arrivals.to_pandas()   # one row per arrival (needs pandas)
 KRAKEN always computes modes and the FIELD pressure together.
 
 ```python
-result = pg.kraken.load("kraken-pekeris.json").run()
+result = pg.kraken.load("munk-modes.json").run()
 block = result.frequencies[0]           # one entry per input frequency, in order
 modes = block.profiles[0].modes         # one entry per range profile
 modes.wavenumbers                       # complex128 [mode], rad/m
@@ -148,7 +151,7 @@ or write your own file with h5py.
 order:
 
 ```python
-base = pg.bellhop.load("field-g.json").to_dict()
+base = pg.bellhop.load("munk-tl.json").to_dict()
 
 def at(frequency):
     spec = dict(base, frequency_hz=frequency)

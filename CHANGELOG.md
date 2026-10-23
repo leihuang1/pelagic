@@ -7,9 +7,27 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
-- Documentation reorganized: getting started, separate Python, MATLAB and CLI
-  guides, troubleshooting with error codes, and maintainer guides for releases
-  and interface stability.
+- **Examples:** 24 ready-to-run cases, each as Acoustics Toolbox files and as
+  JSON. They cover rays, eigenrays, arrivals, bathymetry and altimetry,
+  reflection tables, beam patterns, elastic, layered, ice-covered and rough
+  boundaries, leaky modes, range-dependent adiabatic and coupled modes, and
+  broadband pulses. There are 16 Python, 8 MATLAB, command-line and HTTP
+  scripts, all run in CI.
+- **Documentation reorganized:** getting started, separate Python, MATLAB and
+  CLI guides, troubleshooting with error codes, and maintainer guides for
+  releases and interface stability.
+
+**Fixed**
+
+- The arlpy backend returned wrong range coordinates (the DataFrame's columns)
+  from `compute_transmission_loss`. arlpy 1.9 reads receiver ranges as float32,
+  but Toolbox v2023.5 `.shd` files store them as float64. Pressure values were
+  correct.
+
+**Compatibility**
+
+- `examples/field-g.json` moved to `examples/cases/bellhop/field-g/field-g.json`,
+  and `examples/kraken-pekeris.json` to `examples/cases/kraken/pekeris/pekeris.json`.
 
 ## 0.4.0 — 2026-10-23
 

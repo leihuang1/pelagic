@@ -14,6 +14,8 @@ def test_explicit_arlpy_backend_does_not_spawn_bellhop(monkeypatch):
     field = pm.compute_transmission_loss(env, model="pelagic")
     assert field.shape == (2, 3)
     assert np.iscomplexobj(field.values)
+    assert list(field.index) == [5, 10]
+    assert list(field.columns) == [100, 200, 300]
     rays = pm.compute_rays(env, model="pelagic")
     assert len(rays) == 101
     arrivals = pm.compute_arrivals(env, model="pelagic")

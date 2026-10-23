@@ -1,0 +1,13 @@
+'Pekeris broadband: one receiver at 5 km'
+'RA'				! point source
+9999				! number of modes to use
+1				! NPROF
+0.0 /				! RPROF (km)
+1				! NR
+5.0 /				! R (km)
+1				! NSD
+25.0 /				! SD (m)
+1				! NRD
+50.0 /				! RD (m)
+1				! NRR
+0.0 /				! receiver range offsets (m)

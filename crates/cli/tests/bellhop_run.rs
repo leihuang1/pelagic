@@ -22,7 +22,11 @@ fn run(input: &Path, output: &Path, format: &str) -> Output {
 fn run_protects_primary_and_consumed_auxiliary_inputs_including_symlinks() {
     let root = directory("inputs");
     let json = root.join("case.json");
-    fs::write(&json, include_bytes!("../../../examples/field-g.json")).unwrap();
+    fs::write(
+        &json,
+        include_bytes!("../../../examples/cases/bellhop/field-g/field-g.json"),
+    )
+    .unwrap();
     let mut pairs = vec![(json.clone(), vec![json])];
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../bellhop/tests/fixtures/golden");
     for (name, extensions) in [
@@ -97,7 +101,11 @@ fn run_protects_primary_and_consumed_auxiliary_inputs_including_symlinks() {
 fn run_updates_only_owned_artifacts_and_preserves_unowned_scratch() {
     let root = directory("publication");
     let input = root.join("case.json");
-    fs::write(&input, include_bytes!("../../../examples/field-g.json")).unwrap();
+    fs::write(
+        &input,
+        include_bytes!("../../../examples/cases/bellhop/field-g/field-g.json"),
+    )
+    .unwrap();
     let output = root.join("results");
     fs::create_dir(&output).unwrap();
     fs::write(output.join("case.h5"), b"unowned result").unwrap();

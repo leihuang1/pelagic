@@ -68,6 +68,7 @@ jobs:
         run: |
           python -m pip install 'arlpy>=1.9,<2'
           python -m pytest python/tests/test_arlpy.py -q
+          python -m pytest python/tests/test_examples.py -q -k arlpy_backend
       - name: Verify dependency license snapshots
         if: matrix.platform == 'linux-x64'
         shell: bash
@@ -149,7 +150,7 @@ jobs:
         with: {release: R2025b}
       - uses: matlab-actions/run-command@v2
         with:
-          command: addpath('matlab/tests'); test_bindings; test_curated
+          command: addpath('matlab/tests'); test_bindings; test_curated; test_examples
       - name: Package the toolbox once, from the Linux runner
         if: runner.os == 'Linux'
         uses: matlab-actions/run-command@v2

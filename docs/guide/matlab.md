@@ -1,7 +1,9 @@
 # MATLAB and Octave guide
 
 The Pelagic toolbox runs BELLHOP and KRAKEN/KRAKENC from MATLAB or GNU Octave.
-Cases are plain structs, and results are plain structs of numeric arrays.
+Cases are plain structs, and results are plain structs of numeric arrays. The
+[MATLAB examples](../../examples/README.md#matlaboctave-scripts) are complete,
+runnable scripts for each topic below.
 
 ## Install
 
@@ -23,7 +25,7 @@ pelagic.version()
 ## Load, change and run a case
 
 ```matlab
-c = pelagic.bellhop.load('field-g.json');        % or a legacy .env file
+c = pelagic.bellhop.load('munk-tl.json');        % or a legacy .env file
 c.frequency_hz = 200;
 c.positions.receiver_ranges_m = linspace(0, 10e3, 501);
 r = pelagic.bellhop.run(c);

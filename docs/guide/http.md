@@ -51,7 +51,7 @@ Example:
 ```console
 curl --fail-with-body \
   -H 'Content-Type: application/json' \
-  --data-binary @examples/field-g.json \
+  --data-binary @examples/cases/bellhop/field-g/field-g.json \
   http://localhost:8080/v1/run \
   --output result.h5
 ```
@@ -111,7 +111,7 @@ are retained. Floating-point values use the solver's native precision.
 Example using the included field case with its run kind changed to arrivals:
 
 ```console
-jq '.run.kind = "arrivals"' examples/field-g.json |
+jq '.run.kind = "arrivals"' examples/cases/bellhop/field-g/field-g.json |
   curl --fail-with-body \
     -H 'Content-Type: application/json' \
     --data-binary @- \
@@ -169,7 +169,7 @@ response instead.
 ```console
 curl --fail-with-body \
   -H 'Content-Type: application/json' \
-  --data-binary @examples/field-g.json \
+  --data-binary @examples/cases/bellhop/field-g/field-g.json \
   http://localhost:8080/v1/field
 ```
 

@@ -7,6 +7,7 @@ New to Pelagic? Start with [Getting started](getting-started.md).
 | I want to… | Read |
 | --- | --- |
 | Install Pelagic and run a first case | [Getting started](getting-started.md) |
+| See complete, runnable examples | [Examples](../examples/README.md) |
 | Use it from Python | [Python guide](guide/python.md) |
 | Use it from MATLAB or Octave | [MATLAB/Octave guide](guide/matlab.md) |
 | Run it from the command line or a script | [Command-line guide](guide/cli.md) |

@@ -119,6 +119,11 @@ Rely on `code`, `severity` and `field`; message wording can change. The
 compatibility promises behind these formats are listed in the
 [interface contract](../development/interface-contract.md).
 
+For complete scripts, see [`run-all.sh`](../../examples/cli/run-all.sh)
+(every example case, from JSON and from Toolbox files),
+[`pipeline.sh`](../../examples/cli/pipeline.sh) (stdin, diagnostics, versions)
+and [`read_hdf5.py`](../../examples/cli/read_hdf5.py).
+
 ## HTTP service
 
 The separate `pelagic-server` program serves BELLHOP over HTTP. See the

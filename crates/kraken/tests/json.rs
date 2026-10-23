@@ -37,8 +37,10 @@ fn accepted_legacy_fixtures_round_trip_without_changing_case_definitions() {
             count += 1;
         }
     }
-    let example =
-        json::load_case_document(include_bytes!("../../../examples/kraken-pekeris.json")).unwrap();
+    let example = json::load_case_document(include_bytes!(
+        "../../../examples/cases/kraken/pekeris/pekeris.json"
+    ))
+    .unwrap();
     let env = fixture("Pekeris");
     assert_eq!(
         example,

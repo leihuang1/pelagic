@@ -4,7 +4,7 @@ Schema version 1 is the modern input format for the CLI and HTTP service. It
 represents one complete two-dimensional case in a single document; no
 same-stem auxiliary files are resolved for JSON inputs.
 
-See [`examples/field-g.json`](../../examples/field-g.json) for a complete example.
+See [`examples/cases/bellhop/field-g/field-g.json`](../../examples/cases/bellhop/field-g/field-g.json) for a complete example.
 The server's generated OpenAPI document at `/openapi.json` is the exhaustive
 machine-readable schema.
 

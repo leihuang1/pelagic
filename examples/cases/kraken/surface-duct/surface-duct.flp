@@ -1,0 +1,13 @@
+'Surface duct: trapped modes'
+'RA'				! point source, adiabatic (one profile)
+9999				! number of modes to use
+1				! NPROF
+0.0 /				! RPROF (km)
+501				! NR
+0.0 20.0 /			! R(1:NR) (km)
+1				! NSD
+25.0 /				! SD (m)
+401				! NRD
+0.0 4000.0 /			! RD (m)
+401				! NRR
+0.0 /				! receiver range offsets (m)

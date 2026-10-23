@@ -20,6 +20,7 @@ fixes and code are all welcome.
 | `crates/server` | The BELLHOP-only `pelagic-server` HTTP service |
 | `crates/python`, `python/pelagic` | Python extension (Rust) and package (Python) |
 | `matlab/` | MATLAB/Octave toolbox and its tests |
+| `examples/` | User-facing cases and scripts, all run in CI ([catalogue](examples/README.md)) |
 | `tools/reference/` | Fortran reference image and comparison scripts ([catalogue](tools/README.md)) |
 | `crates/*/tests/fixtures/golden/` | Committed Fortran reference results, with provenance ledgers |
 | `docs/` | User guides, model references and maintainer docs ([index](docs/README.md)) |
@@ -67,8 +68,10 @@ python3 tools/check-docs.py
 RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --all-features --no-deps
 ```
 
-If you changed Python or MATLAB code, also run the
-[adapter checks](docs/development/testing.md#language-adapter-checks).
+If you changed Python or MATLAB code, or anything under `examples/`, also run
+the [adapter checks](docs/development/testing.md#language-adapter-checks).
+[Adding an example](examples/README.md#adding-an-example) lists the steps for a
+new case or script.
 
 ## Conventions
 
@@ -117,6 +120,7 @@ Each fact has one home. Link to it rather than copying it:
 | Measured numerical results | `docs/development/*-business-coverage.md` |
 | How to run checks and acceptance | `docs/development/testing.md`, `docs/development/reference-workflows.md` |
 | How to release | `docs/development/releasing.md` |
+| Runnable examples and their cases | `examples/README.md`, `examples/cases/catalog.json` |
 | Exact case lists | The scripts in `tools/reference/`, never copied into docs |
 | Past investigations | `docs/history/`, which is not updated |
 
