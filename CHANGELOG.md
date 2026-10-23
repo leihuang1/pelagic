@@ -5,7 +5,7 @@ are on the [releases page](https://github.com/leihuang1/pelagic/releases).
 Changes to public interfaces are listed under **Compatibility**. The rules are
 in the [interface contract](docs/development/interface-contract.md).
 
-## Unreleased
+## 0.4.1 — 2026-10-23
 
 - **Examples:** 24 ready-to-run cases, each as Acoustics Toolbox files and as
   JSON. They cover rays, eigenrays, arrivals, bathymetry and altimetry,
