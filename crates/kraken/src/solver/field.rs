@@ -47,6 +47,7 @@ fn solve_field_with_limit(
     case: &FieldCase,
     root_limit: &mut usize,
 ) -> Result<ProfileSimulationResult, DiagnosticReport> {
+    crate::cancellation::check()?;
     if case.propagation == FieldPropagation::RangeIndependent {
         let result = crate::solver::solve_with_limit(&case.profiles[0], *root_limit)?;
         *root_limit = result.modes.modes.len();
@@ -131,8 +132,8 @@ fn solve_field_with_limit(
         let block = &mut pressure[source * samples / first.source_depths_m.len()
             ..(source + 1) * samples / first.source_depths_m.len()];
         match case.propagation {
-            FieldPropagation::Adiabatic => adiabatic(case, &modes, &excitation, block),
-            FieldPropagation::Coupled => coupled(case, &modes, &excitation, block),
+            FieldPropagation::Adiabatic => adiabatic(case, &modes, &excitation, block)?,
+            FieldPropagation::Coupled => coupled(case, &modes, &excitation, block)?,
             FieldPropagation::RangeIndependent => unreachable!(),
         }
     }
@@ -187,7 +188,7 @@ fn adiabatic(
     modes: &[ModeSet],
     excitation: &[Complex32],
     pressure: &mut [Complex64],
-) {
+) -> Result<(), DiagnosticReport> {
     let first = &case.profiles[0];
     let mut count = excitation.len().min(modes[1].modes.len());
     let constants: Vec<_> = excitation.iter().map(|s| double(factor() * s)).collect();
@@ -195,6 +196,7 @@ fn adiabatic(
     let mut segment = 0;
     let mut previous = 0.0_f64;
     for (ir, &range) in first.receiver_ranges_m.iter().enumerate() {
+        crate::cancellation::check()?;
         let mut left = previous.max(case.ranges_m[segment]);
         while segment + 1 < modes.len() && range > case.ranges_m[segment + 1] {
             let boundary = case.ranges_m[segment + 1];
@@ -273,6 +275,7 @@ fn adiabatic(
         }
         previous = range;
     }
+    Ok(())
 }
 
 fn integrate(
@@ -305,7 +308,7 @@ fn coupled(
     modes: &[ModeSet],
     excitation: &[Complex32],
     pressure: &mut [Complex64],
-) {
+) -> Result<(), DiagnosticReport> {
     let first = &case.profiles[0];
     let mut a: Vec<_> = excitation
         .iter()
@@ -322,6 +325,7 @@ fn coupled(
     let mut segment = 0;
     let mut previous = 0.0;
     for (ir, &range) in first.receiver_ranges_m.iter().enumerate() {
+        crate::cancellation::check()?;
         while segment + 1 < modes.len()
             && range > case.ranges_m[segment].midpoint(case.ranges_m[segment + 1])
         {
@@ -333,7 +337,7 @@ fn coupled(
                 &modes[segment],
                 &modes[segment + 1],
                 &a,
-            );
+            )?;
             previous = boundary;
             segment += 1;
         }
@@ -353,6 +357,7 @@ fn coupled(
         }
         previous = range;
     }
+    Ok(())
 }
 
 fn advance(a: &mut [Complex32], modes: &ModeSet, distance: f64) {
@@ -405,7 +410,7 @@ fn project(
     lm: &ModeSet,
     rm: &ModeSet,
     a: &[Complex32],
-) -> Vec<Complex32> {
+) -> Result<Vec<Complex32>, DiagnosticReport> {
     let mut z: Vec<_> = rm.sampled_depths_m.iter().map(|&z| z as f32).collect();
     for &depth in &lm.sampled_depths_m {
         if depth as f32 > *z.last().unwrap_or(&0.0) {
@@ -428,6 +433,7 @@ fn project(
     let mut density = layers[0].density as f32;
     let mut p = Vec::with_capacity(z.len());
     for (iz, &depth) in z.iter().enumerate() {
+        crate::cancellation::check()?;
         if depth < top {
             density = right.surface_density_g_cm3 as f32;
         } else if depth > bottom {
@@ -483,6 +489,7 @@ fn project(
     rm.modes
         .iter()
         .map(|mode| {
+            crate::cancellation::check()?;
             let mut sum: Complex32 = p
                 .iter()
                 .enumerate()
@@ -542,7 +549,7 @@ fn project(
                     sum += fr * tail;
                 }
             }
-            sum
+            Ok(sum)
         })
         .collect()
 }

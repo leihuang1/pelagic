@@ -67,6 +67,7 @@ pub(super) fn solve(case: &Case) -> Result<ModeSet, DiagnosticReport> {
     let mut refinement = crate::solver::refinement::Refinement::<Complex64>::default();
     let mut work = 0;
     for multiplier in crate::solver::refinement::MULTIPLIERS {
+        crate::cancellation::check()?;
         let layers = crate::solver::layers::mesh_layers(case, multiplier)?;
         let h = layers[0].h;
         let mut min_speed = f64::INFINITY;
@@ -487,6 +488,7 @@ fn secant(
     work: &mut usize,
 ) -> Result<Complex64, DiagnosticReport> {
     let mut evaluate = |x| {
+        crate::cancellation::check()?;
         let table_work: usize = [&bottom.case.bottom_boundary, &bottom.case.surface_boundary]
             .iter()
             .map(|boundary| match boundary {

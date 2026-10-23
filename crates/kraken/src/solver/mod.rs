@@ -34,6 +34,7 @@ pub(super) fn solve_with_limit(
     case: &Case,
     root_limit: usize,
 ) -> Result<SimulationResult, DiagnosticReport> {
+    crate::cancellation::check()?;
     let modes = solve_modes(case, root_limit)?;
     let field = synthesize_field(case, &modes)?;
     Ok(SimulationResult { modes, field })
@@ -114,6 +115,7 @@ fn synthesize_field(case: &Case, mode_set: &ModeSet) -> Result<PressureField, Di
                 })
                 .collect();
             for &range in &case.receiver_ranges_m {
+                crate::cancellation::check()?;
                 let mut value = Complex32::new(0.0, 0.0);
                 for ((mode, source_shape), receiver_shape) in mode_set
                     .modes
