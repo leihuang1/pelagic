@@ -1082,7 +1082,7 @@ mod tests {
 
     use super::{HDF5_MEDIA_TYPE, ServerConfig, app};
 
-    const CASE: &str = include_str!("../../../examples/field-g.json");
+    const CASE: &str = include_str!("../../../examples/cases/bellhop/field-g/field-g.json");
 
     fn json_request(path: &str, body: impl Into<Body>) -> Request<Body> {
         Request::builder()

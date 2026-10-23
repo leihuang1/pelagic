@@ -1,21 +1,15 @@
 # Pelagic: acoustics inputs and results
 
-Vocabulary for Pelagic's independent BELLHOP and KRAKEN/KRAKENC Modules. Their validated models, numerical Implementations and HDF5 schemas remain separate. See [architecture](docs/development/architecture.md) and the [documentation index](docs/README.md).
+Shared vocabulary for code, docs and reviews. Use these terms with exactly these
+meanings, and avoid the listed alternatives. For structure, see
+[architecture](docs/development/architecture.md); for public promises, the
+[interface contract](docs/development/interface-contract.md).
 
-The `pelagic` CLI, BELLHOP-only `pelagic-server`, in-process Python binding and
-CLI-driven MATLAB/Octave toolbox are separate Adapters. Python's immutable result
-snapshot can publish native files without HDF5, a CLI process or another solve;
-`native-output` shares those writers and protected directory publication.
-Language adapters share each Module's JSON v1 contract and Rust validation.
-KRAKEN documents keep ordered frequencies and profiles, not modes-only inputs.
-See the [bindings contract](docs/guide/bindings.md).
-
-The `pelagic` CLI and BELLHOP-only `pelagic-server` remain independent. CLI calculation publishes native/HDF5/both products in protected result directories; HTTP keeps its existing single-response HDF5/JSON contract.
-
-## Current numerical-validation scope
-
-Full numerical validation uses the existing macOS host and pinned Linux-container
-workflows. See [testing policy](docs/development/testing.md#current-numerical-validation-scope).
+BELLHOP and KRAKEN/KRAKENC are independent **Modules**, with separate models,
+numerical implementations, JSON schemas and HDF5 schemas. The `pelagic` CLI,
+the BELLHOP-only `pelagic-server`, the in-process Python binding and the
+CLI-driven MATLAB/Octave toolbox are **Adapters** over them. Adapters share each
+Module's JSON v1 contract and Rust validation, and add no physics.
 
 ## Language
 

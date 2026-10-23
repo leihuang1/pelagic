@@ -8,7 +8,7 @@ are created. The old single-file CLI path and `--overwrite` flag are gone.
 The BELLHOP-only [HTTP adapter](http.md) and its response formats are unchanged.
 
 ```sh
-pelagic bellhop run examples/field-g.json --output results/field --format both
+pelagic bellhop run examples/cases/bellhop/field-g/field-g.json --output results/field --format both
 pelagic kraken run crates/kraken/tests/fixtures/Pekeris.env --output results/pekeris --format both
 # results/pekeris/{Pekeris.mod,Pekeris.shd,Pekeris.h5,Pekeris.prt,pelagic-manifest.json}
 ```

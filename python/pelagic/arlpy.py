@@ -34,7 +34,10 @@ class _Pelagic:
                 return adapter._load_arrivals(stem)
             if task in ("rays", "eigenrays"):
                 return adapter._load_rays(stem)
-            return adapter._load_shd(stem)
+            field = adapter._load_shd(stem)
+            # arlpy 1.9 reads SHD receiver ranges as float32; v2023.5 SHD stores float64.
+            field.columns = result.field.ranges_m.copy()
+            return field
 
 
 def register():

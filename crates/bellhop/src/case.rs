@@ -910,7 +910,7 @@ fn location(
 mod tests {
     use super::Case;
 
-    const CASE: &[u8] = include_bytes!("../../../examples/field-g.json");
+    const CASE: &[u8] = include_bytes!("../../../examples/cases/bellhop/field-g/field-g.json");
 
     #[test]
     fn f64_depth_on_fractional_boundary_is_valid() {

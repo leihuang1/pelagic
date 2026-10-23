@@ -25,11 +25,11 @@ fn version_and_stdin_use_the_public_machine_contract() {
     for (model, bytes) in [
         (
             "bellhop",
-            include_bytes!("../../../examples/field-g.json").as_slice(),
+            include_bytes!("../../../examples/cases/bellhop/field-g/field-g.json").as_slice(),
         ),
         (
             "kraken",
-            include_bytes!("../../../examples/kraken-pekeris.json").as_slice(),
+            include_bytes!("../../../examples/cases/kraken/pekeris/pekeris.json").as_slice(),
         ),
     ] {
         let output = stdin_command(model, "export", bytes);
@@ -58,8 +58,8 @@ fn version_and_stdin_use_the_public_machine_contract() {
 
 #[test]
 fn kraken_validate_names_the_validated_input() {
-    let example =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/kraken-pekeris.json");
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/cases/kraken/pekeris/pekeris.json");
     let output = Command::new(env!("CARGO_BIN_EXE_pelagic"))
         .args(["kraken", "validate"])
         .arg(&example)
@@ -68,11 +68,11 @@ fn kraken_validate_names_the_validated_input() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.starts_with("valid 2D KRAKEN case: "), "{stdout}");
-    assert!(stdout.contains("kraken-pekeris.json"), "{stdout}");
+    assert!(stdout.contains("pekeris.json"), "{stdout}");
     let output = stdin_command(
         "kraken",
         "validate",
-        include_bytes!("../../../examples/kraken-pekeris.json"),
+        include_bytes!("../../../examples/cases/kraken/pekeris/pekeris.json"),
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("stdin.json"));
 }

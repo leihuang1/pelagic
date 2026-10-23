@@ -192,7 +192,7 @@ JSON products are not new Fortran goldens.
   Their bounded evidence does not replace the strict official differentials.
 - `probe-layered-refinement.py` is a retained historical diagnostic, not an
   acceptance oracle. Its altered products cannot replace goldens; see the
-  [three-layer diagnosis](krakenc-three-layer-refinement.md).
+  [three-layer diagnosis](../history/krakenc-three-layer-refinement.md).
 
 ## BELLHOP focused comparisons
 

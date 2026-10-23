@@ -1,0 +1,13 @@
+'Deep water over an elastic sediment'
+'RA'				! point source, adiabatic (one profile)
+9999				! number of modes to use
+1				! NPROF
+0.0 /				! RPROF (km)
+501				! NR
+0.0 200.0 /			! R(1:NR) (km)
+1				! NSD
+500.0 /				! SD (m)
+201				! NRD
+0.0 5000.0 /			! RD (m)
+201				! NRR
+0.0 /				! receiver range offsets (m)

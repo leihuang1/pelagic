@@ -1,17 +1,14 @@
-# Distribution preparation
+# Packaging
 
-The binding workflow produces abi3 wheels, a source archive, matching CLI artifacts
-and a MATLAB toolbox. On a published GitHub release, once every test job passes, it
-uploads the wheels and sdist to PyPI and attaches `pelagic-vX.Y.Z-<platform>.tar.gz`
-(macOS/Linux CLIs) and `pelagic-vX.Y.Z.mltbx`, each with a `.sha256`, to the
-release; `release.yml` attaches the Windows ZIP. Both refuse a tag other than
-`v<matlab/VERSION>`. It does not register the PyPI project, configure its trusted
-publisher, submit a conda-forge feedstock, or create a MATLAB File Exchange listing.
-Those are maintainer release actions. Keep the workspace version, `matlab/VERSION`,
-`CITATION.cff` and release tag in sync. A version bump also changes the workspace
-crates' entries in both dependency-notice snapshots below; regenerate them (or
-update those `package_version` fields) or the license check fails. Run clean-commit numerical acceptance before
-release; adapter parity alone is not independent Fortran acceptance.
+How release artifacts are built, and the files that ship with them. The
+step-by-step release procedure is the [release checklist](../docs/development/releasing.md).
+
+| Artifact | Built by |
+| --- | --- |
+| Windows CLI ZIP | `.github/workflows/release.yml` |
+| macOS/Linux CLI archives, MATLAB toolbox | `.github/workflows/bindings.yml` (`release-assets`) |
+| Python wheels and sdist (PyPI) | `.github/workflows/bindings.yml` (`wheels`, `sdist`, `publish-pypi`) |
+| conda-forge recipe (not yet submitted) | [`conda/meta.yaml`](conda/meta.yaml) |
 
 ## Dependency notices
 

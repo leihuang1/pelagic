@@ -73,7 +73,7 @@ builds it using the existing static HDF5 dependency. See the [CLI guide](cli.md)
 
 Exit 0 and successful HDF5 publication certify completion, not fixed-oracle
 parity for arbitrary inputs. The former
-[wide three-layer refinement exception](../development/krakenc-three-layer-refinement.md) is fixed:
+[wide three-layer refinement exception](../history/krakenc-three-layer-refinement.md) is fixed:
 its natural four-mode KRAKENC spectrum and complete legacy/JSON HDF5 products now
 pass the pinned reference. This does not add a runtime parity-certification flag.
 
