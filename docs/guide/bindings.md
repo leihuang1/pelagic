@@ -252,11 +252,22 @@ CI. MATLAB/Octave run shared smoke, geometry, transport and failure tests, and
 compare all curated inputs before/after MATLAB JSON transport. Full
 numerical release acceptance remains required on the release commit.
 
+Before publishing, bump the workspace, MATLAB VERSION and CITATION.cff together;
+configure the PyPI trusted publisher/environment; verify ownership of the PyPI
+name; run all platform jobs and full numerical acceptance. The conda recipe under
+`packaging/conda` needs the **published** version/sdist SHA and feedstock review.
+`tools/stage-matlab.py` verifies every CLI checksum before toolbox assembly.
+MATLAB File Exchange listing is a separate maintainer action: review its current
+license/submission terms before uploading GPL software. Do not relicense this
+project as BSD merely to satisfy an upload form.
+
 ## License and citation
 
 GPL-3.0-or-later remains unchanged. Private use, including running your own scripts,
 is permitted; redistribution of modified or combined software may carry GPL
 obligations. Importing the module is not a blanket exception to those obligations.
 See LICENSE and the bundled dependency notices; obtain legal advice for a specific
-redistribution arrangement. Cite the exact release using [CITATION.cff](../../CITATION.cff), and retain input
+redistribution arrangement. [Packaging instructions](../../packaging/README.md)
+explain notice regeneration and release-only maintainer steps.
+Cite the exact release using [CITATION.cff](../../CITATION.cff), and retain input
 and result provenance. No release DOI is fabricated by the bindings.
