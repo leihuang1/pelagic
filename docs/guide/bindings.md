@@ -1,7 +1,7 @@
-# Python adapter and machine protocol
+# Python and MATLAB/Octave adapters
 
 These adapters expose the existing supported numerical subset, not new physics.
-Python runs Rust in-process and does not duplicate
+Python runs Rust in-process. MATLAB uses a version-matched CLI. Neither duplicates
 acoustic validation. BELLHOP and KRAKEN retain **separate** JSON v1 contracts,
 shared unchanged across languages; input schema versions are not HDF5 versions.
 
@@ -148,6 +148,53 @@ path, not a filename. Warnings use `PelagicWarning` and remain on Cases/results;
 a warning does not normally fail a run. Users may elect Python's warning-as-error
 policy. Diagnostic text is not a machine-readable API.
 
+## MATLAB and Octave
+
+Install the built `.mltbx`, or add the checkout's `matlab/` directory to your path.
+Set `PELAGIC_CLI` to an explicitly chosen matching executable, otherwise the
+adapter tries its bundled platform binary, then `pelagic` on PATH. Bundled Linux
+CLIs are built on Ubuntu 22.04 (x86-64) / 24.04 (ARM64); older distributions may
+need a matching locally built CLI. Every operation
+checks the CLI version/protocol; it never silently downloads or updates software.
+The process adapter uses Java `ProcessBuilder`, not shell command interpolation;
+MATLAB/Octave therefore need Java enabled. Octave must be 7 or newer (for
+`jsonencode`/`jsondecode`) and additionally needs HDF5-enabled
+`load`; it uses that built-in when MATLAB's `h5read` is unavailable.
+
+```matlab
+addpath('matlab');
+c = pelagic.bellhop.load('examples/field-g.json');
+c.frequency_hz = 200;
+r = pelagic.bellhop.run(c);
+imagesc(r.ranges_m, r.depths_m, squeeze(r.pressure(1,:,:)));
+
+c = pelagic.kraken.load('pekeris.env', 'solver', 'krakenc');
+r = pelagic.kraken.run(c);
+modes = r.frequencies{1}.profiles{1}.modes;
+```
+
+**JSON arrays from `load` are cell arrays**, preserving singleton arrays and nested
+frequency/profile collections. MATLAB `jsondecode` alone erases singleton-array
+identity, so it cannot be blindly re-encoded. When constructing a struct manually,
+use `{50}` rather than `50` for a one-element JSON vector, and cells for sequences
+of objects. JSON null uses scalar NaN in this transport representation, matching
+`jsonencode`'s null encoding. Acoustic validation remains solely in Rust. The
+adapter works around Octave JSON parser/writer precision loss (including tiny
+nonzero values incorrectly encoded as zero). Use `result.provenance.case_json`
+for the executed JSON snapshot; do not assume Octave's bare `jsonencode` gives an
+exact acoustic round-trip.
+
+`[case, diagnostics] = pelagic.bellhop.load(...)` (or `kraken.load`) retains all
+load warnings in the optional second output; run diagnostics are in the result.
+Pressure logical axes match Python. MATLAB's trailing singleton dimensions are
+implicitly present (`size(p,3)` remains valid); the adapter does not apply `squeeze`.
+KRAKEN eigenfunctions are `[sample_depth,mode]`. Ragged MATLAB products retain the
+HDF5 flattened arrays and **zero-based offsets**; add one when indexing MATLAB.
+Temporary inputs/results are exclusively owned and cleaned on handled failures.
+Errors have an identifier such as `pelagic:BH0201`; call `pelagic.diagnostics(err)`
+to recover all structured records, including severity and field. Plain struct
+results use MATLAB value semantics; changing them does not rewrite a saved file.
+
 ## Machine CLI protocol
 
 - `pelagic {bellhop|kraken} {validate|export|run} -` reads JSON from stdin, never
@@ -201,7 +248,8 @@ adapter comparison uses a CLI with the same dynamic C runtime as the wheel. The
 separately packaged standalone CLI retains a static C runtime; its math routines
 can differ in the last bits, so cross-runtime byte identity is not promised.
 The [notebook gallery](../../examples/notebooks/bindings-gallery.ipynb) executes in
-CI. Full
+CI. MATLAB/Octave run shared smoke, geometry, transport and failure tests, and
+compare all curated inputs before/after MATLAB JSON transport. Full
 numerical release acceptance remains required on the release commit.
 
 ## License and citation

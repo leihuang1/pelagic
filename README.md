@@ -103,7 +103,7 @@ For output schemas and examples, use the [documentation index](docs/README.md).
 For how numerical comparisons are made and reproduced, see
 [reference verification](docs/development/reference.md).
 
-## Python
+## Python and MATLAB
 
 Python calls the Rust solvers in-process and returns immutable NumPy results;
 native files can be written from those results without a CLI or HDF5 dependency.
@@ -116,7 +116,9 @@ pressure = result.field.pressure  # [source, depth, range], complex64
 result.write_native("results/python")
 ```
 
-See the [bindings guide](docs/guide/bindings.md) for installation, array axes, diagnostics, parallel sweeps and release status.
+The MATLAB/Octave adapter under `matlab/` drives a version-matched CLI and reads
+its HDF5 products. See the [bindings guide](docs/guide/bindings.md) for installation,
+JSON struct encoding, array axes, diagnostics, parallel sweeps and release status.
 The [executable gallery](examples/notebooks/bindings-gallery.ipynb) includes pinned
 Fortran comparisons. Use [CITATION.cff](CITATION.cff) to cite a release.
 

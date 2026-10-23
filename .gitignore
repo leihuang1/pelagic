@@ -5,6 +5,8 @@ __pycache__/
 *.egg-info/
 /python/pelagic/_core*.so
 /python/pelagic/_core*.pyd
+/matlab/bin/
+*.mltbx
 *.h5
 *.h5.tmp
 *.prt
