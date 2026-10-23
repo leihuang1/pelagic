@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use Pelagic in research, cite the exact software release and record the result provenance."
+title: "Pelagic: two-dimensional underwater acoustics"
+type: software
+authors:
+  - name: "Pelagic contributors"
+version: "0.3.0"
+license: GPL-3.0-or-later
+repository-code: "https://github.com/leihuang1/pelagic"
+url: "https://github.com/leihuang1/pelagic"
+keywords:
+  - underwater acoustics
+  - BELLHOP
+  - KRAKEN
+  - reproducibility

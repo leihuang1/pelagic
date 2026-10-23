@@ -4,6 +4,7 @@ members = [
     "crates/kraken",
     "crates/output",
     "crates/native-output",
+    "crates/python",
     "crates/cli",
     "crates/server",
 ]

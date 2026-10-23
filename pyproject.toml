@@ -1,0 +1,33 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "pelagic"
+dynamic = ["version"]
+description = "In-process BELLHOP and KRAKEN underwater acoustics"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "GPL-3.0-or-later"
+dependencies = ["numpy>=1.23.5,<3"]
+classifiers = ["Programming Language :: Rust", "Topic :: Scientific/Engineering :: Physics"]
+
+[project.optional-dependencies]
+pandas = ["pandas>=1.5"]
+xarray = ["xarray>=2023.1"]
+arlpy = ["arlpy>=1.9,<2"]
+examples = ["matplotlib>=3.7", "ipykernel>=6"]
+test = ["pytest>=7", "h5py>=3.8", "pandas>=1.5", "xarray>=2023.1", "nbclient>=0.8", "ipykernel>=6", "matplotlib>=3.7"]
+
+[project.urls]
+Repository = "https://github.com/leihuang1/pelagic"
+
+[tool.maturin]
+manifest-path = "crates/python/Cargo.toml"
+python-source = "python"
+module-name = "pelagic._core"
+features = ["pyo3/extension-module"]
+include = ["LICENSE", "NOTICE"]
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]

@@ -80,6 +80,22 @@ Detailed fixtures and derivations stay in the golden ledgers and
 [KRAKEN checkpoint history](kraken-checkpoints.md); the executable full matrix
 stays in the acceptance script. Do not duplicate their changing case lists here.
 
+## Language adapter checks
+
+Build the extension in a virtual environment with `maturin develop --release`,
+build the CLI with `cargo build --release -p cli`, then run:
+
+```sh
+PELAGIC_CLI="$PWD/target/release/pelagic" python -m pytest python/tests -q
+```
+
+Install the `test` extra for h5py, notebook and optional conversion checks. The
+`arlpy` extra enables its separate bridge test (otherwise explicitly skipped).
+The bindings workflow builds abi3 wheels on the five requested OS/architecture
+combinations, exercises Python 3.9/NumPy 1.26 and current Python/NumPy, runs the
+notebook. Workflow
+definitions are not evidence of successful remote runs; record actual results.
+
 ## Before every release
 
 Run [`tools/reference/full-acceptance.sh`](../../tools/reference/full-acceptance.sh)

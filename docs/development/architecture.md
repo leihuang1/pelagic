@@ -1,11 +1,12 @@
 # Pelagic architecture
 
-Six internal, unpublished crates:
+Seven workspace crates (Rust crates remain unpublished; Python is packaged separately):
 
 ```text
 cli (pelagic) ──> bellhop, kraken, output
 server (pelagic-server) ──> bellhop, output
 output ──> bellhop, kraken, native-output
+python (pelagic._core) ──> bellhop, kraken, native-output
 native-output ──> bellhop, kraken
 ```
 
@@ -41,7 +42,7 @@ Neither introduces solver-independent transport models.
 `directory.rs` and its file-group safety tests; `output` re-exports the directory
 API for existing callers. It has no HDF5 dependency. BELLHOP's borrowed
 `result::FieldGrid` centralizes depth-major pressure iteration for native SHD and
-in-memory adapters without changing the range-major solver/HDF5 representation. ARR retains
+Python without changing the range-major solver/HDF5 representation. ARR retains
 its own record ordering.
 KRAKEN exposes its existing first-mesh interval policy for MOD metadata rather
 than duplicating that algorithm. One ordered frequency iterator writes both
@@ -53,6 +54,12 @@ publisher stays available to existing Rust callers. HTTP still uses private
 HDF5 files and its unchanged protocol; it never adopts CLI defaults.
 See the [exact publication scope and native layouts](../guide/native-output.md).
 HDF5 schemas, precision and numerical contents are unchanged.
+
+Python wraps validated immutable Cases and original results, with read-only NumPy
+snapshots and in-process native serialization. Solver-local thread-scoped
+cancellation checks add no language dependencies or new physics. Independent cases
+may run concurrently; KRAKEN frequency blocks retain ordered solver state. See the
+[public bindings contract](../guide/bindings.md).
 
 PR 1 isolated structural changes; PR 2 adds native adapters, format selection
 and safe result-directory updates as an independently checked capability.

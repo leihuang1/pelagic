@@ -54,6 +54,8 @@ JSON from stdin (not ENV text). Example:
 pelagic --diagnostics json bellhop run - --format hdf5 --output results/stdin < case.json
 ```
 
+See the [binding/machine contract](bindings.md) for version policy and adapters.
+
 ## Output and failures
 
 `--format legacy|hdf5|both` defaults to `legacy`; `both` never solves twice.
