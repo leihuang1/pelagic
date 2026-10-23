@@ -1,0 +1,47 @@
+{% set version = environ["PELAGIC_VERSION"] %}
+{% set sha256 = environ["PELAGIC_SDIST_SHA256"] %}
+
+package:
+  name: pelagic
+  version: {{ version }}
+
+source:
+  url: https://pypi.org/packages/source/p/pelagic/pelagic-{{ version }}.tar.gz
+  sha256: {{ sha256 }}
+
+build:
+  number: 0
+  script: {{ PYTHON }} -m pip install . --no-deps --no-build-isolation -vv
+
+requirements:
+  build:
+    - {{ compiler('c') }}
+    - {{ compiler('rust') }}
+    - {{ stdlib('c') }}
+  host:
+    - python >=3.9
+    - pip
+    - maturin >=1.9,<2
+  run:
+    - python >=3.9
+    - numpy >=1.23.5,<3
+
+test:
+  imports:
+    - pelagic
+    - pelagic.bellhop
+    - pelagic.kraken
+  commands:
+    - python -c "import pelagic; assert pelagic.case_schema_versions == {'bellhop':1,'kraken':1}"
+
+about:
+  home: https://github.com/leihuang1/pelagic
+  summary: In-process BELLHOP and KRAKEN underwater acoustics
+  license: GPL-3.0-or-later
+  license_file:
+    - LICENSE
+    - python/pelagic/THIRD-PARTY-LICENSES.json
+
+extra:
+  recipe-maintainers:
+    - leihuang1
