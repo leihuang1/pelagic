@@ -13,29 +13,7 @@ assert(fid >= 0, 'pelagic:PG0001', 'Cannot open stdin scratch');
 count = fwrite(fid, unicode2native(input, 'UTF-8'), 'uint8');
 closed = fclose(fid);
 assert(count == numel(unicode2native(input, 'UTF-8')) && closed == 0, 'pelagic:PG0001', 'Cannot write stdin');
-cli = getenv('PELAGIC_CLI');
-if isempty(cli)
-    base = fileparts(fileparts(fileparts(mfilename('fullpath'))));
-    if ispc, platform = 'windows-x64'; name = 'pelagic.exe';
-    elseif ismac
-        if ~isempty(strfind(computer, 'A64')) || ~isempty(strfind(computer, 'aarch64')), platform = 'macos-arm64';
-        else, platform = 'macos-x64'; end
-        name = 'pelagic';
-    else
-        if ~isempty(strfind(computer, 'aarch64')) || ~isempty(strfind(computer, 'arm64')), platform = 'linux-arm64';
-        else, platform = 'linux-x64'; end
-        name = 'pelagic';
-    end
-    cli = fullfile(base, 'bin', platform, name);
-    if ~isfile(cli), cli = name;
-    elseif ~ispc
-        % Toolbox archives discard Unix execute bits; repair only our bundled binary.
-        file = javaObject('java.io.File', cli);
-        assert(file.canExecute() || file.setExecutable(true, true), 'pelagic:PG0001', ...
-            'Cannot make bundled CLI executable; set PELAGIC_CLI to an installed binary');
-    end
-end
-args = [{cli, '--diagnostics', 'json'}, request];
+args = [{pelagic.internal.cli(), '--diagnostics', 'json'}, request];
 command = javaArray('java.lang.String', numel(args));
 for k = 1:numel(args), command(k) = javaObject('java.lang.String', char(args{k})); end
 builder = javaObject('java.lang.ProcessBuilder', command);

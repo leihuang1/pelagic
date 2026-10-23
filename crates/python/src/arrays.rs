@@ -1,22 +1,79 @@
 //! Result conversion only: no validation, solver arithmetic or interpolation in this adapter.
-use numpy::IntoPyArray;
+use numpy::{Complex32, Complex64};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyBytes, PyDict, PyList};
 
-fn array<T: numpy::Element>(
+/// A value written as explicit little-endian bytes; `NumPy` reads it back with `DTYPE`.
+trait Raw {
+    const DTYPE: &'static str;
+    const SIZE: usize;
+    fn put(self, out: &mut [u8]);
+}
+macro_rules! raw {
+    ($type:ty, $dtype:literal) => {
+        impl Raw for $type {
+            const DTYPE: &'static str = $dtype;
+            const SIZE: usize = size_of::<$type>();
+            fn put(self, out: &mut [u8]) {
+                out.copy_from_slice(&self.to_le_bytes());
+            }
+        }
+    };
+}
+raw!(f64, "<f8");
+raw!(f32, "<f4");
+raw!(u32, "<u4");
+raw!(u64, "<u8");
+impl Raw for Complex32 {
+    const DTYPE: &'static str = "<c8";
+    const SIZE: usize = 8;
+    fn put(self, out: &mut [u8]) {
+        self.re.put(&mut out[..4]);
+        self.im.put(&mut out[4..]);
+    }
+}
+impl Raw for Complex64 {
+    const DTYPE: &'static str = "<c16";
+    const SIZE: usize = 16;
+    fn put(self, out: &mut [u8]) {
+        self.re.put(&mut out[..8]);
+        self.im.put(&mut out[8..]);
+    }
+}
+
+/// Write values once, directly into immutable Python bytes, then view them as an array.
+/// The bytes object backs every public array, so `setflags(write=True)` must also fail.
+fn array<T: Raw>(
     py: Python<'_>,
-    values: Vec<T>,
+    values: impl IntoIterator<Item = T>,
     shape: Vec<usize>,
 ) -> PyResult<Bound<'_, PyAny>> {
-    let array = values.into_pyarray(py);
-    // Immutable bytes back every public array: setflags(write=True) must also fail.
-    let bytes = array.call_method0("tobytes")?;
+    let length = shape
+        .iter()
+        .try_fold(T::SIZE, |total, &axis| total.checked_mul(axis))
+        .ok_or_else(|| PyValueError::new_err("array shape overflow"))?;
+    let mut values = values.into_iter();
+    let bytes = PyBytes::new_with(py, length, |buffer| {
+        for slot in buffer.chunks_exact_mut(T::SIZE) {
+            values
+                .next()
+                .ok_or_else(|| PyValueError::new_err("array has fewer values than its shape"))?
+                .put(slot);
+        }
+        Ok(())
+    })?;
+    if values.next().is_some() {
+        return Err(PyValueError::new_err(
+            "array has more values than its shape",
+        ));
+    }
     py.import("numpy")?
         .getattr("frombuffer")?
-        .call1((bytes, array.getattr("dtype")?))?
+        .call1((bytes, T::DTYPE))?
         .call_method1("reshape", (shape,))
 }
-fn vector<T: numpy::Element>(py: Python<'_>, values: Vec<T>) -> PyResult<Bound<'_, PyAny>> {
+fn vector<T: Raw>(py: Python<'_>, values: Vec<T>) -> PyResult<Bound<'_, PyAny>> {
     let len = values.len();
     array(py, values, vec![len])
 }
@@ -45,10 +102,7 @@ pub(super) fn bellhop<'py>(
                 "rectilinear"
             },
         )?;
-        field.set_item(
-            "pressure",
-            array(py, grid.pressures().collect(), grid.shape())?,
-        )?;
+        field.set_item("pressure", array(py, grid.pressures(), grid.shape())?)?;
         field.set_item(
             "ranges_m",
             vector(py, case.environment.positions.receiver_ranges_m.clone())?,
@@ -94,20 +148,16 @@ fn trajectory<'py>(
     ray: &bellhop::result::RayTrajectory,
 ) -> PyResult<Bound<'py, PyDict>> {
     let item = PyDict::new(py);
-    let points = ray
-        .points
-        .iter()
-        .flat_map(|p| {
-            [
-                p.range_m,
-                p.depth_m,
-                p.travel_time_s,
-                p.attenuation_time_s,
-                p.amplitude,
-                p.phase_radians,
-            ]
-        })
-        .collect();
+    let points = ray.points.iter().flat_map(|p| {
+        [
+            p.range_m,
+            p.depth_m,
+            p.travel_time_s,
+            p.attenuation_time_s,
+            p.amplitude,
+            p.phase_radians,
+        ]
+    });
     item.set_item("points", array(py, points, vec![ray.points.len(), 6])?)?;
     item.set_item("source_index", source)?;
     item.set_item("source_depth_m", depth)?;
@@ -203,8 +253,7 @@ pub(super) fn kraken<'py>(
                 )?,
             )?;
             let shapes = (0..modes.sampled_depths_m.len())
-                .flat_map(|depth| modes.modes.iter().map(move |m| m.eigenfunction[depth]))
-                .collect();
+                .flat_map(|depth| modes.modes.iter().map(move |m| m.eigenfunction[depth]));
             set.set_item(
                 "eigenfunctions",
                 array(
@@ -237,8 +286,7 @@ pub(super) fn kraken<'py>(
                 py,
                 f.pressure
                     .iter()
-                    .map(|p| numpy::Complex32::new(p.re as f32, p.im as f32))
-                    .collect(),
+                    .map(|p| Complex32::new(p.re as f32, p.im as f32)),
                 vec![
                     f.source_depths_m.len(),
                     f.receiver_depths_m.len(),

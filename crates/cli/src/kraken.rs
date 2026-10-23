@@ -65,9 +65,7 @@ impl From<Solver> for kraken::ModeSolver {
 
 pub fn execute(command: Command, diagnostics: crate::Diagnostics) -> ExitCode {
     let result = match command {
-        Command::Validate { case, flp, solver } => {
-            load_cases(&case, flp, solver).map(|_| println!("valid KRAKEN case"))
-        }
+        Command::Validate { case, flp, solver } => validate(&case, flp, solver),
         Command::Run {
             case,
             flp,
@@ -164,6 +162,18 @@ pub fn execute(command: Command, diagnostics: crate::Diagnostics) -> ExitCode {
             })
         }
     }
+}
+
+fn validate(path: &Path, flp: Option<PathBuf>, solver: Option<Solver>) -> Result<(), RunError> {
+    let cases = load_cases(path, flp, solver)?;
+    println!(
+        "valid 2D KRAKEN case: {} ({:?}; frequencies={}, profiles={})",
+        source_path(path).display(),
+        cases[0].profiles()[0].mode_solver,
+        cases.len(),
+        cases[0].profiles().len()
+    );
+    Ok(())
 }
 
 fn source_path(path: &Path) -> &Path {

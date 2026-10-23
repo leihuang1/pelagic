@@ -46,3 +46,41 @@ def test_matlab_staging_checks_every_platform_before_copying(tmp_path):
     with pytest.raises(ValueError, match="checksum mismatch"):
         stage.stage(tmp_path, tmp_path / "failed")
     assert not (tmp_path / "failed").exists()
+
+
+def test_matlab_array_fields_match_the_json_contract():
+    """MATLAB encodes these members as arrays even when a user assigns a scalar."""
+    import json
+    import re
+    from test_bindings import cli
+    listed = set(re.findall(r"'([a-z0-9_]+)'", (ROOT / "matlab/+pelagic/+internal/array_fields.m").read_text()))
+    # Authoritative: flat numeric vectors in the serde types behind each JSON v1 schema.
+    declared = set()
+    for source in ("crates/bellhop/src/input/json.rs", "crates/kraken/src/input/json.rs", "crates/kraken/src/model.rs"):
+        declared |= set(re.findall(r"pub ([a-z0-9_]+): Vec<f64>,", (ROOT / source).read_text()))
+    assert listed == declared
+    # Observed: every exported curated document agrees, and no listed name is ever a scalar.
+    arrays, scalars = set(), set()
+    def walk(value, key=None):
+        if isinstance(value, dict):
+            for name, item in value.items():
+                walk(item, name)
+        elif isinstance(value, list):
+            if value and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in value):
+                arrays.add(key)
+            for item in value:
+                walk(item)
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            scalars.add(key)
+    exported = 0
+    for model, folder, solvers in (("bellhop", "crates/bellhop/tests/fixtures", [[]]),
+                                   ("kraken", "crates/kraken/tests/fixtures", [["--solver", "kraken"], ["--solver", "krakenc"]])):
+        for env in sorted((ROOT / folder).rglob("*.env")):
+            for solver in solvers:
+                run = cli(model, "export", env, *solver)
+                if run.returncode == 0:
+                    walk(json.loads(run.stdout))
+                    exported += 1
+    assert exported > 300
+    assert arrays - {None} <= listed
+    assert not listed & scalars

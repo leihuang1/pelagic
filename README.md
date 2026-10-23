@@ -26,6 +26,21 @@ Each ZIP is accompanied by a SHA-256 checksum file. The archive includes license
 notices and build information identifying the exact source commit. It contains
 the CLI; the optional HTTP server is built separately.
 
+### macOS and Linux
+
+Releases after v0.3.0 also include `pelagic-vX.Y.Z-<platform>.tar.gz` for
+`macos-arm64`, `macos-x64`, `linux-x64` and `linux-arm64`. Download one, check it against its
+`.sha256` file, extract it and run `./pelagic`. The macOS binaries are not
+notarized: if Gatekeeper blocks a downloaded copy, run
+`xattr -d com.apple.quarantine pelagic` once. Linux binaries are built on
+Ubuntu 22.04 (x86-64) and 24.04 (ARM64).
+
+### Python wheels and MATLAB toolbox
+
+Releases after v0.3.0 publish Python wheels to PyPI (`python -m pip install pelagic`)
+and attach the MATLAB/Octave toolbox `pelagic-vX.Y.Z.mltbx`, which bundles the
+matching CLI. Until then, build both from a checkout. See [Python and MATLAB](#python-and-matlab).
+
 ### Build from source
 
 Install Rust, a C/C++ build toolchain and **CMake**. Development and CI use the

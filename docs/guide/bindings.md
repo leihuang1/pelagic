@@ -150,12 +150,14 @@ policy. Diagnostic text is not a machine-readable API.
 
 ## MATLAB and Octave
 
-Install the built `.mltbx`, or add the checkout's `matlab/` directory to your path.
+Install `pelagic-vX.Y.Z.mltbx` from a GitHub release (it bundles the matching CLI for
+all five platforms), or add the checkout's `matlab/` directory to your path.
 Set `PELAGIC_CLI` to an explicitly chosen matching executable, otherwise the
 adapter tries its bundled platform binary, then `pelagic` on PATH. Bundled Linux
 CLIs are built on Ubuntu 22.04 (x86-64) / 24.04 (ARM64); older distributions may
-need a matching locally built CLI. Every operation
-checks the CLI version/protocol; it never silently downloads or updates software.
+need a matching locally built CLI. The CLI version/protocol is checked once per
+CLI file (path, size, modification time), so sweeps do not start an extra process
+per call; it never silently downloads or updates software.
 The process adapter uses Java `ProcessBuilder`, not shell command interpolation;
 MATLAB/Octave therefore need Java enabled. Octave must be 7 or newer (for
 `jsonencode`/`jsondecode`) and additionally needs HDF5-enabled
@@ -173,16 +175,18 @@ r = pelagic.kraken.run(c);
 modes = r.frequencies{1}.profiles{1}.modes;
 ```
 
-**JSON arrays from `load` are cell arrays**, preserving singleton arrays and nested
-frequency/profile collections. MATLAB `jsondecode` alone erases singleton-array
-identity, so it cannot be blindly re-encoded. When constructing a struct manually,
-use `{50}` rather than `50` for a one-element JSON vector, and cells for sequences
-of objects. JSON null uses scalar NaN in this transport representation, matching
-`jsonencode`'s null encoding. Acoustic validation remains solely in Rust. The
-adapter works around Octave JSON parser/writer precision loss (including tiny
-nonzero values incorrectly encoded as zero). Use `result.provenance.case_json`
-for the executed JSON snapshot; do not assume Octave's bare `jsonencode` gives an
-exact acoustic round-trip.
+**Numeric JSON arrays from `load` are numeric row vectors**, so
+`max(c.positions.receiver_ranges_m)` and `c.positions.receiver_ranges_m = linspace(0, 1e4, 501)`
+both work. The schema's array members (listed in `pelagic.internal.array_fields`)
+are always written back as JSON arrays, so a scalar such as
+`c.positions.source_depths_m = 25` sends `[25]`; vectors of either orientation are
+accepted, and the older `{20, 30}` cell spelling still works. Arrays of objects
+(KRAKEN `frequencies`, `profiles`, boundary points) and nested rows such as
+`speeds_mps` are cell arrays; empty arrays are `{}` so they can be appended to.
+JSON null is scalar NaN. Acoustic validation remains solely in Rust. MATLAB and
+Octave share one round-trip JSON writer (`%.17g`), which also avoids Octave's
+`jsonencode` flushing tiny nonzero values to zero. Use `result.provenance.case_json`
+for the executed JSON snapshot.
 
 `[case, diagnostics] = pelagic.bellhop.load(...)` (or `kraken.load`) retains all
 load warnings in the optional second output; run diagnostics are in the result.
