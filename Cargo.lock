@@ -890,6 +890,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "native-output"
+version = "0.3.0"
+dependencies = [
+ "bellhop",
+ "kraken",
+ "same-file",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "ndarray"
 version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -959,8 +971,8 @@ dependencies = [
  "bellhop",
  "hdf5-metno",
  "kraken",
+ "native-output",
  "same-file",
- "serde",
  "serde_json",
  "sha2 0.10.9",
 ]

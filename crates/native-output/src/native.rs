@@ -4,7 +4,10 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
-pub(crate) fn create(path: &Path) -> io::Result<BufWriter<File>> {
+/// Exclusively create a numerical artifact in an owned scratch directory.
+/// # Errors
+/// Returns filesystem errors, including an already existing destination.
+pub fn create(path: &Path) -> io::Result<BufWriter<File>> {
     OpenOptions::new()
         .write(true)
         .create_new(true)

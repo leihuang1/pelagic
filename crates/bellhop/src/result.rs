@@ -1,5 +1,71 @@
 use num_complex::Complex32;
 
+/// A borrowed field layout. Rectilinear axes are source/depth/range;
+/// irregular axes are source/paired receiver. No interpolation or padding.
+pub struct FieldGrid<'a> {
+    sources: &'a [SourceField],
+    depths: usize,
+    ranges: usize,
+    irregular: bool,
+}
+
+impl FieldGrid<'_> {
+    #[must_use]
+    pub fn shape(&self) -> Vec<usize> {
+        if self.irregular {
+            vec![self.sources.len(), self.ranges]
+        } else {
+            vec![self.sources.len(), self.depths, self.ranges]
+        }
+    }
+
+    /// Depth-major values shared by native SHD and in-memory language arrays.
+    pub fn pressures(&self) -> impl Iterator<Item = Complex32> + '_ {
+        self.sources.iter().flat_map(move |source| {
+            (0..self.depths).flat_map(move |depth| {
+                source
+                    .samples
+                    .iter()
+                    .skip(depth)
+                    .step_by(self.depths)
+                    .map(|p| p.pressure)
+            })
+        })
+    }
+}
+
+impl SimulationResult {
+    /// Borrow the validated field shape without allocating another pressure buffer.
+    /// # Errors
+    /// Rejects missing or incomplete fields instead of silently padding/truncating them.
+    pub fn field_grid(&self, case: &crate::Case) -> Result<FieldGrid<'_>, &'static str> {
+        let positions = &case.environment.positions;
+        let irregular = case.environment.run.receiver_grid == crate::model::ReceiverGrid::Irregular;
+        let depths = if irregular {
+            1
+        } else {
+            positions.receiver_depths_m.len()
+        };
+        let ranges = positions.receiver_ranges_m.len();
+        let samples = depths.checked_mul(ranges).ok_or("field shape overflow")?;
+        if depths == 0
+            || self.field_sources.len() != positions.source_depths_m.len()
+            || self
+                .field_sources
+                .iter()
+                .any(|s| s.samples.len() != samples)
+        {
+            return Err("missing or incomplete pressure field");
+        }
+        Ok(FieldGrid {
+            sources: &self.field_sources,
+            depths,
+            ranges,
+            irregular,
+        })
+    }
+}
+
 /// Results from one complete simulation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SimulationResult {

@@ -6,7 +6,10 @@ use kraken::{Boundary, Case, FieldCase, ModeSet, ModeSolver, ProfileSimulationRe
 use std::io;
 use std::path::Path;
 
-pub(crate) fn write(
+/// Serialize an existing frequency result into owned scratch; never runs the solver.
+/// # Errors
+/// Returns native representation, quota or filesystem errors.
+pub fn write(
     root: &Path,
     stem: &str,
     sequence: &FieldCase,
