@@ -149,14 +149,18 @@ jobs:
     needs: wheels
     # jsonencode/jsondecode require Octave 7+; Ubuntu 22.04 ships 6.4, 24.04 ships 8.4.
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: {name: cli-linux-x64, path: cli}
       - name: Install Octave and Java
+        timeout-minutes: 10
         run: |
+          # The hosted runner's Azure mirror can throttle large package downloads.
+          printf 'https://archive.ubuntu.com/ubuntu\n' | sudo tee /etc/apt/apt-mirrors.txt
           sudo apt-get update
-          sudo apt-get install -y octave default-jre-headless
+          sudo apt-get install -y --no-install-recommends octave default-jre-headless
           octave --no-gui --quiet --eval "assert(compare_versions(OCTAVE_VERSION, '7.0.0', '>='), 'Octave 7+ required')"
       - name: Octave uses the same adapter tests
         run: |
