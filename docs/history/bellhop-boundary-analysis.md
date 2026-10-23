@@ -3,7 +3,7 @@
 **Status (2026-10-15): recorded and deferred by operator decision.** The current
 BELLHOP implementation is accepted with known exceptions; the experimental
 Fortran patch/checker has been withdrawn, not adopted. See the
-[acceptance decision](bellhop-business-coverage.md#operator-acceptance-and-deferred-boundary-work).
+[acceptance decision](../development/bellhop-business-coverage.md#operator-acceptance-and-deferred-boundary-work).
 The findings below remain historical numerical evidence, not an active repair plan.
 
 ## Conclusion (2026-10-15 UTC)
@@ -25,7 +25,7 @@ investigation.
 The preceding numerical/tooling work was merged through
 [PR #46](https://github.com/leihuang1/pelagic/pull/46), after CI
 passed, at commit `10d5afd44ec45e9ccb7c0e7cd7243041f7d585dc`. This investigation
-starts from that commit. The [business matrix](bellhop-business-coverage.md)
+starts from that commit. The [business matrix](../development/bellhop-business-coverage.md)
 remains **205 PASS / 9 FAIL / 4 ORACLE_NONFINITE / 1 EXCLUDED_3D**; none of the
 controls below upgrades an original failure to PASS.
 

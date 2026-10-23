@@ -131,7 +131,7 @@ Current results and exceptions have one home per model:
 - [KRAKEN business coverage and independent controls](kraken-business-coverage.md)
 
 Detailed implementation-stage counts remain in the
-[KRAKEN checkpoint history](kraken-checkpoints.md) and golden ledgers. The full
+[KRAKEN checkpoint history](../history/kraken-checkpoints.md) and golden ledgers. The full
 configured case lists are executable in
 [`full-acceptance.sh`](../../tools/reference/full-acceptance.sh); broader inventories
 are discovered by the business runners. Neither list implies an untested option

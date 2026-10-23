@@ -1,0 +1,16 @@
+name: Feature request
+description: An unsupported option, model or interface you need
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you want to do
+      description: The study or workflow, and what is missing for it.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example input
+      description: If it is an Acoustics Toolbox option, an .env file that uses it helps most.

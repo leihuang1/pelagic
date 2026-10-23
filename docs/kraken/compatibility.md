@@ -46,7 +46,7 @@ Cartesian product of every option:
   KRAKENC also supports leaky intervals.
 - Limited single-frequency KRAKENC N/C bottom F/BRC, P/IRC and top F/TRC
   paths; restrictions and exact resource formats remain in the
-  [table/boundary checkpoints](../development/kraken-checkpoints.md#tabulated-krakenc-bottoms).
+  [table/boundary checkpoints](../history/kraken-checkpoints.md#tabulated-krakenc-bottoms).
 - [Elastic A half-spaces](elastic-halfspaces.md) and
   [homogeneous/depth-varying finite elastic caps](finite-elastic-layers.md),
   with the pinned real-KRAKEN stiffness/loss limitations preserved.
@@ -64,7 +64,7 @@ arrivals, HTTP and time-domain synthesis remain outside the accepted slice.
 Unsupported combinations are rejected, not silently approximated. Successful
 execution or staying under a budget is not an arbitrary-input parity certificate.
 
-[Checkpoint history and complete evidence](../development/kraken-checkpoints.md)
+[Checkpoint history and complete evidence](../history/kraken-checkpoints.md)
 retain the earlier slice boundaries, all numerical counts and historical probes.
 Later checkpoints extend earlier slices without changing the original target
 at `2a7a658:docs/kraken-compatibility.md`.

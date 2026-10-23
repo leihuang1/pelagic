@@ -142,7 +142,7 @@ and actual JSON CLI/HDF5 comparison against the same references.
 
 Interleaved solids, real elastic-top/finite-solid combinations and the other excluded
 combinations above remain outside this checkpoint. The former KRAKENC
-[three-layer refinement gap is fixed](../development/krakenc-three-layer-refinement.md);
+[three-layer refinement gap is fixed](../history/krakenc-three-layer-refinement.md);
 no new parity waiver is added.
 Separate [multi-profile FIELD](field.md) and
 [JSON](json.md) capabilities are already implemented within their

@@ -1,6 +1,9 @@
 # Development tools
 
-Executable helpers live in `tools/reference/`:
+- `check-docs.py`: every relative Markdown link and `#anchor` resolves (run in CI).
+- `stage-matlab.py`: verify CLI checksums and stage them for the MATLAB toolbox.
+
+Numerical reference helpers live in `tools/reference/`:
 
 - `full-acceptance.sh`: complete configured fresh-reference acceptance on a clean
   commit; `--allow-dirty` is diagnostic only.

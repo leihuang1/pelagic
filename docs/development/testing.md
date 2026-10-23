@@ -33,6 +33,7 @@ cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test --locked --workspace --all-features
 python3 tools/reference/verify-goldens.py
 python3 tools/reference/test-tools.py
+python3 tools/check-docs.py
 RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --all-features --no-deps
 ```
 
@@ -77,7 +78,7 @@ not current suite-size or hosted-runner guarantees.
   selections, failed processes and false-green acceptance reports.
 
 Detailed fixtures and derivations stay in the golden ledgers and
-[KRAKEN checkpoint history](kraken-checkpoints.md); the executable full matrix
+[KRAKEN checkpoint history](../history/kraken-checkpoints.md); the executable full matrix
 stays in the acceptance script. Do not duplicate their changing case lists here.
 
 ## Language adapter checks
@@ -87,6 +88,13 @@ build the CLI with `cargo build --release -p cli`, then run:
 
 ```sh
 PELAGIC_CLI="$PWD/target/release/pelagic" python -m pytest python/tests -q
+```
+
+With MATLAB installed locally (it need not be on `PATH`):
+
+```sh
+PELAGIC_CLI="$PWD/target/release/pelagic" matlab -batch \
+  "addpath('matlab/tests'); test_bindings; test_curated"
 ```
 
 Install the `test` extra for h5py, notebook and optional conversion checks. The
@@ -99,10 +107,7 @@ definitions are not evidence of successful remote runs; record actual results.
 
 ## Before every release
 
-Run [`tools/reference/full-acceptance.sh`](../../tools/reference/full-acceptance.sh)
-on the release commit. See [the full workflow and report contract](reference-workflows.md#full-pre-release-acceptance).
-It uses fresh output directories and stops on failure, retaining completed
-results and explicit NOT RUN stages. A successful prefix or focused retry is
-not a complete pass. `--allow-dirty` is diagnostic only and never release
-acceptance. Match the recorded clean, unchanged SHA to the release commit;
-the script itself neither pushes code nor publishes a release.
+Run full numerical acceptance on the merged release commit, then follow the
+rest of the [release checklist](releasing.md). The acceptance contract is in
+[reference workflows](reference-workflows.md#full-pre-release-acceptance). A
+successful prefix, a focused retry or an `--allow-dirty` run is not acceptance.

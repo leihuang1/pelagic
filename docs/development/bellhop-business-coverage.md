@@ -56,8 +56,8 @@ precision differences and original ATOC resource limits remain recorded above
 and below. Acceptance does not make those unsupported or incomplete calculations
 valid numerical results.
 
-The [boundary analysis](bellhop-boundary-analysis.md) and
-[latest-official-source review](bellhop-official-2026-review.md) remain as issue
+The [boundary analysis](../history/bellhop-boundary-analysis.md) and
+[latest-official-source review](../history/bellhop-official-2026-review.md) remain as issue
 records. Candidate evidence is archived locally at
 `target/bellhop-contact/withdrawn/` and `target/bellhop-contact/`.
 Further boundary numerical changes require reopening the deferred work explicitly.
@@ -238,7 +238,7 @@ Evidence: `linux-investigation/single-beams/`, `more-beams/`,
 These isolate a failing path in each field; they do not claim every failing cell
 has been exhaustively instrumented.
 
-The [2026-10-15 boundary follow-up](bellhop-boundary-analysis.md) adds an analytic
+The [2026-10-15 boundary follow-up](../history/bellhop-boundary-analysis.md) adds an analytic
 counterexample reproduced by both implementations, complete-field TL/phase metrics,
 and step-refinement controls. It confirms a shared numerical defect independently
 of cross-platform agreement, but does not validate or ship a production boundary

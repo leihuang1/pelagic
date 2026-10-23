@@ -91,7 +91,7 @@ FIELD synthesis and multi-profile propagation still own their intentionally
 different precision/operation grouping. N² complex-speed interpolation computes
 endpoint reciprocals before weighting, as in pinned n2Linear; weighted division
 changes cancellation-sensitive deflated search paths. The
-[three-layer refinement fix](krakenc-three-layer-refinement.md) preserves existing
+[three-layer refinement fix](../history/krakenc-three-layer-refinement.md) preserves existing
 sqrt, seed, shooting and stopping paths and reproduces the natural 5-to-4 search.
 
 `tests/refactoring.rs` characterizes the Case/load/solve Interfaces; existing

@@ -1,0 +1,41 @@
+name: Numerical difference
+description: Pelagic's results differ from Acoustics Toolbox or from an expected result
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Pelagic is compared against Acoustics Toolbox v2023.5 built with GNU Fortran 12.2
+        on Linux x86-64. Other builds differ in the last digits, especially near field nulls.
+        Please first check that your options are listed as supported in the
+        [BELLHOP](https://github.com/leihuang1/pelagic/blob/main/docs/bellhop/compatibility.md)
+        or [KRAKEN](https://github.com/leihuang1/pelagic/blob/main/docs/kraken/compatibility.md)
+        capability page.
+  - type: textarea
+    id: case
+    attributes:
+      label: Case
+      description: The .env (and .flp / auxiliary files) or JSON case.
+    validations:
+      required: true
+  - type: textarea
+    id: difference
+    attributes:
+      label: The difference
+      description: Which quantity (modes, pressure, arrivals, rays), where, and how large.
+    validations:
+      required: true
+  - type: textarea
+    id: comparison
+    attributes:
+      label: How the comparison result was produced
+      description: Toolbox version, compiler and platform, or the analytic result.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Pelagic version
+      description: Output of `pelagic version --json`
+    validations:
+      required: true

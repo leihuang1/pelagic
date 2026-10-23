@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Troubleshooting and error codes
+    url: https://github.com/leihuang1/pelagic/blob/main/docs/guide/troubleshooting.md
+    about: Common installation and run problems, and what each diagnostic code means.

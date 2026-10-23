@@ -190,7 +190,7 @@ remaining weak-field limit is not waived by its improvement.
 Use [reference workflows](reference-workflows.md) for fresh reproduction and
 `cargo test --locked -p kraken --test numerical_regressions` for committed
 independent controls. Detailed historical derivations stay in the
-[checkpoint history](kraken-checkpoints.md) and golden ledger.
+[checkpoint history](../history/kraken-checkpoints.md) and golden ledger.
 
 Local run identifiers, not files supplied by the repository:
 

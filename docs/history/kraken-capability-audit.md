@@ -5,7 +5,7 @@
 The original rejection inventory remains unchanged as baseline evidence.
 Fresh official probes also found NaN group speeds in all three real-KRAKEN
 wide-interval cases from gap 2; Rust's safety restriction has not been removed.
-The [subsequent business matrix](kraken-business-coverage.md) also records the
+The [subsequent business matrix](../development/kraken-business-coverage.md) also records the
 separated-duct root fix and complete outcomes; the input-only counts below are
 not the newer numerical results.
 
@@ -28,7 +28,7 @@ numerically assessed for KRAKEN in this stage.
 
 These are bounded capabilities, not a Cartesian-product promise. Details and
 historical evidence remain in [compatibility](../kraken/compatibility.md),
-[checkpoints](kraken-checkpoints.md) and the [implementation map](kraken-internals.md).
+[checkpoints](kraken-checkpoints.md) and the [implementation map](../development/kraken-internals.md).
 
 | Area | Baseline implementation and representative evidence |
 |---|---|
@@ -146,7 +146,7 @@ useful independent evidence, not a general elastic/leaky completeness proof.
 ## Plan recorded at that stage
 
 The following was a proposal when this audit was written. Later implementation
-and numerical outcomes are in the [business coverage record](kraken-business-coverage.md);
+and numerical outcomes are in the [business coverage record](../development/kraken-business-coverage.md);
 this is not the current work queue.
 
 1. Resolve the capability scope first. The clearest missing official physics is

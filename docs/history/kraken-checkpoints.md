@@ -5,7 +5,7 @@ and [legacy input contract and budgets](../kraken/input.md). These records retai
 accepted evidence and historical stage boundaries; they are not an alternate
 current support matrix. References below to fresh CI describe the historical
 execution schedule; the same fresh-reference matrix now runs in
-[local full pre-release acceptance](reference-workflows.md#full-pre-release-acceptance),
+[local full pre-release acceptance](../development/reference-workflows.md#full-pre-release-acceptance),
 while ordinary CI retains committed-golden regression.
 
 ## Lossy Pekeris and reference-zero comparisons (2026-10-16)
@@ -14,7 +14,7 @@ Rigid-top seed selection and complex inverse-iteration polishing now pass the
 independent lossy Pekeris controls. Exact reference-zero imaginary k uses a narrow
 comparison floor, without clamping production roots. Current matrix outcomes,
 independent controls and retained reference differences are recorded only in the
-[business coverage record](kraken-business-coverage.md).
+[business coverage record](../development/kraken-business-coverage.md).
 
 ## Rough-fluid-interface extension (2026-10-15)
 
@@ -26,7 +26,7 @@ roughness restrictions and the historical scope of earlier evidence remain.
 
 ## Separated ducts and broader business diagnostics (2026-10-15)
 
-The [numerical-fix report](kraken-business-coverage.md) records the KRAKENC
+The [numerical-fix report](../development/kraken-business-coverage.md) records the KRAKENC
 separated-duct seed correction (Sduct C/P/S: 194/194/184 modes), independent
 Sturm-count/refinement controls and unchanged 500-Hz broadband work ceiling.
 At this checkpoint the configured 27-stage diagnostic passed; the broader

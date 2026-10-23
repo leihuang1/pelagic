@@ -89,7 +89,7 @@ fixed KRAKENC case is `1.4725502861e-9`; KRAKEN's is `1.3969838619e-9`.
 Three unmodified reference runs per engine have identical MOD/SHD. The new
 `golden/layered-refinement.sha256` records two derived inputs and six artifacts;
 old inputs/goldens remain unchanged. The former fresh CI, now
-[local full acceptance](reference-workflows.md#full-pre-release-acceptance), includes
+[local full acceptance](../development/reference-workflows.md#full-pre-release-acceptance), includes
 this pair in the layered group and KRAKENC in the JSON group. Offline goldens compare complete modes and FIELD,
 not only the four-root count.
 

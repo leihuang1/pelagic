@@ -10,7 +10,7 @@ oracle, overwrite goldens, or import the whole release as a boundary fix.
 This investigation uses only official sources. No third-party solver or source
 patch was introduced. The production Rust solver and pinned reference remain
 unchanged. See the [preceding analytic investigation](bellhop-boundary-analysis.md)
-for the defect and the [business matrix](bellhop-business-coverage.md) for existing
+for the defect and the [business matrix](../development/bellhop-business-coverage.md) for existing
 compatibility evidence; its results have not been reclassified.
 
 A subsequent minimal official-source candidate passed 90 analytic controls but
@@ -19,7 +19,7 @@ On 2026-10-15 the operator requested withdrawal of that experiment and deferral
 of the boundary repair. Its patch, checker and report are archived locally under
 `target/bellhop-contact/withdrawn/`; they are not active project tools or an
 accepted oracle. Production Rust and the pinned reference were never replaced.
-See the [acceptance decision](bellhop-business-coverage.md#operator-acceptance-and-deferred-boundary-work).
+See the [acceptance decision](../development/bellhop-business-coverage.md#operator-acceptance-and-deferred-boundary-work).
 
 ## Provenance and build
 

@@ -36,5 +36,7 @@ jobs:
         run: |
           python3 tools/reference/verify-goldens.py
           python3 tools/reference/test-tools.py
+      - name: Documentation links
+        run: python3 tools/check-docs.py
       - name: Documentation build
         run: cargo doc --locked --workspace --all-features --no-deps

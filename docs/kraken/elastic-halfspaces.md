@@ -119,7 +119,7 @@ unbracketed root rather than retaining uninitialized reference output.
 The older slow-shear Scholte probes remain unaccepted: cp=3000/cs=1000 reached
 a group speed near 17344.62 m/s while pinned G14.6 prints 17344.6, outside the
 existing 0.005 comparison; cp=1800 also failed strict checks. Neither is promoted
-by this block. The former [wide layered refinement exception](../development/krakenc-three-layer-refinement.md)
+by this block. The former [wide layered refinement exception](../history/krakenc-three-layer-refinement.md)
 is fixed, and original `double` now passes its separate fluid-stack checkpoint;
 neither grants a waiver for elastic failures.
 
