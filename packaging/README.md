@@ -8,7 +8,9 @@ release; `release.yml` attaches the Windows ZIP. Both refuse a tag other than
 `v<matlab/VERSION>`. It does not register the PyPI project, configure its trusted
 publisher, submit a conda-forge feedstock, or create a MATLAB File Exchange listing.
 Those are maintainer release actions. Keep the workspace version, `matlab/VERSION`,
-`CITATION.cff` and release tag in sync. Run clean-commit numerical acceptance before
+`CITATION.cff` and release tag in sync. A version bump also changes the workspace
+crates' entries in both dependency-notice snapshots below; regenerate them (or
+update those `package_version` fields) or the license check fails. Run clean-commit numerical acceptance before
 release; adapter parity alone is not independent Fortran acceptance.
 
 ## Dependency notices
