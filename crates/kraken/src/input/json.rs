@@ -42,16 +42,21 @@ pub fn load_case_document_named(
     if bytes.len() as u64 > crate::legacy::MAX_INPUT_BYTES {
         return Err(error(path, "KR0101", "JSON input exceeds 1 MiB", "json"));
     }
-    let document: CaseDocument = serde_json::from_slice(bytes).map_err(|error| {
-        DiagnosticReport::one(Diagnostic::new(
-            "KR0103",
-            format!("invalid JSON case: {error}"),
-            "json",
-            path,
-            error.line(),
-            error.column(),
-        ))
-    })?;
+    let mut decoder = serde_json::Deserializer::from_slice(bytes);
+    let document: CaseDocument =
+        serde_path_to_error::deserialize(&mut decoder).map_err(|error| {
+            DiagnosticReport::one(Diagnostic::new(
+                "KR0103",
+                format!("invalid JSON case: {error}"),
+                malformed_field(&error.path().to_string()),
+                path,
+                error.inner().line(),
+                error.inner().column(),
+            ))
+        })?;
+    decoder
+        .end()
+        .map_err(|cause| error(path, "KR0103", &cause.to_string(), "json"))?;
     if document.schema_version != SCHEMA_VERSION {
         return Err(error(
             path,
@@ -172,6 +177,18 @@ fn validate_sequences(cases: &[FieldCase], path: &Path) -> Result<(), Diagnostic
         }
     }
     Ok(())
+}
+
+fn malformed_field(path: &str) -> String {
+    // Serde buffers a tagged payload when data precedes type; report its object consistently.
+    for boundary in [".bottom_boundary", ".surface_boundary"] {
+        if let Some((prefix, suffix)) = path.split_once(boundary)
+            && (suffix.is_empty() || suffix.starts_with('.'))
+        {
+            return format!("{prefix}{boundary}");
+        }
+    }
+    path.to_owned()
 }
 
 fn error(path: &Path, code: &'static str, message: &str, field: &str) -> DiagnosticReport {

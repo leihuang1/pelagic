@@ -12,6 +12,7 @@ name = "pelagic"
 path = "src/main.rs"
 
 [dependencies]
+serde = "1.0"
 bellhop = { path = "../bellhop" }
 kraken = { path = "../kraken" }
 output = { path = "../output" }

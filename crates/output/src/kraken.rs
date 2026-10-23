@@ -28,7 +28,7 @@ pub struct RunSummary {
 
 #[derive(Debug)]
 pub enum RunError {
-    Input(String),
+    Input(DiagnosticReport),
     Simulation {
         frequency_index: usize,
         frequency_hz: f64,
@@ -40,7 +40,7 @@ pub enum RunError {
 impl fmt::Display for RunError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Input(message) => formatter.write_str(message),
+            Self::Input(report) => report.fmt(formatter),
             Self::Simulation {
                 frequency_index,
                 frequency_hz,
@@ -91,8 +91,7 @@ pub fn run_legacy(
     if max_output_bytes == 0 {
         return Err(RunError::Output("max_output_bytes must be positive".into()));
     }
-    let input = kraken::input::load_legacy(env_path, flp_path, solver)
-        .map_err(|report| RunError::Input(report.to_string()))?;
+    let input = kraken::input::load_legacy(env_path, flp_path, solver).map_err(RunError::Input)?;
     let snapshots: Vec<_> = input
         .snapshots()
         .iter()
@@ -120,12 +119,15 @@ pub fn run_json(
     max_output_bytes: u64,
 ) -> Result<RunSummary, RunError> {
     let source = read_source(path)?;
-    let cases = kraken::json::load_case_document_named(source.as_bytes(), path)
-        .map_err(|report| RunError::Input(report.to_string()))?;
+    let cases =
+        kraken::json::load_case_document_named(source.as_bytes(), path).map_err(RunError::Input)?;
     if solver.is_some_and(|solver| solver != cases[0].profiles()[0].mode_solver) {
-        return Err(RunError::Input(
-            "error[KR0202]: --solver must match the JSON document (mode_solver)".into(),
-        ));
+        return Err(RunError::Input(input_report(
+            path,
+            "KR0202",
+            "--solver must match the JSON document",
+            "mode_solver",
+        )));
     }
     run_cases(
         &cases,
@@ -196,8 +198,7 @@ pub fn run_legacy_directory(
     format: super::directory::Format,
     maximum: u64,
 ) -> Result<RunSummary, RunError> {
-    let input =
-        kraken::input::load_legacy(env, flp, solver).map_err(|r| RunError::Input(r.to_string()))?;
+    let input = kraken::input::load_legacy(env, flp, solver).map_err(RunError::Input)?;
     let snapshots = input
         .snapshots()
         .iter()
@@ -224,16 +225,35 @@ pub fn run_json_directory(
     maximum: u64,
 ) -> Result<RunSummary, RunError> {
     let source = read_source(path)?;
-    let cases = kraken::json::load_case_document_named(source.as_bytes(), path)
-        .map_err(|r| RunError::Input(r.to_string()))?;
+    run_json_source_directory(path, &source, &[path], output, solver, format, maximum)
+}
+
+/// Run an exact JSON snapshot, including stdin, without rereading its source.
+/// # Errors
+/// Returns structured input, numerical or publication errors.
+pub fn run_json_source_directory(
+    path: &Path,
+    source: &str,
+    protected_inputs: &[&Path],
+    output: &Path,
+    solver: Option<ModeSolver>,
+    format: super::directory::Format,
+    maximum: u64,
+) -> Result<RunSummary, RunError> {
+    let cases =
+        kraken::json::load_case_document_named(source.as_bytes(), path).map_err(RunError::Input)?;
     if solver.is_some_and(|s| s != cases[0].profiles()[0].mode_solver) {
-        return Err(RunError::Input(
-            "error[KR0202]: --solver must match the JSON document (mode_solver)".into(),
-        ));
+        return Err(RunError::Input(input_report(
+            path,
+            "KR0202",
+            "--solver must match the JSON document",
+            "mode_solver",
+        )));
     }
-    run_directory(
+    run_directory_protected(
         &cases,
-        &[("json", path, &source)],
+        &[("json", path, source)],
+        protected_inputs,
         output,
         &super::directory::stem(path)?,
         format,
@@ -249,30 +269,45 @@ fn run_directory(
     format: super::directory::Format,
     maximum: u64,
 ) -> Result<RunSummary, RunError> {
-    check_field_payload(cases, maximum)?;
-    super::directory::publish(
-        output,
+    run_directory_protected(
+        cases,
+        inputs,
         &inputs.iter().map(|(_, p, _)| *p).collect::<Vec<_>>(),
-        Some(maximum),
-        |scratch| {
-            let path = scratch.join(format!("{stem}.h5"));
-            let file = format
-                .hdf5()
-                .then(|| File::create_excl(&path).map_err(hdf5_error))
-                .transpose()?;
-            let summary = write_run(
-                cases,
-                inputs,
-                file.as_ref().map(|f| (f, path.as_path())),
-                Some((scratch, stem, format)),
-                maximum,
-            )?;
-            if let Some(file) = file {
-                file.close().map_err(hdf5_error)?;
-            }
-            Ok(summary)
-        },
+        output,
+        stem,
+        format,
+        maximum,
     )
+}
+
+fn run_directory_protected(
+    cases: &[FieldCase],
+    inputs: &[(&str, &Path, &str)],
+    protected_inputs: &[&Path],
+    output: &Path,
+    stem: &str,
+    format: super::directory::Format,
+    maximum: u64,
+) -> Result<RunSummary, RunError> {
+    check_field_payload(cases, maximum)?;
+    super::directory::publish(output, protected_inputs, Some(maximum), |scratch| {
+        let path = scratch.join(format!("{stem}.h5"));
+        let file = format
+            .hdf5()
+            .then(|| File::create_excl(&path).map_err(hdf5_error))
+            .transpose()?;
+        let summary = write_run(
+            cases,
+            inputs,
+            file.as_ref().map(|f| (f, path.as_path())),
+            Some((scratch, stem, format)),
+            maximum,
+        )?;
+        if let Some(file) = file {
+            file.close().map_err(hdf5_error)?;
+        }
+        Ok(summary)
+    })
 }
 
 #[allow(clippy::too_many_lines, clippy::unnecessary_debug_formatting)] // Quote input paths so embedded newlines cannot spoof report fields.
@@ -380,12 +415,18 @@ fn read_source(path: &Path) -> Result<String, RunError> {
                 .read_to_string(&mut source)
         })
         .map_err(|e| {
-            RunError::Input(format!(
-                "{}:1:1: error[KR0001]: unable to read input: {e} (input)",
-                path.display()
+            RunError::Input(input_report(
+                path,
+                "KR0001",
+                &format!("unable to read input: {e}"),
+                "input",
             ))
         })?;
     Ok(source)
+}
+
+fn input_report(path: &Path, code: &'static str, message: &str, field: &str) -> DiagnosticReport {
+    DiagnosticReport::one(kraken::Diagnostic::new(code, message, field, path, 1, 1))
 }
 
 struct Budget {

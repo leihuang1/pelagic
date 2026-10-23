@@ -94,7 +94,7 @@ pub fn run(case: &Case, limits: SimulationLimits) -> Result<SimulationResult, Di
         return Err(report(Diagnostic::error(
             "BH0301",
             "the selected influence model is not yet supported for this run kind",
-            "run_options.beam_family",
+            "run.beam_family",
             SourceLocation::file(&case.environment.source_path),
         )));
     }

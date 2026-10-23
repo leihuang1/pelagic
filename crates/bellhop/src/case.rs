@@ -83,7 +83,7 @@ pub(crate) fn validate_environment(
         diagnostics.push(Diagnostic::error(
             "BH0201",
             "frequency must be finite and positive",
-            "frequency",
+            "frequency_hz",
             location("frequency"),
         ));
     }
@@ -861,7 +861,7 @@ fn validate_coherent_beam_count(
                 "coherent run may use too few beams: {} configured, approximately {recommended} recommended",
                 case.trace.launch_angles_degrees.len()
             ),
-            "trace.launch_count",
+            "trace.launch_angles_degrees",
             location("trace.launch_angles_degrees"),
         ));
     }

@@ -2,7 +2,8 @@ use std::error::Error;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Severity {
     Warning,
     Error,
@@ -17,11 +18,16 @@ impl fmt::Display for Severity {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct SourceLocation {
+    #[serde(serialize_with = "serialize_path")]
     pub path: PathBuf,
     pub line: usize,
     pub column: usize,
+}
+
+fn serialize_path<S: serde::Serializer>(path: &Path, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&path.to_string_lossy())
 }
 
 impl SourceLocation {
@@ -40,12 +46,13 @@ impl SourceLocation {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct Diagnostic {
     pub severity: Severity,
     pub code: &'static str,
     pub message: String,
     pub field: Option<String>,
+    #[serde(rename = "source")]
     pub location: SourceLocation,
 }
 

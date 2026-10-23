@@ -11,6 +11,14 @@ use output::kraken::{
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Validate self-contained JSON or an ENV/FLP pair; - reads JSON from stdin.
+    Validate {
+        case: PathBuf,
+        #[arg(long)]
+        flp: Option<PathBuf>,
+        #[arg(long, value_enum)]
+        solver: Option<Solver>,
+    },
     /// Run legacy .env/.flp or self-contained .json input and safely update a result directory.
     Run {
         case: PathBuf,
@@ -55,8 +63,11 @@ impl From<Solver> for kraken::ModeSolver {
     }
 }
 
-pub fn execute(command: Command) -> ExitCode {
+pub fn execute(command: Command, diagnostics: crate::Diagnostics) -> ExitCode {
     let result = match command {
+        Command::Validate { case, flp, solver } => {
+            load_cases(&case, flp, solver).map(|_| println!("valid KRAKEN case"))
+        }
         Command::Run {
             case,
             flp,
@@ -67,11 +78,25 @@ pub fn execute(command: Command) -> ExitCode {
         } => {
             let output = output.unwrap_or_else(|| {
                 PathBuf::from(
-                    case.file_stem()
+                    source_path(&case)
+                        .file_stem()
                         .unwrap_or_else(|| std::ffi::OsStr::new("kraken")),
                 )
             });
-            let result = if is_json(&case) {
+            let result = if case == Path::new("-") {
+                reject_json_flp(flp.as_deref()).and_then(|()| {
+                    let source = read_source(&case)?;
+                    output::kraken::run_json_source_directory(
+                        Path::new("stdin.json"),
+                        &source,
+                        &[],
+                        &output,
+                        solver.map(Into::into),
+                        format.into(),
+                        max_output_bytes,
+                    )
+                })
+            } else if is_json(&case) {
                 reject_json_flp(flp.as_deref()).and_then(|()| {
                     run_json_directory(
                         &case,
@@ -106,7 +131,32 @@ pub fn execute(command: Command) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{error}");
+            if matches!(diagnostics, crate::Diagnostics::Text) {
+                eprintln!("{error}");
+            } else {
+                match &error {
+                    RunError::Input(report) => diagnostics.render(report.diagnostics()),
+                    RunError::Simulation {
+                        frequency_index,
+                        frequency_hz: _,
+                        report,
+                    } => {
+                        let located: Vec<_> = report
+                            .diagnostics()
+                            .iter()
+                            .cloned()
+                            .map(|mut d| {
+                                d.field = format!("frequencies[{frequency_index}].{}", d.field);
+                                d
+                            })
+                            .collect();
+                        diagnostics.render(&located);
+                    }
+                    RunError::Output(message) => diagnostics.render(&[kraken::Diagnostic::new(
+                        "KR0402", message, "output", "<output>", 1, 1,
+                    )]),
+                }
+            }
             ExitCode::from(match error {
                 RunError::Input(_) => 2,
                 RunError::Simulation { .. } => 3,
@@ -116,6 +166,37 @@ pub fn execute(command: Command) -> ExitCode {
     }
 }
 
+fn source_path(path: &Path) -> &Path {
+    if path == Path::new("-") {
+        Path::new("stdin.json")
+    } else {
+        path
+    }
+}
+
+fn report(path: &Path, code: &'static str, message: &str, field: &str) -> kraken::DiagnosticReport {
+    kraken::DiagnosticReport::one(kraken::Diagnostic::new(code, message, field, path, 1, 1))
+}
+
+fn read_source(path: &Path) -> Result<String, RunError> {
+    let mut source = String::new();
+    let input: Box<dyn Read> = if path == Path::new("-") {
+        Box::new(std::io::stdin())
+    } else {
+        Box::new(
+            std::fs::File::open(path)
+                .map_err(|e| RunError::Input(report(path, "KR0001", &e.to_string(), "input")))?,
+        )
+    };
+    input
+        .take(kraken::legacy::MAX_INPUT_BYTES + 1)
+        .read_to_string(&mut source)
+        .map_err(|e| {
+            RunError::Input(report(source_path(path), "KR0001", &e.to_string(), "input"))
+        })?;
+    Ok(source)
+}
+
 fn is_json(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension == "json")
@@ -123,54 +204,62 @@ fn is_json(path: &Path) -> bool {
 
 fn reject_json_flp(flp: Option<&Path>) -> Result<(), RunError> {
     if flp.is_some() {
-        Err(RunError::Input(
-            "error[KR0202]: --flp is invalid for self-contained JSON (flp)".into(),
-        ))
+        Err(RunError::Input(report(
+            Path::new("<case>"),
+            "KR0202",
+            "--flp is invalid for self-contained JSON",
+            "flp",
+        )))
     } else {
         Ok(())
     }
 }
 
-fn export(path: &Path, flp: Option<PathBuf>, solver: Option<Solver>) -> Result<(), RunError> {
-    let cases = if is_json(path) {
+fn load_cases(
+    path: &Path,
+    flp: Option<PathBuf>,
+    solver: Option<Solver>,
+) -> Result<Vec<kraken::FieldCase>, RunError> {
+    if is_json(path) || path == Path::new("-") {
         reject_json_flp(flp.as_deref())?;
-        let mut bytes = Vec::new();
-        std::fs::File::open(path)
-            .and_then(|file| {
-                file.take(kraken::legacy::MAX_INPUT_BYTES + 1)
-                    .read_to_end(&mut bytes)
-            })
-            .map_err(|error| {
-                RunError::Input(format!("{}: error[KR0001]: {error}", path.display()))
-            })?;
-        let cases = kraken::json::load_case_document_named(&bytes, path)
-            .map_err(|report| RunError::Input(report.to_string()))?;
+        let source = read_source(path)?;
+        let cases = kraken::json::load_case_document_named(source.as_bytes(), source_path(path))
+            .map_err(RunError::Input)?;
         if solver.is_some_and(|solver| {
             kraken::ModeSolver::from(solver) != cases[0].profiles()[0].mode_solver
         }) {
-            return Err(RunError::Input(
-                "error[KR0202]: --solver must match the JSON document (mode_solver)".into(),
-            ));
+            return Err(RunError::Input(report(
+                source_path(path),
+                "KR0202",
+                "--solver must match the JSON document",
+                "mode_solver",
+            )));
         }
-        cases
+        Ok(cases)
     } else {
         kraken::legacy::load_field_cases(
             path,
             flp.unwrap_or_else(|| path.with_extension("flp")),
             solver.unwrap_or(Solver::Kraken).into(),
         )
-        .map_err(|report| RunError::Input(report.to_string()))?
-    };
-    let document = kraken::json::export_case_document(&cases)
-        .map_err(|report| RunError::Input(report.to_string()))?;
+        .map_err(RunError::Input)
+    }
+}
+
+fn export(path: &Path, flp: Option<PathBuf>, solver: Option<Solver>) -> Result<(), RunError> {
+    let cases = load_cases(path, flp, solver)?;
+    let document = kraken::json::export_case_document(&cases).map_err(RunError::Input)?;
     // Serialize completely before touching stdout: invalid/oversized exports emit no partial document.
     let mut bytes =
-        serde_json::to_vec(&document).map_err(|error| RunError::Input(error.to_string()))?;
+        serde_json::to_vec(&document).map_err(|error| RunError::Output(error.to_string()))?;
     bytes.push(b'\n');
     if bytes.len() as u64 > kraken::legacy::MAX_INPUT_BYTES {
-        return Err(RunError::Input(
-            "error[KR0101]: exported JSON exceeds 1 MiB (json)".into(),
-        ));
+        return Err(RunError::Input(report(
+            source_path(path),
+            "KR0101",
+            "exported JSON exceeds 1 MiB",
+            "json",
+        )));
     }
     std::io::stdout()
         .lock()
