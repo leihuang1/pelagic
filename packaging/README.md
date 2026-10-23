@@ -1,7 +1,11 @@
 # Distribution preparation
 
 The binding workflow produces abi3 wheels, a source archive, matching CLI artifacts
-and a MATLAB toolbox. It does not register the PyPI project, configure its trusted
+and a MATLAB toolbox. On a published GitHub release, once every test job passes, it
+uploads the wheels and sdist to PyPI and attaches `pelagic-vX.Y.Z-<platform>.tar.gz`
+(macOS/Linux CLIs) and `pelagic-vX.Y.Z.mltbx`, each with a `.sha256`, to the
+release; `release.yml` attaches the Windows ZIP. Both refuse a tag other than
+`v<matlab/VERSION>`. It does not register the PyPI project, configure its trusted
 publisher, submit a conda-forge feedstock, or create a MATLAB File Exchange listing.
 Those are maintainer release actions. Keep the workspace version, `matlab/VERSION`,
 `CITATION.cff` and release tag in sync. Run clean-commit numerical acceptance before

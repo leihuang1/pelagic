@@ -55,3 +55,24 @@ fn version_and_stdin_use_the_public_machine_contract() {
         assert_eq!(diagnostic["diagnostics"][0]["source"]["path"], "stdin.json");
     }
 }
+
+#[test]
+fn kraken_validate_names_the_validated_input() {
+    let example =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/kraken-pekeris.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_pelagic"))
+        .args(["kraken", "validate"])
+        .arg(&example)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.starts_with("valid 2D KRAKEN case: "), "{stdout}");
+    assert!(stdout.contains("kraken-pekeris.json"), "{stdout}");
+    let output = stdin_command(
+        "kraken",
+        "validate",
+        include_bytes!("../../../examples/kraken-pekeris.json"),
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("stdin.json"));
+}

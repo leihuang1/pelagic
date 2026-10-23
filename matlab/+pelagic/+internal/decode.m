@@ -1,5 +1,7 @@
 function value = decode(text)
-% Decode JSON while preserving arrays (including singleton arrays) as cells.
+% Decode JSON: arrays of numbers become numeric row vectors (including one-element
+% arrays); other non-empty arrays become cells; empty arrays become {} so they can
+% be appended to. encode() restores array fields from pelagic.internal.array_fields.
 % This is a transport codec, not a second acoustic schema or validator.
 [value, position] = parse(text, 1);
 assert(isempty(strtrim(text(position:end))), 'pelagic:PG0103', 'Trailing JSON data');
@@ -25,8 +27,11 @@ switch text(position)
         position = position + 1;
     case '['
         value = {};
+        nested = false;
         position = space(text, position + 1);
         while text(position) ~= ']'
+            % A one-element row such as [1500] decodes to a scalar; keep its parent a cell.
+            nested = nested || text(position) == '[';
             [item, position] = parse(text, position);
             value{end + 1} = item; %#ok<AGROW>
             position = space(text, position);
@@ -35,6 +40,9 @@ switch text(position)
         end
         assert(text(position) == ']', 'pelagic:PG0103', 'Expected array end');
         position = position + 1;
+        if ~isempty(value) && ~nested && all(cellfun(@(x) isnumeric(x) && isscalar(x), value))
+            value = [value{:}];
+        end
     case '"'
         [value, position] = string_value(text, position);
     otherwise

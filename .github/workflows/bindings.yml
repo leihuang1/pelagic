@@ -126,23 +126,37 @@ jobs:
 
   matlab:
     needs: wheels
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is the primary release platform: exercise ProcessBuilder and the bundled .exe there too.
+        os: [ubuntu-22.04, windows-2022]
+    runs-on: ${{ matrix.os }}
     steps:
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: cli-*
           path: cli-artifacts
       - name: Verify and stage bundled CLIs
+        shell: bash
         run: python tools/stage-matlab.py cli-artifacts matlab/bin
       - name: Exercise toolbox archive execute-bit loss
+        if: runner.os == 'Linux'
         run: chmod a-x matlab/bin/linux-x64/pelagic
       - uses: matlab-actions/setup-matlab@v2
         with: {release: R2025b}
       - uses: matlab-actions/run-command@v2
         with:
-          command: addpath('matlab/tests'); test_bindings; test_curated; addpath('matlab'); build_toolbox
+          command: addpath('matlab/tests'); test_bindings; test_curated
+      - name: Package the toolbox once, from the Linux runner
+        if: runner.os == 'Linux'
+        uses: matlab-actions/run-command@v2
+        with:
+          command: addpath('matlab'); build_toolbox
       - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
         with: {name: matlab-toolbox, path: target/pelagic.mltbx}
 
   octave:
@@ -206,3 +220,50 @@ jobs:
                   assert metadata['Version'] == os.environ['RELEASE_TAG'].removeprefix('v')
           PY
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  release-assets:
+    # The Windows ZIP is attached by release.yml; this adds the other CLIs and the toolbox.
+    if: github.event_name == 'release'
+    needs: [wheels, python-compatibility, matlab, octave, sdist]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {pattern: cli-*, path: cli-artifacts}
+      - uses: actions/download-artifact@v4
+        with: {name: matlab-toolbox, path: toolbox}
+      - name: Package macOS/Linux CLIs and the MATLAB toolbox
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < matlab/VERSION)"
+          test "$RELEASE_TAG" = "v$version" || { echo "Release tag must be v$version" >&2; exit 1; }
+          mkdir dist
+          for platform in linux-x64 linux-arm64 macos-arm64 macos-x64; do
+            source="cli-artifacts/cli-$platform"
+            (cd "$source" && sha256sum --check --strict SHA256SUMS)
+            name="pelagic-v$version-$platform"
+            mkdir -p "stage/$name"
+            cp "$source/pelagic" "$source/LICENSE" "$source/NOTICE" "$source/THIRD-PARTY-LICENSES.json" "stage/$name/"
+            # Artifact downloads drop Unix execute bits.
+            chmod 755 "stage/$name/pelagic"
+            printf 'Pelagic v%s (%s)\nCommit: %s\nSource: https://github.com/%s/archive/%s.zip\n' \
+              "$version" "$platform" "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_SHA" > "stage/$name/BUILD-INFO.txt"
+            tar -C stage -czf "dist/$name.tar.gz" "$name"
+          done
+          cp toolbox/pelagic.mltbx "dist/pelagic-v$version.mltbx"
+          cd dist
+          for file in *; do sha256sum "$file" > "$file.sha256"; done
+          ls -l
+      - name: Attach to this Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          cd dist
+          sha256sum --check *.sha256
+          gh release upload "$RELEASE_TAG" * --clobber
