@@ -9,7 +9,7 @@ Start here when you are installing Pelagic, running a model, choosing an output
 format or integrating the HTTP service.
 
 - [CLI: installation, validation, export and computation](guide/cli.md)
-- [Python bindings, machine protocol and release gates](guide/bindings.md)
+- [Python, MATLAB/Octave, machine protocol and bindings release gates](guide/bindings.md)
 - [Native numerical layouts, result directories and safe replacement](guide/native-output.md)
 - [BELLHOP HDF5 schema v3](guide/bellhop-hdf5.md)
 - [KRAKEN/KRAKENC HDF5 schema v1, quotas and publication](guide/kraken-hdf5.md)

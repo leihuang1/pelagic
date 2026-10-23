@@ -124,6 +124,45 @@ jobs:
           chmod +x cli/pelagic
           PELAGIC_CLI="$PWD/cli/pelagic" python -m pytest python/tests/test_bindings.py -q
 
+  matlab:
+    needs: wheels
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cli-*
+          path: cli-artifacts
+      - name: Verify and stage bundled CLIs
+        run: python tools/stage-matlab.py cli-artifacts matlab/bin
+      - name: Exercise toolbox archive execute-bit loss
+        run: chmod a-x matlab/bin/linux-x64/pelagic
+      - uses: matlab-actions/setup-matlab@v2
+        with: {release: R2025b}
+      - uses: matlab-actions/run-command@v2
+        with:
+          command: addpath('matlab/tests'); test_bindings; test_curated; addpath('matlab'); build_toolbox
+      - uses: actions/upload-artifact@v4
+        with: {name: matlab-toolbox, path: target/pelagic.mltbx}
+
+  octave:
+    needs: wheels
+    # jsonencode/jsondecode require Octave 7+; Ubuntu 22.04 ships 6.4, 24.04 ships 8.4.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {name: cli-linux-x64, path: cli}
+      - name: Install Octave and Java
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y octave default-jre-headless
+          octave --no-gui --quiet --eval "assert(compare_versions(OCTAVE_VERSION, '7.0.0', '>='), 'Octave 7+ required')"
+      - name: Octave uses the same adapter tests
+        run: |
+          chmod +x cli/pelagic
+          PELAGIC_CLI="$PWD/cli/pelagic" octave --no-gui --quiet --eval "addpath('matlab/tests'); test_bindings; test_curated"
+
   sdist:
     runs-on: ubuntu-22.04
     steps:

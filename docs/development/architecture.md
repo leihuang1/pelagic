@@ -56,7 +56,8 @@ See the [exact publication scope and native layouts](../guide/native-output.md).
 HDF5 schemas, precision and numerical contents are unchanged.
 
 Python wraps validated immutable Cases and original results, with read-only NumPy
-snapshots and in-process native serialization. Solver-local thread-scoped
+snapshots and in-process native serialization. MATLAB/Octave uses the CLI's JSON
+stdin, structured diagnostic and HDF5 protocols. Solver-local thread-scoped
 cancellation checks add no language dependencies or new physics. Independent cases
 may run concurrently; KRAKEN frequency blocks retain ordered solver state. See the
 [public bindings contract](../guide/bindings.md).

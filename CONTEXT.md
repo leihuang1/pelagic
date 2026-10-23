@@ -2,8 +2,8 @@
 
 Vocabulary for Pelagic's independent BELLHOP and KRAKEN/KRAKENC Modules. Their validated models, numerical Implementations and HDF5 schemas remain separate. See [architecture](docs/development/architecture.md) and the [documentation index](docs/README.md).
 
-The `pelagic` CLI, BELLHOP-only `pelagic-server`, and in-process Python binding
-are separate Adapters. Python's immutable result
+The `pelagic` CLI, BELLHOP-only `pelagic-server`, in-process Python binding and
+CLI-driven MATLAB/Octave toolbox are separate Adapters. Python's immutable result
 snapshot can publish native files without HDF5, a CLI process or another solve;
 `native-output` shares those writers and protected directory publication.
 Language adapters share each Module's JSON v1 contract and Rust validation.

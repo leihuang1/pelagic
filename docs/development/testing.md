@@ -93,7 +93,8 @@ Install the `test` extra for h5py, notebook and optional conversion checks. The
 `arlpy` extra enables its separate bridge test (otherwise explicitly skipped).
 The bindings workflow builds abi3 wheels on the five requested OS/architecture
 combinations, exercises Python 3.9/NumPy 1.26 and current Python/NumPy, runs the
-notebook. Workflow
+notebook, and runs `matlab/tests/test_bindings.m` in MATLAB and Octave. MATLAB
+packages bundle the checksum-verified CLI from the same build matrix. Workflow
 definitions are not evidence of successful remote runs; record actual results.
 
 ## Before every release
