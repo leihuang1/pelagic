@@ -47,11 +47,11 @@ jobs:
         run: |
           python -c 'import glob,subprocess,sys; subprocess.check_call([sys.executable,"-m","pip","install",glob.glob("dist/*.whl")[0]+"[test]"])'
       - uses: Swatinem/rust-cache@v2
-      - name: Build matching CLI for independent HDF5 comparison and MATLAB
+      - name: Build CLI with the wheel's runtime for exact comparison
         shell: bash
         env:
-          RUSTFLAGS: ${{ runner.os == 'Windows' && '-C target-feature=+crt-static' || '' }}
-          CMAKE_MSVC_RUNTIME_LIBRARY: MultiThreaded
+          # The wheel uses the dynamic CRT; static CRT math can differ in its last bits.
+          CMAKE_MSVC_RUNTIME_LIBRARY: MultiThreadedDLL
           MACOSX_DEPLOYMENT_TARGET: ${{ runner.os == 'macOS' && '11.0' || '' }}
         run: |
           rustup show
@@ -75,13 +75,20 @@ jobs:
           cargo install --locked cargo-bundle-licenses --version 4.2.0
           (cd crates/python && cargo bundle-licenses --format json --output /tmp/python-licenses.json --previous ../../python/pelagic/THIRD-PARTY-LICENSES.json --check-previous)
           (cd crates/cli && cargo bundle-licenses --format json --output /tmp/cli-licenses.json --previous ../../packaging/cli-licenses.json --check-previous)
+      - name: Build standalone Windows CLI with static CRT
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          RUSTFLAGS: '-C target-feature=+crt-static'
+          CMAKE_MSVC_RUNTIME_LIBRARY: MultiThreaded
+        run: cargo build --locked --release -p cli --target ${{ matrix.target }}
       - name: Stage matching CLI and license notices
         shell: bash
         run: |
           mkdir -p cli
-          binary=pelagic
-          if [ "$RUNNER_OS" = Windows ]; then binary=pelagic.exe; fi
-          cp "target/release/$binary" cli/
+          binary=target/release/pelagic
+          if [ "$RUNNER_OS" = Windows ]; then binary="target/${{ matrix.target }}/release/pelagic.exe"; fi
+          cp "$binary" cli/
           cp LICENSE NOTICE cli/
           cp packaging/cli-licenses.json cli/THIRD-PARTY-LICENSES.json
           python -c 'import pathlib,hashlib; p=pathlib.Path("cli"); (p/"SHA256SUMS").write_text("".join(hashlib.sha256(f.read_bytes()).hexdigest()+"  "+f.name+"\n" for f in sorted(p.iterdir()) if f.is_file()))'

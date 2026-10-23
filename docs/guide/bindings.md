@@ -196,7 +196,10 @@ trees through both Python and CLI HDF5/native output, including matching rejecti
 paths, every pressure/mode/shape, rays/arrivals and native bytes. These are adapter
 checks, not replacement Fortran goldens. Same-platform matching-build paths are
 expected to agree exactly; cross-platform/reference comparisons retain the
-[existing numerical criteria](../development/reference.md).
+[existing numerical criteria](../development/reference.md). On Windows the exact
+adapter comparison uses a CLI with the same dynamic C runtime as the wheel. The
+separately packaged standalone CLI retains a static C runtime; its math routines
+can differ in the last bits, so cross-runtime byte identity is not promised.
 The [notebook gallery](../../examples/notebooks/bindings-gallery.ipynb) executes in
 CI. Full
 numerical release acceptance remains required on the release commit.

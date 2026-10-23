@@ -15,7 +15,7 @@ def test_bundled_dependency_license_texts_are_present():
     import json
     from importlib.resources import files
     for path in [files("pelagic").joinpath("THIRD-PARTY-LICENSES.json"), ROOT / "packaging/cli-licenses.json"]:
-        packages = json.loads(path.read_text())["third_party_libraries"]
+        packages = json.loads(path.read_text(encoding="utf-8"))["third_party_libraries"]
         assert len(packages) > 20
         for package in packages:
             assert package["licenses"], package["package_name"]
