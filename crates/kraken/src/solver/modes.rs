@@ -56,6 +56,7 @@ pub(super) fn solve(case: &Case, mut root_limit: usize) -> Result<ModeSet, Diagn
     let mut refinement = crate::solver::refinement::Refinement::<f64>::default();
     let mut work = 0_usize;
     for multiplier in crate::solver::refinement::MULTIPLIERS {
+        crate::cancellation::check()?;
         let layers = crate::solver::layers::mesh_layers(case, multiplier)?;
         let mut mesh = Mesh::new(case, &profiles, layers, omega, bottom_k2, bottom_complex_k2)?;
         mesh.top_solids = crate::solver::elastic::SolidMesh::build(case, multiplier, true, true)?;
@@ -431,6 +432,7 @@ impl<'a> Mesh<'a> {
                 .map_or(x, |v| v.re);
             let tolerance = x.abs() * (self.b1.len() + points) as f64 * 1e-14;
             let mut evaluate = |x| {
+                crate::cancellation::check()?;
                 *work += self.b1.len() + 5 * points + roots.len();
                 if *work > MAX_WORK {
                     return Err(error(
@@ -773,6 +775,7 @@ impl<'a> Mesh<'a> {
             .ok_or_else(|| error("KR0302", "modal mesh-work limit exceeded", "mesh_points"))?;
         let mut roots = Vec::with_capacity(count);
         for mode in 0..count {
+            crate::cancellation::check()?;
             let mut left = low;
             let mut right = high;
             for _ in 0..ROOT_STEPS {
@@ -803,6 +806,7 @@ impl<'a> Mesh<'a> {
         work: &mut usize,
     ) -> Result<Vec<f64>, DiagnosticReport> {
         let mut charge = || {
+            crate::cancellation::check()?;
             *work += self.b1.len();
             if *work > MAX_WORK {
                 Err(error(
@@ -888,6 +892,7 @@ impl<'a> Mesh<'a> {
         clippy::too_many_lines
     )]
     fn mode(&self, x: f64) -> Result<(NormalMode, Complex64), DiagnosticReport> {
+        crate::cancellation::check()?;
         let last = self.layers.last().unwrap();
         let n = last.node_start + last.intervals + 1;
         let h_rho = self.h * self.case.water_density_g_cm3;

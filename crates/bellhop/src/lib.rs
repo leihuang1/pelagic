@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod cancellation;
 pub mod case;
 pub mod diagnostic;
 pub mod input;

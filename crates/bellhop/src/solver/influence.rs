@@ -125,6 +125,9 @@ pub(super) fn cerveny_cartesian(
     let bottom_depth = case.environment.sound_speed.bottom_depth_m;
 
     for state_index in 2..states.len() {
+        if state_index % 256 == 0 {
+            crate::cancellation::check()?;
+        }
         let previous = states[state_index - 1];
         let current = states[state_index];
         if current.position_m[0] > ranges[ranges.len() - 1] {
@@ -297,6 +300,9 @@ pub(super) fn cerveny_ray_centered(
         for image in 0..image_count {
             let mut prior: Option<(f64, f64, usize)> = None;
             for state_index in 1..states.len() {
+                if state_index % 256 == 0 {
+                    crate::cancellation::check()?;
+                }
                 if normal_depth[state_index].abs() < f64::EPSILON {
                     continue;
                 }
@@ -674,6 +680,9 @@ pub(super) fn geo_hat_ray_centered(
         };
 
         for state_index in 1..states.len() {
+            if state_index % 256 == 0 {
+                crate::cancellation::check()?;
+            }
             let previous = states[state_index - 1];
             let current = states[state_index];
             if normal_depth[state_index].abs() < 1.0e-10 {
@@ -805,6 +814,9 @@ pub(super) fn simple_gaussian(
     let mut range_a = states[0].position_m[0];
     let mut receiver_index = 0_usize;
     for state_index in 1..states.len() {
+        if state_index % 256 == 0 {
+            crate::cancellation::check()?;
+        }
         let previous = states[state_index - 1];
         let current = states[state_index];
         let range_b = current.position_m[0];
@@ -1059,6 +1071,9 @@ fn apply_contribution(
     limits: &InfluenceLimits,
     counts: &mut InfluenceCounts,
 ) -> Result<(), &'static str> {
+    if cell_index.is_multiple_of(256) {
+        crate::cancellation::check()?;
+    }
     match target {
         InfluenceTarget::Eigenrays(receivers) => {
             let point_count = state_index + 1;
@@ -1276,6 +1291,9 @@ fn add_raw_field_contribution(
     cell_index: usize,
     contribution: Complex64,
 ) -> Result<(), &'static str> {
+    if cell_index.is_multiple_of(256) {
+        crate::cancellation::check()?;
+    }
     let InfluenceTarget::Field { pressure, .. } = target else {
         return Err("simple-Gaussian arrivals are not supported");
     };

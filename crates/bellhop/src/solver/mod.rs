@@ -59,8 +59,23 @@ impl Default for SimulationLimits {
 ///
 /// Returns diagnostics for unsupported modes, exceeded resource limits, or
 /// non-finite and otherwise invalid numerical states.
-#[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
 pub fn run(case: &Case, limits: SimulationLimits) -> Result<SimulationResult, DiagnosticReport> {
+    let result = crate::cancellation::check()
+        .map_err(|message| resource_report(case, message))
+        .and_then(|()| run_inner(case, limits));
+    if crate::cancellation::cancelled() {
+        return Err(report(Diagnostic::error(
+            "BH0304",
+            "simulation cancelled",
+            "execution",
+            SourceLocation::file(&case.environment.source_path),
+        )));
+    }
+    result
+}
+
+#[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
+fn run_inner(case: &Case, limits: SimulationLimits) -> Result<SimulationResult, DiagnosticReport> {
     let influence_supported = matches!(
         case.environment.run.beam_family,
         Some(
@@ -213,6 +228,7 @@ pub fn run(case: &Case, limits: SimulationLimits) -> Result<SimulationResult, Di
         };
         let mut source_speed_mps = 0.0;
         for &launch_angle_degrees in selected_angles(case) {
+            crate::cancellation::check().map_err(|m| resource_report(case, m))?;
             let traced = trace_ray(
                 case,
                 &sound_speed,
@@ -560,6 +576,9 @@ fn trace_ray(
     let mut consecutive_small_steps = 0_usize;
     let mut termination = RayTermination::StepLimit;
     while states.len() < limits.max_steps_per_ray {
+        if states.len() % 256 == 0 {
+            crate::cancellation::check()?;
+        }
         let incident = *states.last().expect("initial state is present");
         let stepped = step_2d(
             incident,
