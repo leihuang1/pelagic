@@ -103,6 +103,23 @@ For output schemas and examples, use the [documentation index](docs/README.md).
 For how numerical comparisons are made and reproduced, see
 [reference verification](docs/development/reference.md).
 
+## Python
+
+Python calls the Rust solvers in-process and returns immutable NumPy results;
+native files can be written from those results without a CLI or HDF5 dependency.
+Build the current checkout with `python -m pip install .`:
+
+```python
+import pelagic as pg
+result = pg.bellhop.load("examples/field-g.json").run()
+pressure = result.field.pressure  # [source, depth, range], complex64
+result.write_native("results/python")
+```
+
+See the [bindings guide](docs/guide/bindings.md) for installation, array axes, diagnostics, parallel sweeps and release status.
+The [executable gallery](examples/notebooks/bindings-gallery.ipynb) includes pinned
+Fortran comparisons. Use [CITATION.cff](CITATION.cff) to cite a release.
+
 ## Optional HTTP API
 
 `pelagic-server` is a separate **BELLHOP-only** HTTP service. It accepts

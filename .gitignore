@@ -1,4 +1,10 @@
 /target/
+/.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+/python/pelagic/_core*.so
+/python/pelagic/_core*.pyd
 *.h5
 *.h5.tmp
 *.prt
