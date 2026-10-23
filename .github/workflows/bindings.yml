@@ -62,7 +62,7 @@ jobs:
         run: |
           export PELAGIC_CLI="$PWD/target/release/pelagic"
           if [ "$RUNNER_OS" = Windows ]; then export PELAGIC_CLI="$PELAGIC_CLI.exe"; fi
-          python -m pytest python/tests -q
+          python -m pytest python/tests -q -rs
       - name: Optional arlpy bridge (explicit registration, no executable)
         if: matrix.platform == 'linux-x64'
         run: |

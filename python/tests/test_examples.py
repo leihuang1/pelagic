@@ -14,7 +14,7 @@ import pelagic as pg
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = ROOT / "examples"
 CASES = EXAMPLES / "cases"
-CATALOG = json.loads((CASES / "catalog.json").read_text())["cases"]
+CATALOG = json.loads((CASES / "catalog.json").read_text(encoding="utf-8"))["cases"]
 SCRIPTS = sorted((EXAMPLES / "python").glob("*.py"))
 
 
@@ -46,7 +46,7 @@ def test_catalog_lists_every_case_once_and_the_readme_names_them():
     documents = {path.relative_to(CASES).as_posix() for path in CASES.glob("*/*/*.json")}
     assert documents == {case["json"] for case in CATALOG}
     assert len({(case["model"], case["name"]) for case in CATALOG}) == len(CATALOG)
-    readme = (EXAMPLES / "README.md").read_text()
+    readme = (EXAMPLES / "README.md").read_text(encoding="utf-8")
     missing = [case["name"] for case in CATALOG if f"`{case['name']}`" not in readme]
     assert not missing, f"examples/README.md does not describe {missing}"
     missing = [script.name for script in SCRIPTS if script.name not in readme]
@@ -62,7 +62,7 @@ def test_python_example_runs(script, tmp_path):
     completed = subprocess.run([sys.executable, str(script)], cwd=tmp_path, env=environment,
                                capture_output=True, text=True, timeout=600)
     assert completed.returncode == 0, completed.stdout[-2000:] + completed.stderr[-4000:]
-    if "savefig" in script.read_text():
+    if "savefig" in script.read_text(encoding="utf-8"):
         assert list((tmp_path / "results").glob("*.png"))
 
 

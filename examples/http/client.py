@@ -35,7 +35,7 @@ def post(path, case):
         sys.exit(f"{path}: HTTP {error.code}: {error.read().decode()}")
 
 
-case = json.loads((CASES / "bellhop/munk-tl/munk-tl.json").read_text())
+case = json.loads((CASES / "bellhop/munk-tl/munk-tl.json").read_text(encoding="utf-8"))
 
 print("validate:", json.loads(post("/v1/validate", case)))
 
@@ -48,7 +48,7 @@ for receiver in field["sources"][0]["receivers"]:
     print(f"  {receiver['range_m'] / 1e3:5.0f} km: |p| = {abs(pressure):.3e}")
 
 # Arrivals for one receiver.
-arrivals_case = json.loads((CASES / "bellhop/munk-arrivals/munk-arrivals.json").read_text())
+arrivals_case = json.loads((CASES / "bellhop/munk-arrivals/munk-arrivals.json").read_text(encoding="utf-8"))
 receiver = json.loads(post("/v1/arrivals", arrivals_case))["sources"][0]["receivers"][0]
 first = min(receiver["arrivals"], key=lambda arrival: arrival["travel_time_s"])
 print(f"{len(receiver['arrivals'])} arrivals at {receiver['range_m'] / 1e3:g} km; "
