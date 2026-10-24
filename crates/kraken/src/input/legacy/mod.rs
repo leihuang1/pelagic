@@ -3,9 +3,10 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-mod material;
+use super::material;
 
 use crate::attenuation::VolumeLoss;
+use crate::json;
 use crate::{
     BottomBoundary, Case, CaseDefinition, Diagnostic, DiagnosticReport, Interpolation,
     MAX_VECTOR_LENGTH, ModeAddition, ModeSolver, SoundSpeedPoint, SourceGeometry,
@@ -444,6 +445,128 @@ pub fn load_field_cases_with_resources(
                 })
         })
         .collect()
+}
+
+/// Translate exact `.env`/`.flp` and TRC/BRC/IRC/SBP snapshots into a JSON
+/// document that keeps the `.env` loss recipe. Call after the snapshots have
+/// loaded as cases: this translation repeats parsing, not validation.
+/// # Errors
+/// Returns the reader's parse diagnostics.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn field_document_with_resources(
+    env_source: &str,
+    flp_source: &str,
+    env_path: &Path,
+    flp_path: &Path,
+    solver: ModeSolver,
+    tables: [Option<&str>; 3],
+    source_pattern: Option<&str>,
+) -> Result<json::CaseDocument, DiagnosticReport> {
+    let field = parse_field(flp_source, flp_path)?;
+    let mut reader = Reader::new(env_source, env_path)?;
+    let mut environments = Vec::with_capacity(field.profile_ranges_m.len());
+    let mut frequencies = Vec::new();
+    for (index, &range) in field.profile_ranges_m.iter().enumerate() {
+        let mut environment = read_environment(&mut reader, solver)?;
+        if let (SurfaceBoundary::Reflection(_), Some(source)) =
+            (&environment.surface_boundary, tables[0])
+        {
+            environment.surface_boundary = parse_reflection_table(
+                source,
+                &env_path.with_extension("trc"),
+                "surface_boundary",
+            )?;
+        }
+        match (&environment.bottom_boundary, tables[1], tables[2]) {
+            (BottomBoundary::Reflection(_), Some(source), _) => {
+                environment.bottom_boundary = parse_reflection_table(
+                    source,
+                    &env_path.with_extension("brc"),
+                    "bottom_boundary",
+                )?;
+            }
+            (BottomBoundary::Impedance { .. }, _, Some(source)) => {
+                environment.bottom_boundary =
+                    parse_impedance_table(source, &env_path.with_extension("irc"))?;
+            }
+            _ => {}
+        }
+        if index == 0 {
+            frequencies.clone_from(&environment.frequencies_hz);
+        }
+        // Each profile's header frequency sizes its own broadband meshes.
+        let mesh_frequency = environment.broadband.then_some(environment.frequency_hz);
+        let mode_depths = sorted_union(&environment.source_depths, &environment.receiver_depths);
+        let mut parts = json::EnvironmentParts::new(
+            environment.title,
+            environment.interpolation,
+            environment.frequency_hz,
+            &environment.materials,
+            &environment.surface_boundary,
+            &environment.bottom_boundary,
+            &environment.interface_roughness_m,
+            [environment.c_low, environment.c_high],
+            environment.max_range_m,
+            json::Grid::describe_single(&mode_depths, |_| ()),
+        );
+        parts.mesh_frequency = mesh_frequency;
+        // Keep table phases in the file's degrees; radians do not convert back exactly.
+        for (boundary, extension, table) in [
+            (&mut parts.surface, "trc", tables[0]),
+            (&mut parts.bottom, "brc", tables[1]),
+        ] {
+            if let (json::BoundaryDocument::Reflection { table: rows, .. }, Some(source)) =
+                (boundary, table)
+            {
+                *rows = reflection_rows(source, &env_path.with_extension(extension), "table")?;
+            }
+        }
+        environments.push((range, parts));
+    }
+    reader.finish()?;
+    let pattern = match (field.source_pattern_requested, source_pattern) {
+        (true, Some(source)) => Some(source_pattern_rows(
+            source,
+            &flp_path.with_extension("sbp"),
+        )?),
+        _ => None,
+    };
+    let default_mode_depths = json::Grid::describe_single(
+        &sorted_union(&field.source_depths, &field.receiver_depths),
+        |_| (),
+    );
+    let offsets_default = field.receiver_offsets_m.len() == field.receiver_depths.len()
+        && field
+            .receiver_offsets_m
+            .iter()
+            .all(|offset| offset.to_bits() == 0);
+    Ok(json::assemble(
+        environments,
+        &default_mode_depths,
+        &frequencies,
+        solver,
+        json::Source {
+            depth: json::Grid::describe_single(&field.source_depths, |_| ()),
+            geometry: field.source_geometry,
+            pattern,
+        },
+        json::Receivers {
+            depth: json::Grid::describe_single(&field.receiver_depths, |_| ()),
+            range: json::Grid::describe(&field.receiver_ranges_m),
+            offset: (!offsets_default).then(|| json::Grid::describe(&field.receiver_offsets_m)),
+        },
+        field.mode_limit,
+        field.mode_addition,
+        field.propagation,
+    ))
+}
+
+fn sorted_union(left: &[f64], right: &[f64]) -> Vec<f64> {
+    let mut values = left.to_vec();
+    values.extend(right);
+    values.sort_by(f64::total_cmp);
+    values.dedup();
+    values
 }
 
 /// Parse exact `.env`/`.flp` and optional TRC/BRC/IRC/SBP snapshots without rereading them.
@@ -1815,19 +1938,35 @@ fn parse_reflection_table(
     path: &Path,
     field: &str,
 ) -> Result<BottomBoundary, DiagnosticReport> {
+    Ok(BottomBoundary::Reflection(
+        reflection_rows(source, path, field)?
+            .into_iter()
+            .map(
+                |[angle_degrees, magnitude, phase_degrees]| crate::ReflectionPoint {
+                    angle_degrees,
+                    magnitude,
+                    phase_radians: phase_degrees.to_radians(),
+                },
+            )
+            .collect(),
+    ))
+}
+
+/// The `.trc`/`.brc` rows as written: angle, magnitude and phase in degrees.
+fn reflection_rows(
+    source: &str,
+    path: &Path,
+    field: &str,
+) -> Result<Vec<[f64; 3]>, DiagnosticReport> {
     let mut reader = Reader::new(source, path)?;
     let count = reader.count(&format!("{field}.count"))?;
-    let mut points = Vec::with_capacity(count);
+    let mut rows = Vec::with_capacity(count);
     for _ in 0..count {
         let values = reader.numbers(field, 3)?;
-        points.push(crate::ReflectionPoint {
-            angle_degrees: values[0],
-            magnitude: values[1],
-            phase_radians: values[2].to_radians(),
-        });
+        rows.push([values[0], values[1], values[2]]);
     }
     reader.finish()?;
-    Ok(BottomBoundary::Reflection(points))
+    Ok(rows)
 }
 
 fn parse_impedance_table(source: &str, path: &Path) -> Result<BottomBoundary, DiagnosticReport> {
@@ -1938,6 +2077,17 @@ fn parse_source_pattern(
     source: &str,
     path: &Path,
 ) -> Result<Vec<SourcePatternPoint>, DiagnosticReport> {
+    Ok(source_pattern_rows(source, path)?
+        .into_iter()
+        .map(|[angle_degrees, level_db]| SourcePatternPoint {
+            angle_degrees,
+            amplitude: 10.0_f64.powf(level_db / 20.0),
+        })
+        .collect())
+}
+
+/// The `.sbp` rows as written: angle in degrees and level in dB.
+fn source_pattern_rows(source: &str, path: &Path) -> Result<Vec<[f64; 2]>, DiagnosticReport> {
     let mut reader = Reader::new(source, path)?;
     let count = reader.count("source_pattern.count")?;
     if count < 2 {
@@ -1948,15 +2098,11 @@ fn parse_source_pattern(
             "source_pattern.count",
         ));
     }
-    let mut points = Vec::with_capacity(count);
+    let mut rows: Vec<[f64; 2]> = Vec::with_capacity(count);
     for _ in 0..count {
         let values = reader.numbers("source_pattern", 2)?;
         let amplitude = 10.0_f64.powf(values[1] / 20.0);
-        if !amplitude.is_finite()
-            || points
-                .last()
-                .is_some_and(|point: &SourcePatternPoint| values[0] <= point.angle_degrees)
-        {
+        if !amplitude.is_finite() || rows.last().is_some_and(|row| values[0] <= row[0]) {
             return Err(reader_error(
                 &reader,
                 "KR0201",
@@ -1964,13 +2110,10 @@ fn parse_source_pattern(
                 "source_pattern",
             ));
         }
-        points.push(SourcePatternPoint {
-            angle_degrees: values[0],
-            amplitude,
-        });
+        rows.push([values[0], values[1]]);
     }
     reader.finish()?;
-    Ok(points)
+    Ok(rows)
 }
 
 fn parse_field(source: &str, path: &Path) -> Result<Field, DiagnosticReport> {

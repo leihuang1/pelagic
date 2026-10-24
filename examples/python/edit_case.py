@@ -20,14 +20,14 @@ OUT = Path("results")
 OUT.mkdir(exist_ok=True)
 
 spec = pg.bellhop.load(CASES / "bellhop/gulf/gulf.env").to_dict()  # reads .ssp and .bty too
-print("original run:", spec["run"]["kind"], f"with {len(spec['trace']['launch_angles_degrees'])} rays")
+print("original run:", spec["bellhop"]["run"], "with launch angles", spec["bellhop"]["angles"])
 
 spec["title"] = "Gulf of Mexico: coherent transmission loss"
-spec["run"]["kind"] = "coherent"
-spec["run"]["beam_family"] = "geometric_gaussian_cartesian"  # ray runs have no beam family
-spec["trace"]["launch_angles_degrees"] = np.linspace(-20, 20, 801)  # NumPy arrays are accepted
-spec["positions"]["receiver_depths_m"] = np.linspace(0, 5000, 201)
-spec["positions"]["receiver_ranges_m"] = np.linspace(0, 120e3, 601)
+spec["bellhop"]["run"] = "coherent"
+spec["bellhop"]["beam"] = "geometric_gaussian_cartesian"  # ray runs have no beam family
+spec["bellhop"]["angles"] = {"from": -20, "to": 20, "count": 801}  # a grid, like the .env
+spec["receivers"]["depth"] = np.linspace(0, 5000, 201)  # NumPy arrays are accepted too
+spec["receivers"]["range"] = {"from": 0, "to": 120, "count": 601, "unit": "km"}
 
 case = pg.bellhop.Case.from_dict(spec)
 (OUT / "gulf-tl.json").write_text(json.dumps(case.to_dict(), indent=2))

@@ -61,7 +61,7 @@ When authentication is configured, add
 
 ### `POST /v1/arrivals`
 
-Accepts the same JSON document but requires `run.kind` to be `arrivals`.
+Accepts the same JSON document but requires `bellhop.run` to be `arrivals`.
 Success returns `application/json` without creating or parsing an intermediate
 HDF5 file:
 
@@ -111,7 +111,7 @@ are retained. Floating-point values use the solver's native precision.
 Example using the included field case with its run kind changed to arrivals:
 
 ```console
-jq '.run.kind = "arrivals"' examples/cases/bellhop/field-g/field-g.json |
+jq '.bellhop.run = "arrivals"' examples/cases/bellhop/field-g/field-g.json |
   curl --fail-with-body \
     -H 'Content-Type: application/json' \
     --data-binary @- \
@@ -130,7 +130,7 @@ returns a structured `500` instead of emitting schema-invalid JSON `null`.
 
 ### `POST /v1/field`
 
-Accepts the same JSON document and requires `run.kind` to be `coherent`,
+Accepts the same JSON document and requires `bellhop.run` to be `coherent`,
 `semi_coherent`, or `incoherent`. Success returns the solver's relative complex
 pressure directly as `application/json`:
 
@@ -189,7 +189,7 @@ Errors use `application/json`:
         "severity": "error",
         "code": "BH0201",
         "message": "at least one launch angle is required",
-        "field": "trace.launch_angles_degrees",
+        "field": "bellhop.angles",
         "location": { "path": "request.json", "line": 1, "column": 1 }
       }
     ]

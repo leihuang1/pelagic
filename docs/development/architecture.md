@@ -58,7 +58,7 @@ crates/{bellhop,kraken}/src/
   solver/         the numerical implementation
 ```
 
-Files follow concepts rather than line counts. Legacy material conversion lives
+Files follow concepts rather than line counts. Input material conversion lives
 in KRAKEN's `input/`; the solver only sees canonical solve-frequency material.
 The [KRAKEN internals](kraken-internals.md) page maps the solver in detail, and
 the [porting map](porting-map.md) links Rust modules to the Fortran sources.

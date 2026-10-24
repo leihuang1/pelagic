@@ -145,6 +145,10 @@ impl DiagnosticReport {
         &self.diagnostics
     }
 
+    pub(crate) fn diagnostics_mut(&mut self) -> &mut [Diagnostic] {
+        &mut self.diagnostics
+    }
+
     #[must_use]
     pub fn has_errors(&self) -> bool {
         self.diagnostics

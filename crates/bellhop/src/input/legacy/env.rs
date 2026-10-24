@@ -1007,7 +1007,7 @@ fn first_atom_location(slots: &[Slot], path: &Path) -> SourceLocation {
         .unwrap_or_else(|| SourceLocation::file(path))
 }
 
-fn automatic_launch_count(
+pub(crate) fn automatic_launch_count(
     run_kind: RunKind,
     frequency_hz: f64,
     water_depth_m: f64,

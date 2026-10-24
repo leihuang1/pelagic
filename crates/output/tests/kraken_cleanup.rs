@@ -22,8 +22,11 @@ fn field_payload_admission_precedes_solving_and_publication_for_every_entry() {
     fs::write(&env, source.replace("75.0 50.0 62.5 /", "5.0 50.0 62.5 /")).unwrap();
     fs::copy(fixture.with_extension("flp"), &flp).unwrap();
     let input = kraken::input::load_legacy(&env, &flp, ModeSolver::Kraken).unwrap();
-    let document = kraken::json::export_case_document(input.cases()).unwrap();
-    fs::write(&json, serde_json::to_vec(&document).unwrap()).unwrap();
+    fs::write(
+        &json,
+        serde_json::to_vec(&input.document().unwrap()).unwrap(),
+    )
+    .unwrap();
     fs::write(&output, b"previous complete result").unwrap();
 
     // Three frequencies × one source × three depths × three ranges × 8 bytes = 216.

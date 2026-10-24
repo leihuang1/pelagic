@@ -18,41 +18,22 @@ import pelagic as pg
 OUT = Path("results")
 OUT.mkdir(exist_ok=True)
 
-
-def water(depth, speed):
-    return {"depth_m": depth, "compressional_speed_mps": speed, "shear_speed_mps": 0.0,
-            "density_kg_m3": 1000.0, "compressional_attenuation": 0.0, "shear_attenuation": 0.0}
-
-
 spec = {
-    "schema_version": 1,
+    "pelagic": 2,
+    "model": "bellhop",
     "title": "Shallow water: summer thermocline over sand",
-    "frequency_hz": 1000.0,
-    "sound_speed": {
-        "interpolation": "c_linear",
-        "attenuation_unit": "db_per_wavelength",
-        "volume_attenuation": {"type": "thorp"},  # sea-water absorption
-        "nominal_point_count": 0,
-        "top_depth_m": 0.0,
-        "bottom_depth_m": 120.0,
-        "points": [water(0.0, 1530.0), water(20.0, 1528.0), water(40.0, 1505.0), water(120.0, 1500.0)],
-    },
-    "top_boundary": {"roughness_m": 0.0, "condition": {"type": "vacuum"}},
-    "bottom_boundary": {
-        "roughness_m": 0.0,
-        "condition": {"type": "acousto_elastic", "half_space": {
-            "depth_m": 120.0, "compressional_speed_mps": 1650.0, "shear_speed_mps": 0.0,
-            "density_kg_m3": 1900.0, "compressional_attenuation": 0.8, "shear_attenuation": 0.0}},
-    },
-    "positions": {
-        "source_depths_m": [30.0],
-        "receiver_depths_m": np.linspace(0, 120, 241),
-        "receiver_ranges_m": np.linspace(0, 10e3, 501),
-    },
-    "run": {"kind": "coherent", "beam_family": "geometric_gaussian_cartesian",
-            "source_geometry": "point", "receiver_grid": "rectilinear", "beam_shift": False},
-    "trace": {"launch_angles_degrees": np.linspace(-60, 60, 1201), "step_m": 0.0,
-              "max_depth_m": 121.0, "max_range_m": 10.1e3},
+    "frequency": 1000.0,
+    "interpolation": "c_linear",
+    "attenuation": {"volume": "thorp"},  # sea-water absorption; losses in dB/wavelength
+    "media": [{"to": 120.0, "ssp": [[0, 1530], [20, 1528], [40, 1505], [120, 1500]]}],  # [depth, cp]
+    "surface": "vacuum",
+    "bottom": {"type": "halfspace", "cp": 1650.0, "rho": 1.9, "ap": 0.8},  # sand; rho in g/cm3
+    "source": {"depth": 30.0},
+    "receivers": {"depth": {"from": 0, "to": 120, "count": 241},
+                  "range": {"from": 0, "to": 10, "count": 501, "unit": "km"}},
+    "bellhop": {"run": "coherent", "beam": "geometric_gaussian_cartesian",
+                "angles": {"from": -60, "to": 60, "count": 1201},
+                "box": {"depth": 121.0, "range": 10.1e3}},
 }
 
 case = pg.bellhop.Case.from_dict(spec)
@@ -62,8 +43,7 @@ field = case.run().field
 # The same environment, sampled only along a glider track: paired ranges and depths.
 track_range = np.linspace(200, 10e3, 400)
 track_depth = 10 + 100 * np.abs((track_range / 2000) % 2 - 1)  # saw-tooth between 10 and 110 m
-glider = dict(spec, run=dict(spec["run"], receiver_grid="irregular"),
-              positions=dict(spec["positions"], receiver_ranges_m=track_range, receiver_depths_m=track_depth))
+glider = dict(spec, receivers={"grid": "irregular", "range": track_range, "depth": track_depth})
 along_track = pg.bellhop.Case.from_dict(glider).run().field
 print(f"glider field: geometry={along_track.geometry}, pressure shape {along_track.pressure.shape}")
 

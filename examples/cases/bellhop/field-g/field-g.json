@@ -1,63 +1,49 @@
 {
-  "schema_version": 1,
+  "pelagic": 2,
+  "model": "bellhop",
   "title": "BELLHOP field influence golden",
-  "frequency_hz": 1000.0,
-  "sound_speed": {
-    "interpolation": "c_linear",
-    "attenuation_unit": "db_per_wavelength",
-    "volume_attenuation": {
-      "type": "none"
+  "frequency": 1000.0,
+  "interpolation": "c_linear",
+  "media": [
+    {
+      "to": 100.0,
+      "ssp": [
+        [0.0, 1500.0],
+        [100.0, 1500.0]
+      ],
+      "mesh": 2
+    }
+  ],
+  "surface": "vacuum",
+  "bottom": "rigid",
+  "source": {
+    "depth": [50.0]
+  },
+  "receivers": {
+    "depth": {
+      "from": 40.0,
+      "to": 60.0,
+      "count": 3
     },
-    "nominal_point_count": 2,
-    "top_depth_m": 0.0,
-    "bottom_depth_m": 100.0,
-    "points": [
-      {
-        "depth_m": 0.0,
-        "compressional_speed_mps": 1500.0,
-        "shear_speed_mps": 0.0,
-        "density_kg_m3": 1000.0,
-        "compressional_attenuation": 0.0,
-        "shear_attenuation": 0.0
-      },
-      {
-        "depth_m": 100.0,
-        "compressional_speed_mps": 1500.0,
-        "shear_speed_mps": 0.0,
-        "density_kg_m3": 1000.0,
-        "compressional_attenuation": 0.0,
-        "shear_attenuation": 0.0
-      }
-    ]
-  },
-  "top_boundary": {
-    "roughness_m": 0.0,
-    "condition": {
-      "type": "vacuum"
+    "range": {
+      "from": 0.0,
+      "to": 1.0,
+      "count": 11,
+      "unit": "km"
     }
   },
-  "bottom_boundary": {
-    "roughness_m": 0.0,
-    "condition": {
-      "type": "rigid"
+  "bellhop": {
+    "run": "coherent",
+    "beam": "geometric_hat_cartesian",
+    "angles": {
+      "from": -15.0,
+      "to": 15.0,
+      "count": 7
+    },
+    "step": 10.0,
+    "box": {
+      "depth": 110.0,
+      "range": 1100.0
     }
-  },
-  "positions": {
-    "source_depths_m": [50.0],
-    "receiver_depths_m": [40.0, 50.0, 60.0],
-    "receiver_ranges_m": [0.0, 100.0, 200.0, 300.00000000000006, 400.0, 500.0, 600.0000000000001, 700.0000000000001, 800.0, 900.0, 1000.0]
-  },
-  "run": {
-    "kind": "coherent",
-    "beam_family": "geometric_hat_cartesian",
-    "source_geometry": "point",
-    "receiver_grid": "rectilinear",
-    "beam_shift": false
-  },
-  "trace": {
-    "launch_angles_degrees": [-15.0, -10.0, -5.0, 0.0, 5.0, 10.0, 15.0],
-    "step_m": 10.0,
-    "max_depth_m": 110.0,
-    "max_range_m": 1100.0
   }
 }

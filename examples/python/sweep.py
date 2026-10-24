@@ -24,7 +24,7 @@ depths = [100.0, 500.0, 1000.0, 2000.0]
 
 def with_source_depth(depth):
     spec = dict(base, title=f"Munk, source at {depth:g} m")
-    spec["positions"] = dict(base["positions"], source_depths_m=[depth])
+    spec["source"] = dict(base["source"], depth=depth)
     return pg.bellhop.Case.from_dict(spec)
 
 

@@ -1,4 +1,4 @@
-//! Parsed legacy materials own raw absorption and its power law until a solve
+//! Input materials, from an ENV or a JSON case, own raw absorption and its power law until a solve
 //! frequency is selected. Canonical Case fields never hold legacy loss units.
 use crate::attenuation::{VolumeLoss, db_per_wavelength};
 use crate::{
@@ -7,7 +7,7 @@ use crate::{
 
 type PowerLaw = (f64, f64, f64);
 
-pub(super) struct Fluid {
+pub(crate) struct Fluid {
     pub bottom_depth_m: f64,
     pub density_g_cm3: f64,
     pub mesh_points: usize,
@@ -16,19 +16,19 @@ pub(super) struct Fluid {
     pub power_law: PowerLaw,
 }
 
-pub(super) struct Elastic {
+pub(crate) struct Elastic {
     pub bottom_depth_m: f64,
     pub points: Vec<[f64; 6]>,
     pub mesh_points: usize,
     pub power_law: PowerLaw,
 }
 
-pub(super) struct HalfSpace {
+pub(crate) struct HalfSpace {
     pub values: [f64; 6],
     pub power_law: PowerLaw,
 }
 
-pub(super) struct Materials {
+pub(crate) struct Materials {
     pub water: Fluid,
     pub additional: Vec<Fluid>,
     pub top: Vec<Elastic>,

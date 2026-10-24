@@ -14,7 +14,7 @@ CASES = Path(__file__).resolve().parent.parent / "cases"
 spec = pg.bellhop.load(CASES / "bellhop/munk-tl/munk-tl.json").to_dict()
 
 # 1. Invalid input: every problem is reported, not only the first.
-bad = dict(spec, frequency_hz=-50.0)
+bad = dict(spec, frequency=-50.0)
 try:
     pg.bellhop.Case.from_dict(bad)
 except pg.ValidationError as error:
@@ -23,7 +23,7 @@ except pg.ValidationError as error:
 
 # 2. Malformed JSON structure: an unknown field.
 try:
-    pg.bellhop.Case.from_dict(dict(spec, frequency=50.0))
+    pg.bellhop.Case.from_dict(dict(spec, frequency_hz=50.0))
 except pg.ValidationError as error:
     print(f"{error.code} at {error.field}")
 
@@ -44,7 +44,7 @@ with warnings.catch_warnings():
 # 5. All Pelagic exceptions share one base class.
 pekeris = pg.kraken.load(CASES / "kraken/pekeris/pekeris.json").to_dict()
 for problem in (lambda: pg.kraken.load(CASES / "missing.env"),            # file not found
-                lambda: pg.kraken.Case.from_dict(dict(pekeris, schema_version=2))):  # newer schema
+                lambda: pg.kraken.Case.from_dict(dict(pekeris, pelagic=3))):  # newer schema
     try:
         problem()
     except pg.PelagicError as error:

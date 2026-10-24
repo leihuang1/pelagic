@@ -235,16 +235,7 @@ fn load_cases(
         let source = read_source(path)?;
         let cases = kraken::json::load_case_document_named(source.as_bytes(), source_path(path))
             .map_err(RunError::Input)?;
-        if solver.is_some_and(|solver| {
-            kraken::ModeSolver::from(solver) != cases[0].profiles()[0].mode_solver
-        }) {
-            return Err(RunError::Input(report(
-                source_path(path),
-                "KR0202",
-                "--solver must match the JSON document",
-                "mode_solver",
-            )));
-        }
+        check_solver(path, solver, &cases)?;
         Ok(cases)
     } else {
         kraken::legacy::load_field_cases(
@@ -256,12 +247,47 @@ fn load_cases(
     }
 }
 
+fn check_solver(
+    path: &Path,
+    solver: Option<Solver>,
+    cases: &[kraken::FieldCase],
+) -> Result<(), RunError> {
+    if solver.is_some_and(|solver| {
+        kraken::ModeSolver::from(solver) != cases[0].profiles()[0].mode_solver
+    }) {
+        return Err(RunError::Input(report(
+            source_path(path),
+            "KR0202",
+            "--solver must match the JSON document",
+            "kraken.solver",
+        )));
+    }
+    Ok(())
+}
+
 fn export(path: &Path, flp: Option<PathBuf>, solver: Option<Solver>) -> Result<(), RunError> {
-    let cases = load_cases(path, flp, solver)?;
-    let document = kraken::json::export_case_document(&cases).map_err(RunError::Input)?;
+    let document = if is_json(path) || path == Path::new("-") {
+        reject_json_flp(flp.as_deref())?;
+        let source = read_source(path)?;
+        let document = kraken::json::decode_case_document(source.as_bytes(), source_path(path))
+            .map_err(RunError::Input)?;
+        let cases = document.cases(source_path(path)).map_err(RunError::Input)?;
+        check_solver(path, solver, &cases)?;
+        document
+    } else {
+        kraken::input::load_legacy(
+            path,
+            &flp.unwrap_or_else(|| path.with_extension("flp")),
+            solver.unwrap_or(Solver::Kraken).into(),
+        )
+        .map_err(RunError::Input)?
+        .document()
+        .map_err(RunError::Input)?
+    };
     // Serialize completely before touching stdout: invalid/oversized exports emit no partial document.
-    let mut bytes =
-        serde_json::to_vec(&document).map_err(|error| RunError::Output(error.to_string()))?;
+    let mut bytes = kraken::json::encode_case_document(&document, source_path(path))
+        .map_err(RunError::Input)?
+        .into_bytes();
     bytes.push(b'\n');
     if bytes.len() as u64 > kraken::legacy::MAX_INPUT_BYTES {
         return Err(RunError::Input(report(

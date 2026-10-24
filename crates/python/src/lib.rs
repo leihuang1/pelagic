@@ -75,15 +75,14 @@ impl NativeCase {
                 )
             }
             "kraken" => {
-                let cases = kraken::json::load_case_document(document.as_bytes())
+                let path = std::path::Path::new("request.json");
+                let doc = kraken::json::decode_case_document(document.as_bytes(), path)
                     .map_err(|r| kr_error("validation", &r))?;
-                let doc = kraken::json::export_case_document(&cases)
+                let cases = doc.cases(path).map_err(|r| kr_error("validation", &r))?;
+                // to_dict() must reload: reject a case whose JSON form outgrows the input limit.
+                let canonical = kraken::json::encode_case_document(&doc, path)
                     .map_err(|r| kr_error("validation", &r))?;
-                (
-                    CaseData::Kraken(cases),
-                    Ok("[]".into()),
-                    serde_json::to_string(&doc),
-                )
+                (CaseData::Kraken(cases), Ok("[]".into()), Ok(canonical))
             }
             _ => {
                 return Err(adapter_error(
@@ -174,9 +173,8 @@ impl NativeCase {
                         engine(solver.as_deref().unwrap_or("kraken"))?,
                     )
                     .map_err(|r| kr_error("validation", &r))?;
-                    let doc = kraken::json::export_case_document(input.cases())
-                        .map_err(|r| kr_error("validation", &r))?;
-                    let text = serde_json::to_string(&doc)
+                    let document = input.document().map_err(|r| kr_error("validation", &r))?;
+                    let text = serde_json::to_string(&document)
                         .map_err(|e| adapter_error("validation", "KR0103", "json", e))?;
                     Self::parse(
                         "kraken",

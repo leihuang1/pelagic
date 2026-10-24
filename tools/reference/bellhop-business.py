@@ -310,10 +310,12 @@ def main():
             if exported.returncode:
                 continue
             document = json.loads(json_path.read_bytes())
-            kind = document["run"]["kind"]
+            kind = document["bellhop"]["run"]
             result["kind"] = kind
-            result["run"] = document["run"]
-            result["sources"] = len(document["positions"]["source_depths_m"])
+            result["run"] = {key: value for key, value in document["bellhop"].items()
+                             if key in ("run", "beam", "beam_shift")}
+            depths = document["source"]["depth"]  # a number, a list or a generated grid
+            result["sources"] = depths["count"] if isinstance(depths, dict) else len(depths) if isinstance(depths, list) else 1
             extension, test = TESTS[kind]
             container = f"pelagic-business-{os.getpid()}-{index}"
             result["stage"] = "Fortran"

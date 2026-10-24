@@ -10,6 +10,8 @@ use crate::diagnostic::{Diagnostic, DiagnosticReport, LoadOutcome, SourceLocatio
 use crate::model::{BoundaryCondition, EnvironmentCase};
 use crate::{Case, CaseDefinition};
 
+pub(crate) use env::automatic_launch_count;
+
 use auxiliary::{
     BoundarySide, parse_boundary_shape, parse_internal_reflection_coefficients,
     parse_range_dependent_sound_speed, parse_reflection_coefficients, parse_source_beam_pattern,

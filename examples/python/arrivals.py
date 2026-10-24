@@ -28,13 +28,13 @@ print(f"{len(delay)} arrivals between {delay.min():.3f} s and {delay.max():.3f} 
 # Consistency check: at the case frequency, the arrivals add up to the coherent field
 # (BELLHOP's field carries an extra overall sign).
 spec = case.to_dict()
-omega = 2 * np.pi * spec["frequency_hz"]
-coherent = pg.bellhop.Case.from_dict(dict(spec, run=dict(spec["run"], kind="coherent"))).run()
+omega = 2 * np.pi * spec["frequency"]
+coherent = pg.bellhop.Case.from_dict(dict(spec, bellhop=dict(spec["bellhop"], run="coherent"))).run()
 from_arrivals = np.sum(amplitude * np.exp(1j * (phase - omega * delay)))
 print(f"|p| from arrivals {abs(from_arrivals):.3e}, coherent field {abs(coherent.field.pressure[0, 0, 0]):.3e}")
 
 # A 50 Hz, four-cycle Hann-windowed tone burst, received through the channel.
-fs, f0, cycles = 2000.0, spec["frequency_hz"], 4
+fs, f0, cycles = 2000.0, spec["frequency"], 4
 t = np.arange(0, delay.max() - delay.min() + 0.5, 1 / fs)
 start = delay.min() - 0.1
 

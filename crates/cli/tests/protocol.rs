@@ -21,7 +21,8 @@ fn version_and_stdin_use_the_public_machine_contract() {
         .unwrap();
     assert!(output.status.success());
     let version: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(version["case_schema_versions"]["bellhop"], 1);
+    assert_eq!(version["case_schema_versions"]["bellhop"], 2);
+    assert_eq!(version["case_schema_versions"]["kraken"], 2);
     for (model, bytes) in [
         (
             "bellhop",
@@ -39,10 +40,10 @@ fn version_and_stdin_use_the_public_machine_contract() {
             String::from_utf8_lossy(&output.stderr)
         );
         assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["schema_version"],
-            1
+            serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["pelagic"],
+            2
         );
-        let output = stdin_command(model, "validate", b"{\"schema_version\":1}");
+        let output = stdin_command(model, "validate", b"{\"model\":\"x\"}");
         assert_eq!(output.status.code(), Some(2));
         let diagnostic: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
         assert_eq!(diagnostic["diagnostics"][0]["severity"], "error");

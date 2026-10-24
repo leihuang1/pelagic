@@ -513,7 +513,11 @@ fn elastic_warnings_do_not_split_json_profile_headers() {
         kraken::ModeSolver::Kraken,
     )
     .unwrap();
-    let document = kraken::json::export_case_document(&cases).unwrap();
+    let document =
+        kraken::input::load_legacy(&env, &env.with_extension("flp"), kraken::ModeSolver::Kraken)
+            .unwrap()
+            .document()
+            .unwrap();
     let restored =
         kraken::json::load_case_document(&serde_json::to_vec(&document).unwrap()).unwrap();
     assert_eq!(restored, cases);

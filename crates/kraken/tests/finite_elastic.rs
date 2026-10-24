@@ -54,7 +54,14 @@ fn graded_finite_elastic_inputs_keep_complete_material_profiles() {
                     }
                 }
             }
-            let document = kraken::json::export_case_document(&cases).unwrap();
+            let document = kraken::input::load_legacy(
+                &root.with_extension("env"),
+                &root.with_extension("flp"),
+                solver,
+            )
+            .unwrap()
+            .document()
+            .unwrap();
             let restored =
                 kraken::json::load_case_document(&serde_json::to_vec(&document).unwrap()).unwrap();
             assert_eq!(restored, cases);

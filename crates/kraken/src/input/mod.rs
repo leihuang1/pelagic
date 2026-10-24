@@ -2,6 +2,7 @@
 pub(crate) mod attenuation;
 pub mod json;
 pub mod legacy;
+pub(crate) mod material;
 
 use std::path::{Path, PathBuf};
 
@@ -44,6 +45,7 @@ impl InputSnapshot {
 pub struct FieldInput {
     cases: Vec<FieldCase>,
     snapshots: Vec<InputSnapshot>,
+    solver: ModeSolver,
 }
 
 impl FieldInput {
@@ -54,6 +56,25 @@ impl FieldInput {
     #[must_use]
     pub fn snapshots(&self) -> &[InputSnapshot] {
         &self.snapshots
+    }
+    /// The equivalent JSON document, keeping the `.env` loss recipe. It is
+    /// built from the snapshots on request, so loading and solving never
+    /// depend on it.
+    /// # Errors
+    /// Returns the reader's diagnostics if a snapshot cannot be translated.
+    pub fn document(&self) -> Result<json::CaseDocument, DiagnosticReport> {
+        let snapshot = |role: &str| self.snapshots.iter().find(|s| s.role == role);
+        let source = |role: &str| snapshot(role).map(InputSnapshot::source);
+        let (env, flp) = (&self.snapshots[0], &self.snapshots[1]);
+        legacy::field_document_with_resources(
+            env.source(),
+            flp.source(),
+            env.path(),
+            flp.path(),
+            self.solver,
+            ["trc", "brc", "irc"].map(source),
+            source("sbp"),
+        )
     }
     #[must_use]
     pub fn into_cases(self) -> Vec<FieldCase> {
@@ -82,19 +103,25 @@ pub fn load_legacy(
     let pattern = legacy::source_pattern_extension(flp.source(), flp_path)?
         .map(|ext| InputSnapshot::read(ext, &flp_path.with_extension(ext)))
         .transpose()?;
+    let table_sources = tables
+        .each_ref()
+        .map(|table| table.as_ref().map(InputSnapshot::source));
+    let pattern_source = pattern.as_ref().map(InputSnapshot::source);
     let cases = legacy::load_field_cases_with_resources(
         env.source(),
         flp.source(),
         env_path,
         flp_path,
         solver,
-        tables
-            .each_ref()
-            .map(|table| table.as_ref().map(InputSnapshot::source)),
-        pattern.as_ref().map(InputSnapshot::source),
+        table_sources,
+        pattern_source,
     )?;
     let mut snapshots = vec![env, flp];
     snapshots.extend(tables.into_iter().flatten());
     snapshots.extend(pattern);
-    Ok(FieldInput { cases, snapshots })
+    Ok(FieldInput {
+        cases,
+        snapshots,
+        solver,
+    })
 }

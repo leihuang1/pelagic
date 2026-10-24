@@ -3,16 +3,17 @@ root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 addpath(fullfile(root, 'matlab'));
 info = pelagic.version();
 assert(strcmp(info.version, strtrim(fileread(fullfile(root, 'matlab', 'VERSION')))));
-% Codec round-trips schema arrays (also singleton), singleton objects, empty arrays,
-% one-element nested rows and null exactly; Rust remains the only validator.
-sample = '{"source_depths_m":[1],"b":[{"c":null}],"d":[],"e":"x\\\"y","speeds_mps":[[1500],[1510]]}';
+% Codec round-trips scalars, singleton objects, empty arrays, table rows (including
+% one-value rows) and null exactly; Rust remains the only validator. A one-value list
+% such as [1] comes back as the number 1, which every case-JSON list accepts.
+sample = '{"depth":1,"b":[{"c":null}],"d":[],"e":"x\\\"y","ssp":[[0,1500],[100]]}';
 assert(strcmp(pelagic.internal.encode(pelagic.internal.decode(sample)), sample));
-decoded = pelagic.internal.decode('{"receiver_ranges_m":[100,200.5],"layers":[{"x":1}]}');
-assert(isequal(decoded.receiver_ranges_m, [100, 200.5]) && iscell(decoded.layers));
-assert(strcmp(pelagic.internal.encode(struct('source_depths_m', 25, 'frequency_hz', 50)), ...
-    '{"source_depths_m":[25],"frequency_hz":50}'));
-assert(strcmp(pelagic.internal.encode(struct('receiver_depths_m', {{10, 40}})), '{"receiver_depths_m":[10,40]}'));
-assert(strcmp(pelagic.internal.encode(struct('receiver_depths_m', [10; 40])), '{"receiver_depths_m":[10,40]}'));
+decoded = pelagic.internal.decode('{"range":[100,200.5],"media":[{"to":1}]}');
+assert(isequal(decoded.range, [100, 200.5]) && iscell(decoded.media));
+assert(strcmp(pelagic.internal.encode(struct('depth', 25, 'frequency', 50)), ...
+    '{"depth":25,"frequency":50}'));
+assert(strcmp(pelagic.internal.encode(struct('depth', {{10, 40}})), '{"depth":[10,40]}'));
+assert(strcmp(pelagic.internal.encode(struct('depth', [10; 40])), '{"depth":[10,40]}'));
 assert(pelagic.internal.decode('1820.4999999999998') == 1820.5 - eps(1820.5));
 assert(str2double(pelagic.internal.encode(1e-22)) == 1e-22);
 assert(isequal(pelagic.internal.decode(pelagic.internal.encode([1, 2; 3, 4])), {[1, 2], [3, 4]}));
@@ -26,26 +27,30 @@ catch exception
 end
 [c, load_diagnostics] = pelagic.bellhop.load(fullfile(root, 'examples', 'cases', 'bellhop', 'field-g', 'field-g.json'));
 assert(~isempty(load_diagnostics) && strcmp(load_diagnostics{1}.severity, 'warning'));
-assert(isnumeric(c.positions.receiver_ranges_m));
-assert(max(c.positions.receiver_ranges_m) > 0);
-c.positions.source_depths_m = [20, 30];
-c.positions.receiver_depths_m = {10, 40, 60};  % older cell spelling still works
-c.positions.receiver_ranges_m = [100, 300, 600, 900];
+assert(isstruct(c.receivers.range) && c.receivers.range.count > 0);
+c.source.depth = [20, 30];
+c.receivers.depth = {10, 40, 60};  % cell spelling still works
+c.receivers.range = [100, 300, 600, 900];
 r = pelagic.bellhop.run(c);
 assert(isequal(size(r.pressure), [2, 3, 4]));
 assert(isa(r.pressure, 'single'));
 assert(isequal(r.depths_m(:), [10; 40; 60]));
 % Compare actual MATLAB interpretation to the same CLI product, with every axis nondegenerate.
 verify_case('bellhop', c, r.field);
-c.run.receiver_grid = 'irregular';
-c.positions.receiver_depths_m = [10, 40, 60, 80];
+c.receivers.grid = 'irregular';
+c.receivers.depth = [10, 40, 60, 80];
 r = pelagic.bellhop.run(c);
 assert(isequal(size(r.pressure), [2, 4]));
-% A MATLAB scalar for a one-element array field is written as a JSON array.
-single = c; single.run.receiver_grid = 'rectilinear'; single.positions.source_depths_m = 25;
+% One range with several sources and depths: the axes come from one source's samples.
+one_range = c; one_range.receivers.grid = 'rectilinear'; one_range.receivers.range = 500;
+r = pelagic.bellhop.run(one_range);
+assert(isequal(size(r.pressure), [2, 4]) && isequal(r.ranges_m, 500) && numel(r.depths_m) == 4);
+verify_case('bellhop', one_range, r.field);
+% A MATLAB scalar is a one-value list.
+single = c; single.receivers.grid = 'rectilinear'; single.source.depth = 25;
 r = pelagic.bellhop.run(single);
 assert(isequal(size(r.pressure), [1, 4, 4]));
-bad = c; bad.frequency_hz = -1;
+bad = c; bad.frequency = -1;
 try
     pelagic.bellhop.run(bad);
     error('test:MissingError', 'Expected validation failure');
@@ -53,10 +58,10 @@ catch exception
     assert(strncmp(exception.identifier, 'pelagic:BH', 10));
     ds = pelagic.diagnostics(exception);
     assert(strcmp(ds(1).severity, 'error'));
-    assert(strcmp(ds(1).field, 'frequency_hz'));
+    assert(strcmp(ds(1).field, 'frequency'));
 end
 c = pelagic.kraken.load(fullfile(root, 'examples', 'cases', 'kraken', 'pekeris', 'pekeris.json'));
-c.frequencies{2} = c.frequencies{1};
+c.frequency = [c.frequency, c.frequency];
 r = pelagic.kraken.run(c);
 assert(numel(r.frequencies) == 2);
 assert(isequal(r.frequencies{1}.field.pressure, r.frequencies{2}.field.pressure));

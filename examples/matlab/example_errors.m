@@ -4,7 +4,7 @@
 here = fileparts(mfilename('fullpath'));
 c = pelagic.bellhop.load(fullfile(here, '..', 'cases', 'bellhop', 'munk-tl', 'munk-tl.json'));
 
-c.frequency_hz = -50;
+c.frequency = -50;
 try
     pelagic.bellhop.run(c);
 catch err

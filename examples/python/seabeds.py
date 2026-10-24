@@ -36,8 +36,7 @@ shapes.legend(fontsize=8)
 # 2. Rough versus smooth surface
 rough = pg.kraken.load(CASES / "kraken/rough-surface/rough-surface.json")
 spec = rough.to_dict()
-for profile in spec["frequencies"][0]["profiles"]:
-    profile["interface_roughness_m"] = [0.0] * len(profile["interface_roughness_m"])
+spec["surface"] = "vacuum"  # was {"type": "vacuum", "roughness": 5.0}
 smooth = pg.kraken.Case.from_dict(spec)
 average = fig.add_subplot(2, 2, 2)
 for label, case in (("smooth surface", smooth), ("5 m RMS rough surface", rough)):

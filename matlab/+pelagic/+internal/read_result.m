@@ -9,10 +9,11 @@ else
 end
 r = struct('model', model);
 if strcmp(model, 'bellhop')
-    r.frequency_hz = c.frequency_hz;
-    r.title = c.title;
-    if any(strcmp(c.run.kind, {'coherent', 'semi_coherent', 'incoherent'}))
-        f.geometry = c.run.receiver_grid;
+    r.frequency_hz = c.frequency;
+    r.title = optional(c, 'title', '');
+    kind = c.bellhop.run;
+    if any(strcmp(kind, {'coherent', 'semi_coherent', 'incoherent'}))
+        f.geometry = optional(c.receivers, 'grid', 'rectilinear');
         f.source_depths_m = column(read('/field/source_depth_m'));
         ranges = column(read('/field/receiver_range_m'));
         depths = column(read('/field/receiver_depth_m'));
@@ -24,8 +25,14 @@ if strcmp(model, 'bellhop')
             f.depths_m = depths(1:count);
             f.pressure = reshape(pressure, [count, s]).';
         else
-            d = numel(c.positions.receiver_depths_m);
-            n = numel(c.positions.receiver_ranges_m);
+            % receiver_offset groups samples by source. Within one source they are
+            % depth-fast and ranges strictly increase, so the first range change
+            % ends one column of depths.
+            offsets = column(read('/field/receiver_offset'));
+            count = double(offsets(2) - offsets(1));
+            d = find(ranges(1:count) ~= ranges(1), 1) - 1;
+            if isempty(d), d = count; end
+            n = count / d;
             f.ranges_m = ranges(1:d:d*n);
             f.depths_m = depths(1:d);
             f.pressure = permute(reshape(pressure, [d, n, s]), [3, 1, 2]);
@@ -35,11 +42,11 @@ if strcmp(model, 'bellhop')
         % Convenient top-level plotting aliases, with identical logical axes.
         r.pressure = f.pressure; r.ranges_m = f.ranges_m; r.depths_m = f.depths_m;
         r.source_depths_m = f.source_depths_m;
-    elseif strcmp(c.run.kind, 'arrivals')
+    elseif strcmp(kind, 'arrivals')
         r.arrivals = columns(read, '/arrivals/', {'source_depth_m', 'receiver_offset', 'arrival_offset', ...
             'receiver_range_m', 'receiver_depth_m', 'amplitude', 'phase_radians', 'travel_time_s', ...
             'attenuation_time_s', 'source_angle_degrees', 'receiver_angle_degrees', 'top_bounces', 'bottom_bounces'});
-    elseif strcmp(c.run.kind, 'rays')
+    elseif strcmp(kind, 'rays')
         r.rays = columns(read, '/rays/', {'source_depth_m', 'ray_source_index', 'launch_angle_degrees', ...
             'point_offset', 'range_m', 'depth_m', 'travel_time_s', 'attenuation_time_s', ...
             'amplitude', 'phase_radians', 'top_bounces', 'bottom_bounces', 'termination'});
@@ -52,10 +59,13 @@ if strcmp(model, 'bellhop')
 else
     hz = column(read('/frequency_hz'));
     r.frequencies = cell(1, numel(hz));
+    % Every frequency shares the profiles: the top level at 0 m, then `profiles`.
+    profile_ranges = 0;
+    extra = optional(c, 'profiles', {});
+    for j = 1:numel(extra), profile_ranges(end + 1) = item(extra, j).range; end %#ok<AGROW>
     for i = 1:numel(hz)
         prefix = sprintf('/frequencies/%d/', i - 1);
-        definition = item(c.frequencies, i);
-        profiles = cell(1, numel(definition.profiles));
+        profiles = cell(1, numel(profile_ranges));
         for j = 1:numel(profiles)
             if j == 1, modepath = [prefix 'modes/'];
             else, modepath = [prefix sprintf('profiles/%d/modes/', j - 1)]; end
@@ -65,7 +75,7 @@ else
             m.phase_speed_mps = column(read([modepath 'phase_speed_mps']));
             m.group_speed_mps = column(read([modepath 'group_speed_mps']));
             m.attenuation_nepers_per_m = column(read([modepath 'attenuation_nepers_per_m']));
-            profiles{j} = struct('range_m', item(definition.profile_ranges_m, j), 'modes', m);
+            profiles{j} = struct('range_m', profile_ranges(j), 'modes', m);
         end
         f.geometry = 'rectilinear';
         f.source_depths_m = column(read([prefix 'field/source_depth_m']));
@@ -85,6 +95,9 @@ result = struct();
 for k = 1:numel(names), result.(names{k}) = column(read([prefix names{k}])); end
 end
 function value = column(value), value = value(:); end
+function value = optional(s, name, default)
+if isfield(s, name), value = s.(name); else, value = default; end
+end
 function value = item(values, index)
 if iscell(values), value = values{index}; else, value = values(index); end
 end

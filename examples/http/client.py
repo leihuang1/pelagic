@@ -40,8 +40,7 @@ case = json.loads((CASES / "bellhop/munk-tl/munk-tl.json").read_text(encoding="u
 print("validate:", json.loads(post("/v1/validate", case)))
 
 # A small field as JSON: a few receivers at 1000 m depth.
-small = dict(case, positions=dict(case["positions"], receiver_depths_m=[1000.0],
-                                  receiver_ranges_m=[10e3, 25e3, 50e3, 100e3]))
+small = dict(case, receivers=dict(case["receivers"], depth=1000.0, range=[10e3, 25e3, 50e3, 100e3]))
 field = json.loads(post("/v1/field", small))
 for receiver in field["sources"][0]["receivers"]:
     pressure = complex(receiver["pressure"]["real"], receiver["pressure"]["imaginary"])

@@ -35,7 +35,7 @@ form and build a new case:
 
 ```python
 spec = case.to_dict()                    # a plain JSON-compatible dict
-spec["frequency_hz"] = 200.0
+spec["frequency"] = 200.0
 case = pg.bellhop.Case.from_dict(spec)   # validates again
 ```
 
@@ -154,14 +154,14 @@ order:
 base = pg.bellhop.load("munk-tl.json").to_dict()
 
 def at(frequency):
-    spec = dict(base, frequency_hz=frequency)
+    spec = dict(base, frequency=frequency)
     return pg.bellhop.Case.from_dict(spec)
 
 cases = [at(f) for f in (50, 100, 200, 400)]
 with pg.bellhop.run_many(cases, workers=4) as results:
     for case, result in zip(cases, results):
         loss = result.field.transmission_loss()[0, :, -1]   # last range
-        print(case.to_dict()["frequency_hz"], loss.round(1))
+        print(case.to_dict()["frequency"], loss.round(1))
 ```
 
 `pg.kraken.run_many` works the same way.

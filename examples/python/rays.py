@@ -34,12 +34,11 @@ for ax, name in zip(axes, ["munk-rays", "curved-boundaries", "gulf"]):
 
     # Boundary shapes from .ati/.bty files are part of the case as plain data.
     spec = case.to_dict()
-    for boundary in ("top_boundary", "bottom_boundary"):
-        shape = spec[boundary].get("shape")
-        if shape:
+    for boundary in ("surface", "bottom"):
+        shape = spec[boundary].get("shape") if isinstance(spec[boundary], dict) else None
+        if shape:  # rows of [range, depth, ...]
             points = shape["points"]
-            ax.plot([p["range_m"] / 1e3 for p in points], [p["depth_m"] for p in points],
-                    color="saddlebrown", lw=2)
+            ax.plot([p[0] / 1e3 for p in points], [p[1] for p in points], color="saddlebrown", lw=2)
     ax.invert_yaxis()
     ax.set(xlabel="Range (km)", ylabel="Depth (m)", title=f"{result.title} ({len(result.rays)} rays)")
 

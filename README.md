@@ -50,7 +50,7 @@ result.write_native("results/munk-tl")      # .shd and friends, no re-solve
 
 ```matlab
 c = pelagic.bellhop.load('munk-tl.json');
-c.frequency_hz = 200;
+c.frequency = 200;
 r = pelagic.bellhop.run(c);
 imagesc(r.ranges_m, r.depths_m, 20*log10(abs(squeeze(r.pressure(1,:,:)))));
 ```

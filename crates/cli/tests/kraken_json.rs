@@ -233,8 +233,8 @@ fn json_failures_preserve_outputs_and_protect_input_aliases() {
     );
     assert_eq!(fs::read(&document).unwrap(), source);
     let mut value: serde_json::Value = serde_json::from_slice(&source).unwrap();
-    value["frequencies"][1]["profiles"][0]["c_low_mps"] = serde_json::json!(100.0);
-    value["frequencies"][1]["profiles"][0]["c_high_mps"] = serde_json::json!(200.0);
+    // 5 Hz has no modes in the window: the second frequency fails after the first solves.
+    value["frequency"] = serde_json::json!([75.0, 5.0, 62.5]);
     fs::write(&document, serde_json::to_vec(&value).unwrap()).unwrap();
     let process = invoke("run", &document, &["--output", output.to_str().unwrap()]);
     assert_eq!(
@@ -290,14 +290,15 @@ fn json_failures_preserve_outputs_and_protect_input_aliases() {
     let expanded = flp.replace("3\n0.5 1.0 2.0 /", "100000\n0.0 1000.0 /");
     assert_ne!(expanded, flp);
     fs::write(env.with_extension("flp"), expanded).unwrap();
+    // A subtabulated vector exports as its grid, not 100000 values.
     let export = invoke("export", &env, &[]);
-    assert_eq!(
-        export.status.code(),
-        Some(2),
+    assert!(
+        export.status.success(),
         "{}",
         String::from_utf8_lossy(&export.stderr)
     );
-    assert!(String::from_utf8_lossy(&export.stderr).contains("exported JSON exceeds 1 MiB"));
-    assert_eq!(export.stdout, [] as [u8; 0]);
+    assert!(export.stdout.len() < 4096);
+    let document: serde_json::Value = serde_json::from_slice(&export.stdout).unwrap();
+    assert_eq!(document["receivers"]["range"]["count"], 100_000);
     fs::remove_dir_all(root).unwrap();
 }

@@ -28,9 +28,10 @@ for ax, name in zip(axes.flat, NAMES):
     top = np.percentile(loss, 5)  # scale each panel to its own field
     image = ax.pcolormesh(field.ranges_m / 1e3, field.depths_m, loss, cmap="jet_r",
                           vmin=top, vmax=top + 50, shading="auto")
-    shape = case.to_dict()["bottom_boundary"].get("shape")
-    if shape:  # bathymetry from the .bty file
-        ax.plot([p["range_m"] / 1e3 for p in shape["points"]], [p["depth_m"] for p in shape["points"]], "k", lw=2)
+    bottom = case.to_dict()["bottom"]
+    shape = bottom.get("shape") if isinstance(bottom, dict) else None
+    if shape:  # bathymetry from the .bty file: rows of [range, depth, ...]
+        ax.plot([p[0] / 1e3 for p in shape["points"]], [p[1] for p in shape["points"]], "k", lw=2)
         ax.set_xlim(field.ranges_m[0] / 1e3, field.ranges_m[-1] / 1e3)
     ax.invert_yaxis()
     ax.set(title=f"{name}: {result.frequency_hz:g} Hz", xlabel="Range (km)", ylabel="Depth (m)")
