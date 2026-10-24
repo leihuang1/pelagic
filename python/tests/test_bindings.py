@@ -25,8 +25,8 @@ def test_bellhop_in_process_matches_cli_and_is_immutable(tmp_path):
     case = pg.bellhop.load(ROOT / "examples/cases/bellhop/field-g/field-g.json")
     document = case.to_dict()
     # Exercise all three axes, not a convenient singleton-only reshape.
-    document["positions"] = {"source_depths_m": [20., 30.], "receiver_depths_m": [10., 40., 60.],
-                             "receiver_ranges_m": [100., 300., 600., 900.]}
+    document["source"]["depth"] = [20., 30.]
+    document["receivers"].update(depth=[10., 40., 60.], range=[100., 300., 600., 900.])
     case = pg.bellhop.Case.from_dict(document)
     result = case.run()
     assert result.field.pressure.shape == (2, 3, 4)
@@ -50,7 +50,7 @@ def test_bellhop_in_process_matches_cli_and_is_immutable(tmp_path):
 
 def test_kraken_keeps_frequency_order_duplicates_and_each_profiles_modes(tmp_path):
     document = pg.kraken.load(ROOT / "examples/cases/kraken/pekeris/pekeris.json").to_dict()
-    document["frequencies"] *= 2
+    document["frequency"] *= 2
     case = pg.kraken.Case.from_dict(document)
     result = case.run()
     assert len(result.frequencies) == 2
@@ -70,26 +70,40 @@ def test_kraken_keeps_frequency_order_duplicates_and_each_profiles_modes(tmp_pat
 
 def test_validation_is_structured_and_matches_cli():
     document = pg.bellhop.load(ROOT / "examples/cases/bellhop/field-g/field-g.json").to_dict()
-    document["frequency_hz"] = -1
+    document["frequency"] = -1
     with pytest.raises(pg.ValidationError) as caught:
         pg.bellhop.Case.from_dict(document)
     run = cli("bellhop", "validate", "-", input=json.dumps(document))
     expected = json.loads(run.stderr)["diagnostics"]
     assert [(d.code, d.severity, d.field) for d in caught.value.diagnostics] == [(d["code"], d["severity"], d["field"]) for d in expected]
-    document["frequency_hz"] = "not a number"
+    document["frequency"] = "not a number"
     with pytest.raises(pg.ValidationError) as caught:
         pg.bellhop.Case.from_dict(document)
     assert caught.value.code == "BH0103"
-    assert caught.value.field == "frequency_hz"
+    assert caught.value.field == "frequency"
+
+
+def test_kraken_case_is_rejected_when_its_dictionary_could_not_reload():
+    # Read within the 1 MiB limit, but to_dict() writes `1500.0` for `1500` and outgrows it.
+    document = {"pelagic": 2, "model": "kraken", "frequency": 50, "interpolation": "c_linear",
+                "media": [{"to": 65000, "ssp": [[depth, 1500] for depth in range(65001)]}],
+                "surface": "vacuum", "bottom": {"type": "halfspace", "cp": 1700, "rho": 1.5},
+                "source": {"depth": 25}, "receivers": {"depth": 50, "range": 1000},
+                "kraken": {"solver": "kraken", "phase_speed": [1400, 1700], "max_range": 1000}}
+    assert len(json.dumps(document, separators=(",", ":"))) < 1 << 20
+    with pytest.raises(pg.ValidationError) as caught:
+        pg.kraken.Case.from_dict(document)
+    assert (caught.value.code, caught.value.field) == ("KR0101", "json")
+    document["media"][0]["ssp"] = [[0, 1500], [65000, 1500]]
+    case = pg.kraken.Case.from_dict(document)
+    assert pg.kraken.Case.from_dict(case.to_dict()).to_dict() == case.to_dict()
 
 
 def test_irregular_field_uses_paired_receivers():
     document = pg.bellhop.load(ROOT / "examples/cases/bellhop/field-g/field-g.json").to_dict()
-    document["run"]["receiver_grid"] = "irregular"
-    document["positions"]["receiver_ranges_m"] = [100., 300., 900.]
-    document["positions"]["receiver_depths_m"] = [10., 40., 60.]
+    document["receivers"].update(grid="irregular", range=[100., 300., 900.], depth=[10., 40., 60.])
     result = pg.bellhop.Case.from_dict(document).run()
-    assert result.field.pressure.shape == (len(document["positions"]["source_depths_m"]), 3)
+    assert result.field.pressure.shape == (len(document["source"]["depth"]), 3)
     assert result.to_xarray().dims == ("source_depth", "receiver")
 
 
@@ -116,7 +130,7 @@ def test_run_many_reports_failed_input_and_joins_all_workers():
     from threading import enumerate as threads
     case = pg.bellhop.load(ROOT / "examples/cases/bellhop/field-g/field-g.json")
     document = case.to_dict()
-    document["run"]["beam_family"] = "geometric_gaussian_ray_centered"
+    document["bellhop"]["beam"] = "geometric_gaussian_ray_centered"
     unsupported = pg.bellhop.Case.from_dict(document)
     with pytest.raises(pg.SimulationError) as caught:
         list(pg.bellhop.run_many([case, unsupported, case], workers=2))
@@ -136,9 +150,9 @@ import pelagic as pg
 # Background shell test runners inherit SIG_IGN; exercise a normal interactive handler.
 signal.signal(signal.SIGINT, signal.default_int_handler)
 c = pg.bellhop.load("examples/cases/bellhop/field-g/field-g.json").to_dict()
-c["trace"]["launch_angles_degrees"] = np.linspace(-15, 15, 10001)
-c["positions"]["receiver_ranges_m"] = np.linspace(50, 1000, 10000)
-c["positions"]["receiver_depths_m"] = np.linspace(10, 90, 100)
+c["bellhop"]["angles"] = np.linspace(-15, 15, 10001)
+c["receivers"]["range"] = np.linspace(50, 1000, 10000)
+c["receivers"]["depth"] = np.linspace(10, 90, 100)
 c = pg.bellhop.Case.from_dict(c)
 class Observed:
     def _run_native(self, token):
@@ -186,15 +200,14 @@ def test_interrupt_during_successful_cleanup_is_not_swallowed(monkeypatch):
 def test_tagged_json_error_field_does_not_depend_on_object_key_order():
     from collections import OrderedDict
     case = pg.kraken.load(ROOT / "examples/cases/kraken/pekeris/pekeris.json").to_dict()
-    profile = case["frequencies"][0]["profiles"][0]
     errors = []
-    for pairs in [[("type", "impedance"), ("data", {"extra": 1})],
-                  [("data", {"extra": 1}), ("type", "impedance")]]:
-        profile["bottom_boundary"] = OrderedDict(pairs)
+    for pairs in [[("type", "halfspace"), ("extra", 1)],
+                  [("extra", 1), ("type", "halfspace")]]:
+        case["bottom"] = OrderedDict(pairs)
         with pytest.raises(pg.ValidationError) as caught:
             pg.kraken.Case.from_dict(case)
         errors.append((caught.value.code, caught.value.field))
-    assert errors[0] == errors[1] == ("KR0103", "frequencies[0].profiles[0].bottom_boundary")
+    assert errors[0] == errors[1] == ("KR0103", "bottom")
 
 
 def test_cancelled_call_has_stable_code_and_restores_thread_scope():
@@ -215,7 +228,7 @@ def test_failure_index_does_not_depend_on_done_callback_timing(monkeypatch):
     monkeypatch.setattr(Future, "add_done_callback", lambda self, fn: None)
     case = pg.bellhop.load(ROOT / "examples/cases/bellhop/field-g/field-g.json")
     document = case.to_dict()
-    document["run"]["beam_family"] = "geometric_gaussian_ray_centered"
+    document["bellhop"]["beam"] = "geometric_gaussian_ray_centered"
     unsupported = pg.bellhop.Case.from_dict(document)
     with pytest.raises(pg.SimulationError) as caught:
         list(pg.bellhop.run_many([unsupported, case], workers=1))

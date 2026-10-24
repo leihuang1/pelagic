@@ -419,10 +419,10 @@ fn selected_ray_header_dimensions_match_complete_multisource_body() {
         .join("../bellhop/tests/fixtures/golden/N2_one_ray.env");
     let case = bellhop::legacy::load_case(&fixture).unwrap().value;
     let mut document = bellhop::json::export_case_document(&case).unwrap();
-    document.trace.launch_angles_degrees = vec![-5.0, 0.0, 5.0];
-    document.positions.source_depths_m = vec![40.0, 50.0];
+    document.bellhop.angles = bellhop::json::grid::Grid::Values(vec![-5.0, 0.0, 5.0]);
+    document.source.depth = bellhop::json::grid::Grid::Values(vec![40.0, 50.0]);
     for selected in [Some(1), Some(2), Some(3), None] {
-        document.trace.selected_launch_angle = selected;
+        document.bellhop.selected_angle = selected;
         let input = root.join(format!("selected-{selected:?}.json"));
         fs::write(&input, serde_json::to_vec(&document).unwrap()).unwrap();
         let output = root.join(format!("results-{selected:?}"));
@@ -488,27 +488,26 @@ fn default_legacy_and_three_formats_share_directory_semantics() {
 }
 
 #[test]
-fn independent_frequency_geometry_and_repetitions_remain_native_readable() {
+fn repeated_frequencies_offsets_and_profiles_remain_native_readable() {
     let root = directory("geometry");
     let input = Path::new(env!("CARGO_MANIFEST_DIR")).join("../kraken/tests/fixtures/Pekeris.env");
-    let cases = kraken::legacy::load_field_cases(
+    let legacy = kraken::input::load_legacy(
         &input,
-        input.with_extension("flp"),
+        &input.with_extension("flp"),
         kraken::ModeSolver::Kraken,
     )
     .unwrap();
-    let mut document = kraken::json::export_case_document(&cases).unwrap();
-    document.frequencies = vec![document.frequencies[0].clone(); 3];
-    document.frequencies[1].profiles[0].source_depths_m = vec![40.0, 50.0];
-    document.frequencies[1].profiles[0].receiver_depths_m = vec![0.0, 80.0];
-    document.frequencies[1].profiles[0].receiver_ranges_m = vec![750.0];
-    document.frequencies[1].profiles[0].receiver_offsets_m = vec![0.0, 20.0];
-    document.frequencies[2].propagation = kraken::FieldPropagation::Adiabatic;
-    document.frequencies[2].profile_ranges_m = vec![0.0, 500.0];
-    document.frequencies[2].profiles[0].bottom_attenuation_db_per_wavelength = 3.0;
-    let mut second = document.frequencies[2].profiles[0].clone();
-    second.title = "second profile".into();
-    document.frequencies[2].profiles.push(second);
+    let mut document = serde_json::to_value(legacy.document().unwrap()).unwrap();
+    document["frequency"] = serde_json::json!([50.0, 75.0, 50.0]);
+    document["source"]["depth"] = serde_json::json!([40.0, 50.0]);
+    document["receivers"]["depth"] = serde_json::json!([0.0, 80.0]);
+    document["receivers"]["offset"] = serde_json::json!([0.0, 20.0]);
+    document["kraken"]["propagation"] = serde_json::json!("adiabatic");
+    let mut bottom = document["bottom"].clone();
+    bottom["ap"] = serde_json::json!(0.001);
+    document["profiles"] = serde_json::json!([
+        {"range": 500.0, "title": "second profile", "bottom": bottom}
+    ]);
     let path = root.join("different.json");
     fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
     let output = root.join("results");

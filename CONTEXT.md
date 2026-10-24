@@ -9,7 +9,7 @@ BELLHOP and KRAKEN/KRAKENC are independent **Modules**, with separate models,
 numerical implementations, JSON schemas and HDF5 schemas. The `pelagic` CLI,
 the BELLHOP-only `pelagic-server`, the in-process Python binding and the
 CLI-driven MATLAB/Octave toolbox are **Adapters** over them. Adapters share each
-Module's JSON v1 contract and Rust validation, and add no physics.
+Module's JSON contract (schema version 2) and Rust validation, and add no physics.
 
 ## Language
 
@@ -21,9 +21,9 @@ _Avoid_: Job, generic acoustics configuration
 One KRAKEN solve frequency with ordered modal profiles, profile ranges and range-independent, adiabatic or coupled propagation. Frequency order and repetitions belong to the enclosing input sequence.
 _Avoid_: Broadband response, time-domain response
 
-**Legacy material**:
-A parsed finite medium or half-space whose absorption still uses the ENV's selected unit, volume-loss model and per-medium power law. It becomes canonical dB/wavelength only for a selected solve frequency; JSON already contains canonical values.
-_Avoid_: Canonical layer containing raw loss, parallel power-law arrays
+**Input material**:
+A parsed finite medium or half-space, from an ENV or a JSON case, whose absorption still uses the input's selected unit, volume-loss model and per-medium power law. It becomes canonical dB/wavelength only for a selected solve frequency, by the same conversion for both inputs.
+_Avoid_: Legacy material, canonical layer containing raw loss, parallel power-law arrays
 
 **Modal refinement**:
 The bounded sequence of meshes retaining raw roots for later seeds, a separate Richardson eigenvalue table and first-mesh shapes/group speeds. KRAKEN retains first-mesh loss perturbations; KRAKENC extrapolates complex squared wavenumbers.

@@ -4,14 +4,14 @@
 % saved as results/gulf-tl.json, which Python and the command line can also run.
 here = fileparts(mfilename('fullpath'));
 c = pelagic.bellhop.load(fullfile(here, '..', 'cases', 'bellhop', 'gulf', 'gulf.env'));
-fprintf('original run: %s with %d rays\n', c.run.kind, numel(c.trace.launch_angles_degrees));
+fprintf('original run: %s\n', c.bellhop.run);
 
 c.title = 'Gulf of Mexico: coherent transmission loss';
-c.run.kind = 'coherent';
-c.run.beam_family = 'geometric_gaussian_cartesian';
-c.trace.launch_angles_degrees = linspace(-20, 20, 801);
-c.positions.receiver_depths_m = linspace(0, 5000, 201);
-c.positions.receiver_ranges_m = linspace(0, 120e3, 601);
+c.bellhop.run = 'coherent';
+c.bellhop.beam = 'geometric_gaussian_cartesian';   % ray runs have no beam family
+c.bellhop.angles = struct('from', -20, 'to', 20, 'count', 801);  % a grid, like the .env
+c.receivers.depth = linspace(0, 5000, 201);        % or a plain vector
+c.receivers.range = struct('from', 0, 'to', 120, 'count', 601, 'unit', 'km');
 r = pelagic.bellhop.run(c);
 
 if ~isfolder('results'), mkdir('results'); end

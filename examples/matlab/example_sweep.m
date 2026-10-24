@@ -10,7 +10,7 @@ figure; hold on;
 for d = depths
     c = base;
     c.title = sprintf('Munk, source at %g m', d);
-    c.positions.source_depths_m = d;   % a scalar is sent as a one-element array
+    c.source.depth = d;   % a scalar is a one-value list
     r = pelagic.bellhop.run(c);
     row = find(r.depths_m >= 1000, 1);
     plot(r.ranges_m / 1e3, squeeze(r.field.transmission_loss_db(1, row, :)), 'DisplayName', sprintf('source %g m', d));

@@ -74,8 +74,8 @@ at `2a7a658:docs/kraken-compatibility.md`.
 The original target calls for KRAKEN `.env` and FIELD `.flp` adapters,
 including same-stem auxiliary resources used by selected cases. The strict,
 [self-contained JSON adapter](json.md) follows BELLHOP's
-single-document convention, with an independent KRAKEN schema and canonical
-solve-frequency materials.
+single-document convention, with an independent KRAKEN schema that keeps the
+`.env` loss recipe.
 
 The v2023.5 KRAKEN environment reader supports these SSP interpolation options:
 

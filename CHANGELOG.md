@@ -5,6 +5,36 @@ are on the [releases page](https://github.com/leihuang1/pelagic/releases).
 Changes to public interfaces are listed under **Compatibility**. The rules are
 in the [interface contract](docs/development/interface-contract.md).
 
+## Unreleased
+
+- **Case JSON version 2**, designed to be written by hand. It follows the
+  `.env` with names instead of positions: `media` with sound-speed rows
+  `[depth, cp, cs, rho, ap, as]`, `surface`/`bottom` boundaries, `source`,
+  `receivers`, and a `bellhop` or `kraken` block. Lists can be generated from
+  their end points (`{"from": 0, "to": 100, "count": 501, "unit": "km"}`),
+  defaults follow the `.env`, and BELLHOP and KRAKEN share names and units.
+  `munk-tl.json` drops from 271 lines to 79; the 101-frequency KRAKEN
+  `broadband.json` from 5459 to 42.
+- **KRAKEN JSON keeps the loss recipe.** Losses are stored in the `.env` unit,
+  with the volume model and power law, and are converted for each frequency by
+  the same code as `.env` input. A broadband case is one environment and a
+  frequency grid; range-dependent profiles list only what they change.
+
+**Compatibility**
+
+- Case JSON is now schema version 2 (`"pelagic": 2`, plus `"model"`), for both
+  models. Version 1 documents are no longer read: re-export them from their
+  `.env` files with `pelagic bellhop export` or `pelagic kraken export`.
+  `pelagic version --json` reports `case_schema_versions` of 2.
+- Python `Case.to_dict()`/`from_dict()` and MATLAB `load`/`run` structs use the
+  version 2 field names. Validation diagnostics name version 2 JSON paths, such
+  as `bellhop.angles` and `media[0].ssp`.
+- Units changed where version 1 differed between models: BELLHOP density is
+  g/cm³ (was kg/m³), and KRAKEN reflection-table phase is degrees (was radians).
+- KRAKEN JSON has one FIELD geometry for all frequencies. Version 1 allowed
+  geometry, profiles and solver settings to differ per frequency block.
+- The MATLAB codec no longer needs `+internal/array_fields.m`, which is removed.
+
 ## 0.4.1 — 2026-10-23
 
 - **Examples:** 24 ready-to-run cases, each as Acoustics Toolbox files and as

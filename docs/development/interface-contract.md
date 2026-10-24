@@ -12,8 +12,8 @@ Anything in this table is public. A change to one needs an entry in the
 
 | Interface | Definition | Version | Where the version lives |
 | --- | --- | --- | --- |
-| BELLHOP case JSON | [bellhop/json.md](../bellhop/json.md) | 1 | `bellhop::json::SCHEMA_VERSION` |
-| KRAKEN case JSON | [kraken/json.md](../kraken/json.md) | 1 | `kraken::json::SCHEMA_VERSION` |
+| BELLHOP case JSON | [bellhop/json.md](../bellhop/json.md) | 2 (`"pelagic"`) | `bellhop::json::SCHEMA_VERSION` |
+| KRAKEN case JSON | [kraken/json.md](../kraken/json.md) | 2 (`"pelagic"`) | `kraken::json::SCHEMA_VERSION` |
 | BELLHOP HDF5 | [guide/bellhop-hdf5.md](../guide/bellhop-hdf5.md) | 3 | `output::bellhop::SCHEMA_VERSION` |
 | KRAKEN HDF5 | [guide/kraken-hdf5.md](../guide/kraken-hdf5.md) | 1 | `output::kraken::SCHEMA_VERSION` |
 | Native files and result directory manifest | [guide/native-output.md](../guide/native-output.md) | manifest 1 | `native-output/src/directory.rs` |
@@ -111,7 +111,7 @@ change.
 ## Adapter architecture
 
 ```text
-             JSON v1 (one per model)          validation + solve in Rust
+             JSON v2 (one per model)          validation + solve in Rust
 Python  ── in-process (PyO3, pelagic._core) ─────────┐
 MATLAB  ── pelagic CLI: JSON on stdin, NDJSON stderr, │──> bellhop / kraken crates
            HDF5 result read back ─────────────────────┘
@@ -147,20 +147,21 @@ Rules that every adapter follows:
 - Looks for the CLI in `PELAGIC_CLI`, then `bin/<platform>/` inside the
   toolbox, then `PATH` (`+internal/cli.m`).
 - `+internal/encode.m` and `decode.m` are the JSON codec, shared by MATLAB and
-  Octave. `+internal/array_fields.m` lists every numeric-array JSON member, so
-  scalars are sent as one-element arrays. **When a `Vec<f64>` field is added to
-  either case model, add it there.** `python/tests/test_packaging.py` fails
-  until you do.
+  Octave. It needs no schema knowledge: every case-JSON list also accepts a
+  single number, and every table row has at least two values, so a cell of plain
+  numbers is always a flat list. **Keep both properties when adding a field.**
 
 ### Changing the case JSON
 
 1. Change the Rust model and validation in `crates/{bellhop,kraken}/src`.
 2. Update the schema doc (`docs/{bellhop,kraken}/json.md`).
-3. If the field is a numeric array, update `matlab/+pelagic/+internal/array_fields.m`.
+3. Lists take a number, an array or a grid (the `Grid` type); tables are rows
+   of at least two numbers. Defaults follow the `.env`, and `export` omits them.
 4. Add or update fixtures. Python and MATLAB run every curated fixture through
    their transports (`python/tests/test_curated.py`,
    `matlab/tests/test_curated.m`).
-5. Follow the [version rules](#version-rules), and add a `CHANGELOG.md` entry.
+5. Run `python3 tools/export-examples.py` to regenerate the example JSON.
+6. Follow the [version rules](#version-rules), and add a `CHANGELOG.md` entry.
 
 ### Writing a new adapter
 

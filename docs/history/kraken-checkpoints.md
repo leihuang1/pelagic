@@ -552,7 +552,7 @@ resources. Unknown/duplicate fields and invalid combinations are rejected.
 
 Ordinary tests cover exact legacy-definition round trips, relocated CLI runs,
 nested validation, quotas and output rollback. The representative
-workflows documented in [JSON validation](../kraken/json.md#validation) pass JSON API
+workflows documented in [JSON validation](../kraken/json.md#from-env-and-flp-files) pass JSON API
 and actual CLI/HDF5 fixed-oracle comparison, including
 real finite TopN, ShearOnly and ordered Power, real elastic-half-space
 TopN, BothS and ordered TopBroadband,

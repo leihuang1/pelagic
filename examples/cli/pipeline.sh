@@ -16,13 +16,13 @@ echo
 
 # 2. Convert a legacy case to JSON, change it, and run it from stdin.
 "$pelagic" bellhop export "$cases/bellhop/munk-tl/munk-tl.env" \
-    | python3 -c 'import json, sys; case = json.load(sys.stdin); case["frequency_hz"] = 100.0; json.dump(case, sys.stdout)' \
+    | python3 -c 'import json, sys; case = json.load(sys.stdin); case["frequency"] = 100.0; json.dump(case, sys.stdout)' \
     | "$pelagic" --diagnostics json bellhop run - --format hdf5 --output "$out/munk-100hz"
 
 # 3. Errors as JSON lines on stderr, with a stable code and the field's JSON path.
 set +e
 "$pelagic" bellhop export "$cases/bellhop/munk-tl/munk-tl.json" \
-    | python3 -c 'import json, sys; case = json.load(sys.stdin); case["frequency_hz"] = -50; json.dump(case, sys.stdout)' \
+    | python3 -c 'import json, sys; case = json.load(sys.stdin); case["frequency"] = -50; json.dump(case, sys.stdout)' \
     | "$pelagic" --diagnostics json bellhop validate - 2> "$out/errors.ndjson"
 status=$?
 set -e

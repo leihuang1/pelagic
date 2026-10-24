@@ -18,6 +18,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use bellhop::Case;
 use bellhop::diagnostic::{Diagnostic, DiagnosticReport, LoadOutcome, Severity};
+use bellhop::json::document::{BoundaryDocument, VolumeAttenuationDocument};
 use bellhop::json::{CaseDocument, DocumentErrorKind};
 use bellhop::model::RunKind;
 use bellhop::solver::{
@@ -120,6 +121,9 @@ pub fn app(config: ServerConfig) -> Router {
     paths(healthz, validate_case, run_case, arrivals_case, field_case),
     components(schemas(
         CaseDocument,
+        // Referenced from custom "name or object" field schemas, so not collected automatically.
+        BoundaryDocument,
+        VolumeAttenuationDocument,
         HealthResponse,
         ValidationResponse,
         DiagnosticResponse,
@@ -1131,6 +1135,104 @@ mod tests {
         assert_eq!(error.code, "worker_pool_failed");
     }
 
+    /// Checks `value` against the subset of JSON Schema that utoipa emits.
+    fn conforms(value: &Value, schema: &Value, root: &Value) -> bool {
+        if let Some(reference) = schema["$ref"].as_str() {
+            let name = reference.strip_prefix("#/components/schemas/").unwrap();
+            let target = &root["components"]["schemas"][name];
+            assert!(target.is_object(), "unregistered component {name}");
+            return conforms(value, target, root);
+        }
+        if let Some(options) = schema["oneOf"].as_array() {
+            return options.iter().filter(|o| conforms(value, o, root)).count() == 1;
+        }
+        if let Some(options) = schema["anyOf"].as_array()
+            && !options.iter().any(|o| conforms(value, o, root))
+        {
+            return false;
+        }
+        if let Some(options) = schema["allOf"].as_array()
+            && !options.iter().all(|o| conforms(value, o, root))
+        {
+            return false;
+        }
+        if let Some(allowed) = schema["enum"].as_array()
+            && !allowed.contains(value)
+        {
+            return false;
+        }
+        let types: Vec<&str> = match &schema["type"] {
+            Value::String(name) => vec![name],
+            Value::Array(names) => names.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
+        };
+        if !types.is_empty()
+            && !types.iter().any(|name| match *name {
+                "null" => value.is_null(),
+                "boolean" => value.is_boolean(),
+                "string" => value.is_string(),
+                "number" => value.is_number(),
+                "integer" => value.is_i64() || value.is_u64(),
+                "array" => value.is_array(),
+                "object" => value.is_object(),
+                other => panic!("unexpected schema type {other}"),
+            })
+        {
+            return false;
+        }
+        if let Value::Object(object) = value {
+            let properties = schema["properties"].as_object();
+            let required = schema["required"].as_array().into_iter().flatten();
+            if required
+                .filter_map(Value::as_str)
+                .any(|key| !object.contains_key(key))
+            {
+                return false;
+            }
+            for (key, item) in object {
+                match properties.and_then(|properties| properties.get(key)) {
+                    Some(property) if !conforms(item, property, root) => return false,
+                    None if schema["additionalProperties"] == Value::Bool(false) => return false,
+                    _ => {}
+                }
+            }
+        }
+        if let (Value::Array(items), Some(item)) = (value, schema.get("items")) {
+            return items.iter().all(|value| conforms(value, item, root));
+        }
+        true
+    }
+
+    #[tokio::test]
+    async fn published_schema_accepts_every_example_case() {
+        let openapi = app(ServerConfig::default())
+            .oneshot(Request::get("/openapi.json").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let openapi: Value =
+            serde_json::from_slice(&to_bytes(openapi.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        let schema = &openapi["components"]["schemas"]["CaseDocument"];
+        let cases =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/cases/bellhop");
+        let mut count = 0;
+        for entry in std::fs::read_dir(cases).unwrap() {
+            let folder = entry.unwrap().path();
+            let name = folder.file_name().unwrap().to_string_lossy().into_owned();
+            let path = folder.join(format!("{name}.json"));
+            let case: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            assert!(conforms(&case, schema, &openapi), "{}", path.display());
+            count += 1;
+        }
+        assert!(count >= 12);
+        // Exported shorthand names are in the schema; other names are not.
+        let mut case: Value = serde_json::from_str(CASE).unwrap();
+        case["attenuation"] = serde_json::json!({"volume": "thorp"});
+        assert!(conforms(&case, schema, &openapi));
+        case["surface"] = serde_json::json!("sand");
+        assert!(!conforms(&case, schema, &openapi));
+    }
+
     #[tokio::test]
     async fn public_routes_and_validation_contract() {
         let service = app(ServerConfig::default());
@@ -1180,7 +1282,7 @@ mod tests {
         assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
 
         let mut semantic: Value = serde_json::from_str(CASE).unwrap();
-        semantic["trace"]["launch_angles_degrees"] = serde_json::json!([]);
+        semantic["bellhop"]["angles"] = serde_json::json!([]);
         let semantic = service
             .oneshot(json_request(
                 "/v1/validate",
@@ -1210,7 +1312,7 @@ mod tests {
     #[tokio::test]
     async fn arrivals_returns_versioned_json_and_rejects_other_run_kinds() {
         let mut arrivals_case: Value = serde_json::from_str(CASE).unwrap();
-        arrivals_case["run"]["kind"] = serde_json::json!("arrivals");
+        arrivals_case["bellhop"]["run"] = serde_json::json!("arrivals");
         let response = app(ServerConfig::default())
             .oneshot(json_request(
                 "/v1/arrivals",
@@ -1294,7 +1396,7 @@ mod tests {
     async fn field_returns_all_pressure_modes_and_rejects_other_run_kinds() {
         for run_kind in ["coherent", "semi_coherent", "incoherent"] {
             let mut field_case: Value = serde_json::from_str(CASE).unwrap();
-            field_case["run"]["kind"] = serde_json::json!(run_kind);
+            field_case["bellhop"]["run"] = serde_json::json!(run_kind);
             let response = app(ServerConfig::default())
                 .oneshot(json_request(
                     "/v1/field",
@@ -1324,7 +1426,7 @@ mod tests {
         }
 
         let mut arrivals_case: Value = serde_json::from_str(CASE).unwrap();
-        arrivals_case["run"]["kind"] = serde_json::json!("arrivals");
+        arrivals_case["bellhop"]["run"] = serde_json::json!("arrivals");
         let rejected = app(ServerConfig::default())
             .oneshot(json_request(
                 "/v1/field",

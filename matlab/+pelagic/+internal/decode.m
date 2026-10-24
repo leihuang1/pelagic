@@ -1,7 +1,7 @@
 function value = decode(text)
 % Decode JSON: arrays of numbers become numeric row vectors (including one-element
 % arrays); other non-empty arrays become cells; empty arrays become {} so they can
-% be appended to. encode() restores array fields from pelagic.internal.array_fields.
+% be appended to. encode() writes them back as the same JSON shapes.
 % This is a transport codec, not a second acoustic schema or validator.
 [value, position] = parse(text, 1);
 assert(isempty(strtrim(text(position:end))), 'pelagic:PG0103', 'Trailing JSON data');

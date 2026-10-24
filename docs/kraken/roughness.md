@@ -10,7 +10,8 @@ ray model or an arbitrary-roughness accuracy guarantee.
 `CaseDefinition::interface_roughness_m` is an optional vector of finite,
 nonnegative RMS heights in metres. Empty means smooth. Otherwise it contains
 **fluid layer count + 1** values: the top, each internal interface, and the bottom.
-Missing JSON fields default to empty, preserving existing JSON v1 documents.
+In [JSON](json.md) these are `surface.roughness`, each later medium's
+`roughness` and `bottom.roughness`, all defaulting to 0.
 Legacy ENV medium-header sigma values and bottom-option sigma populate the same
 vector; all-zero legacy inputs retain the empty representation. Frequency scaling
 changes materials/meshes, not the physical roughness heights. Input-copy budgets

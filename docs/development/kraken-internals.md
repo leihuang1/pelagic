@@ -20,13 +20,15 @@ adds no physics or new acceptance requirements.
   still scans every profile. Bottom-before-top resource errors and input-size limits
   are unchanged. Reusing parsed state across acquisition/assembly is not part of this
   optimization; FLP still has separate discovery and assembly parses.
-- `input/legacy/material.rs` owns **Legacy materials**: raw absorption and power laws
+- `input/material.rs` owns **Input materials**: raw absorption and power laws
   travel with each fluid, solid or half-space, never in canonical loss fields.
   Its `case_definition` selects one frequency and converts the whole material
   stack using `attenuation::db_per_wavelength`. Storage accounting happens
   before frequency copies. Biological loss uses node depths, but half-space
   conversion retains the reference's HUGE-depth exclusion.
-- `input/json.rs` imports canonical definitions directly, without legacy conversion.
+- `input/json/` builds the same input materials from a JSON case, so both inputs
+  share one loss conversion; `legacy::field_document_with_resources` writes an
+  ENV/FLP pair as that JSON, keeping its loss recipe.
 - `layers::validate` owns fluid SSP/loss rules, interpolation validation and
   minimum-speed calculation through the existing layer iterator. It retains
   per-layer diagnostic names and aggregate ordering, including existing repeated
@@ -40,7 +42,7 @@ adds no physics or new acceptance requirements.
 `solver::solve_modes` chooses `modes.rs` (KRAKEN) or `complex_modes.rs`
 (KRAKENC). Both use `Profile`, finite-layer meshes and elastic impedances.
 `ElasticLayer.material_profile` retains depth-varying cp/cs/density/P/S losses.
-Legacy materials convert each node independently at each solve frequency;
+Input materials convert each node independently at each solve frequency;
 `SolidMesh` samples the selected N/C/P/S profile and builds per-node compound
 coefficients. Automatic solid meshes use the last input shear speed, while
 spectral limits use the sampled minimum. Interpolated density, losses and bulk

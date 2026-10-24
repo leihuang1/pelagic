@@ -26,8 +26,8 @@ pelagic.version()
 
 ```matlab
 c = pelagic.bellhop.load('munk-tl.json');        % or a legacy .env file
-c.frequency_hz = 200;
-c.positions.receiver_ranges_m = linspace(0, 10e3, 501);
+c.frequency = 200;
+c.receivers.range = linspace(0, 10e3, 501);       % or a grid struct, see below
 r = pelagic.bellhop.run(c);
 
 imagesc(r.ranges_m, r.depths_m, squeeze(r.field.transmission_loss_db(1,:,:)));
@@ -53,11 +53,13 @@ read one with `jsondecode(fileread('case.json'))`.
 
 You can mostly write ordinary MATLAB values. The details:
 
-- **Numeric arrays** are row vectors. Assigning a column vector or a scalar
-  also works: `c.positions.source_depths_m = 25` is sent as `[25]`.
-- **Lists of objects**, such as KRAKEN `frequencies` and `profiles`, and nested
-  rows such as `speeds_mps`, are cell arrays. Add an entry with
-  `c.frequencies{end+1} = ...`.
+- **Lists** such as depths and ranges are row vectors; a column vector or a
+  scalar also works (`c.source.depth = 25`). A generated grid is a struct:
+  `c.receivers.range = struct('from', 0, 'to', 10, 'count', 501, 'unit', 'km')`.
+- **Tables** such as `ssp` rows are matrices, one row per table row, or cell
+  arrays of rows.
+- **Lists of objects**, such as `media` and KRAKEN `profiles`, are cell arrays.
+  Add an entry with `c.profiles{end+1} = ...`.
 - An empty list is `{}`, and JSON `null` is `NaN`.
 - Numbers are sent with full double precision.
 
