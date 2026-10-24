@@ -18,3 +18,5 @@ __pycache__/
 !/crates/kraken/tests/fixtures/golden/*.shd
 .DS_Store
 vendor
+# Output written by the examples and quick-start commands, wherever they are run
+results/
