@@ -5,7 +5,7 @@ are on the [releases page](https://github.com/leihuang1/pelagic/releases).
 Changes to public interfaces are listed under **Compatibility**. The rules are
 in the [interface contract](docs/development/interface-contract.md).
 
-## Unreleased
+## 0.5.0 — 2026-10-25
 
 - **Case JSON version 2**, designed to be written by hand. It follows the
   `.env` with names instead of positions: `media` with sound-speed rows
