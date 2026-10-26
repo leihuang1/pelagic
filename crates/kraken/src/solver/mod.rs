@@ -26,9 +26,10 @@ use crate::{
 use num_complex::{Complex32, Complex64};
 use std::path::Path;
 
-// ponytail: 550m contributions cover BroadBand/MunkK's 513m per frequency;
-// precompute modal phases only if measured throughput requires it.
+// ponytail: 550m contributions cover BroadBand/MunkK's 513m per frequency.
 pub(crate) const MAX_FIELD_WORK: usize = 550_000_000;
+// Range phases are tabulated for blocks of ranges with at most this many modal terms.
+const PHASE_TABLE_VALUES: usize = 1 << 20;
 
 pub(super) fn solve_with_limit(
     case: &Case,
@@ -47,8 +48,18 @@ pub(crate) fn solve_modes(case: &Case, root_limit: usize) -> Result<ModeSet, Dia
     }
 }
 
-#[allow(clippy::too_many_lines)]
 fn synthesize_field(case: &Case, mode_set: &ModeSet) -> Result<PressureField, DiagnosticReport> {
+    tabulate_field(case, mode_set, PHASE_TABLE_VALUES)
+}
+
+/// FIELD with range-phase and source-amplitude tables of at most about
+/// `table_values` modal terms each; the table size never changes the result.
+#[allow(clippy::too_many_lines)]
+fn tabulate_field(
+    case: &Case,
+    mode_set: &ModeSet,
+    table_values: usize,
+) -> Result<PressureField, DiagnosticReport> {
     let mode_count = mode_set.modes.len().min(case.mode_limit);
     let sample_count = case
         .source_depths_m
@@ -73,13 +84,26 @@ fn synthesize_field(case: &Case, mode_set: &ModeSet) -> Result<PressureField, Di
     let factor = Complex32::new(0.0, 1.0)
         * (2.0 * field_pi).sqrt()
         * Complex32::from_polar(1.0, field_pi * 0.25);
-    let mut pressure = Vec::with_capacity(sample_count);
-    for (source_index, &source_depth) in case.source_depths_m.iter().enumerate() {
-        let source_shapes: Vec<_> = mode_set
-            .modes
+    let modes = &mode_set.modes[..mode_count];
+    let incoherent = case.mode_addition == ModeAddition::Incoherent;
+    // Each modal term below is evaluated with the same operations as a direct
+    // sum; only factors shared by many receivers are computed once and reused.
+    let wavenumbers: Vec<_> = modes
+        .iter()
+        .map(|mode| {
+            let k = single(mode.horizontal_wavenumber_rad_per_m);
+            let mut ik = Complex32::new(0.0, -1.0) * k;
+            if incoherent {
+                ik.im = 0.0;
+            }
+            (k, double(ik))
+        })
+        .collect();
+    let amplitudes_at = |source_index: usize, source_depth: f64| -> Vec<Complex32> {
+        modes
             .iter()
-            .take(mode_count)
-            .map(|mode| {
+            .zip(&wavenumbers)
+            .map(|(mode, &(k, _))| {
                 let shape = sample_shape(
                     &mode_set.sampled_depths_m,
                     &mode.eigenfunction,
@@ -87,7 +111,7 @@ fn synthesize_field(case: &Case, mode_set: &ModeSet) -> Result<PressureField, Di
                 );
                 // Pinned FIELD applies its one source-pattern table only to the
                 // first source-depth block.
-                if source_index == 0 && !case.source_pattern.is_empty() {
+                let source_shape = if source_index == 0 && !case.source_pattern.is_empty() {
                     double(
                         single(shape)
                             * source_pattern_scale(
@@ -97,70 +121,94 @@ fn synthesize_field(case: &Case, mode_set: &ModeSet) -> Result<PressureField, Di
                     )
                 } else {
                     shape
-                }
-            })
-            .collect();
-        for (receiver_index, &receiver_depth) in case.receiver_depths_m.iter().enumerate() {
-            let receiver_offset = case.receiver_offsets_m[receiver_index];
-            let receiver_shapes: Vec<_> = mode_set
-                .modes
-                .iter()
-                .take(mode_count)
-                .map(|mode| {
-                    sample_shape(
-                        &mode_set.sampled_depths_m,
-                        &mode.eigenfunction,
-                        receiver_depth,
-                    )
-                })
-                .collect();
-            for &range in &case.receiver_ranges_m {
-                crate::cancellation::check()?;
-                let mut value = Complex32::new(0.0, 0.0);
-                for ((mode, source_shape), receiver_shape) in mode_set
-                    .modes
-                    .iter()
-                    .take(mode_count)
-                    .zip(&source_shapes)
-                    .zip(&receiver_shapes)
-                {
-                    let k = single(mode.horizontal_wavenumber_rad_per_m);
-                    let amplitude = factor * single(*source_shape)
-                        / match case.source_geometry {
-                            SourceGeometry::Line => k,
-                            SourceGeometry::Point | SourceGeometry::ScaledCylindrical => k.sqrt(),
-                        };
-                    let mut ik = Complex32::new(0.0, -1.0) * k;
-                    if case.mode_addition == ModeAddition::Incoherent {
-                        ik.im = 0.0;
+                };
+                factor * single(source_shape)
+                    / match case.source_geometry {
+                        SourceGeometry::Line => k,
+                        SourceGeometry::Point | SourceGeometry::ScaledCylindrical => k.sqrt(),
                     }
-                    let ik = double(ik);
-                    let offset_shape = single(
-                        double(amplitude * single(*receiver_shape)) * (ik * receiver_offset).exp(),
-                    );
-                    let contribution = offset_shape * single((ik * range).exp());
-                    value += if case.mode_addition == ModeAddition::Incoherent {
-                        contribution * contribution
-                    } else {
-                        contribution
-                    };
-                }
-                if case.mode_addition == ModeAddition::Incoherent {
-                    value = value.sqrt();
-                }
-                if case.source_geometry == SourceGeometry::Point && range + receiver_offset > 0.0 {
-                    #[allow(clippy::cast_possible_truncation)]
-                    let spreading = (range + receiver_offset).sqrt() as f32;
-                    value /= spreading;
-                }
-                if !value.re.is_finite() || !value.im.is_finite() {
-                    return Err(error(
-                        "KR0302",
-                        "field pressure is not finite",
-                        "field_grid",
-                    ));
-                }
-                pressure.push(double(value));
+            })
+            .collect()
+    };
+    let receiver_count = case.receiver_depths_m.len();
+    let range_count = case.receiver_ranges_m.len();
+    let block_len = (table_values / mode_count.max(1)).clamp(1, range_count.max(1));
+    let source_batch = (table_values / mode_count.max(1)).max(1);
+    let mut pressure = vec![Complex64::new(0.0, 0.0); sample_count];
+    for (block_index, ranges) in case.receiver_ranges_m.chunks(block_len).enumerate() {
+        let phases: Vec<Vec<Complex32>> = crate::parallelism::map(ranges.len(), |index| {
+            wavenumbers
+                .iter()
+                .map(|&(_, ik)| single((ik * ranges[index]).exp()))
+                .collect()
+        });
+        let start = block_index * block_len;
+        for (batch_index, sources) in case.source_depths_m.chunks(source_batch).enumerate() {
+            let first_source = batch_index * source_batch;
+            let amplitudes: Vec<_> = sources
+                .iter()
+                .enumerate()
+                .map(|(offset, &source_depth)| amplitudes_at(first_source + offset, source_depth))
+                .collect();
+            let rows = crate::parallelism::map(sources.len() * receiver_count, |row| {
+                crate::cancellation::check()?;
+                let receiver_index = row % receiver_count;
+                let receiver_depth = case.receiver_depths_m[receiver_index];
+                let receiver_offset = case.receiver_offsets_m[receiver_index];
+                let offset_shapes: Vec<_> = modes
+                    .iter()
+                    .zip(&amplitudes[row / receiver_count])
+                    .zip(&wavenumbers)
+                    .map(|((mode, amplitude), &(_, ik))| {
+                        let receiver_shape = sample_shape(
+                            &mode_set.sampled_depths_m,
+                            &mode.eigenfunction,
+                            receiver_depth,
+                        );
+                        single(
+                            double(amplitude * single(receiver_shape))
+                                * (ik * receiver_offset).exp(),
+                        )
+                    })
+                    .collect();
+                ranges
+                    .iter()
+                    .zip(&phases)
+                    .map(|(&range, phases)| {
+                        let mut value = Complex32::new(0.0, 0.0);
+                        for (offset_shape, phase) in offset_shapes.iter().zip(phases) {
+                            let contribution = offset_shape * phase;
+                            value += if incoherent {
+                                contribution * contribution
+                            } else {
+                                contribution
+                            };
+                        }
+                        if incoherent {
+                            value = value.sqrt();
+                        }
+                        if case.source_geometry == SourceGeometry::Point
+                            && range + receiver_offset > 0.0
+                        {
+                            #[allow(clippy::cast_possible_truncation)]
+                            let spreading = (range + receiver_offset).sqrt() as f32;
+                            value /= spreading;
+                        }
+                        if !value.re.is_finite() || !value.im.is_finite() {
+                            return Err(error(
+                                "KR0302",
+                                "field pressure is not finite",
+                                "field_grid",
+                            ));
+                        }
+                        Ok(double(value))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            });
+            let first_row = first_source * receiver_count;
+            for (row, values) in rows.into_iter().enumerate() {
+                pressure[(first_row + row) * range_count + start..][..ranges.len()]
+                    .copy_from_slice(&values?);
             }
         }
     }
@@ -285,6 +333,45 @@ fn field_work_is_bounded_before_modal_products() {
         synthesize_field(&case, &modes).unwrap_err().diagnostics()[0].field,
         "field_grid"
     );
+}
+
+#[cfg(test)]
+#[test]
+fn table_size_never_changes_the_field() {
+    for (stem, solver, sources) in [
+        (
+            "FieldPattern",
+            crate::ModeSolver::Krakenc,
+            vec![75.0, 30.0, 60.0, 75.0, 10.0],
+        ),
+        ("Pekeris", crate::ModeSolver::Kraken, vec![75.0, 20.0, 50.0]),
+    ] {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(stem);
+        let mut input = crate::legacy::load_field_cases(
+            root.with_extension("env"),
+            root.with_extension("flp"),
+            solver,
+        )
+        .unwrap()
+        .remove(0)
+        .profiles
+        .remove(0)
+        .into_definition();
+        input.source_depths_m = sources;
+        let case = Case::from_definition(input).unwrap();
+        let modes = solve_modes(&case, MAX_MODE_LIMIT).unwrap();
+        let expected = format!("{:?}", synthesize_field(&case, &modes));
+        // One value per table puts each source and range in a block of its own.
+        for table_values in [1, 2, modes.modes.len(), 3 * modes.modes.len() + 1] {
+            assert_eq!(
+                format!("{:?}", tabulate_field(&case, &modes, table_values)),
+                expected,
+                "{stem} with {table_values}-value tables"
+            );
+        }
+    }
 }
 
 /// Compute normal modes and a supported range-independent FIELD.

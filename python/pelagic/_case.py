@@ -42,10 +42,14 @@ class BaseCase:
     def to_dict(self):
         return json.loads(self._native.document)
 
-    def run(self):
+    def run(self, *, threads=None):
+        """Solve on up to threads CPU threads (default: all available).
+
+        Results are identical for every thread count.
+        """
         from ._sweep import run_many
-        with run_many([self], workers=1) as results:
+        with run_many([self], workers=1, threads=threads) as results:
             return next(results)
 
-    def _run_native(self, token):
-        return call(self._native.run, token)
+    def _run_native(self, token, threads):
+        return call(self._native.run, token, threads)

@@ -116,6 +116,27 @@ def test_run_many_is_ordered_and_releases_threads():
     assert not any(t.name.startswith("pelagic") for t in threads())
 
 
+def test_thread_count_never_changes_results():
+    def fingerprint(result):
+        if hasattr(result, "field"):
+            return result.field.pressure.tobytes()
+        return b"".join(f.field.pressure.tobytes()
+                        + b"".join(p.modes.wavenumbers.tobytes() for p in f.profiles)
+                        for f in result.frequencies)
+
+    cases = [pg.bellhop.load(ROOT / "examples/cases/bellhop/munk-tl/munk-tl.json"),
+             pg.kraken.load(ROOT / "examples/cases/kraken/gulf/gulf.json")]
+    for case in cases:
+        expected = fingerprint(case.run(threads=1))
+        for threads in (3, None):
+            assert fingerprint(case.run(threads=threads)) == expected
+        with pg.bellhop.run_many([case] * 2, workers=2, threads=2) as results:
+            assert all(fingerprint(r) == expected for r in results)
+    for invalid in (0, -1, True, 1.5):
+        with pytest.raises(ValueError):
+            cases[0].run(threads=invalid)
+
+
 def test_native_publication_protects_modified_outputs(tmp_path):
     result = pg.bellhop.load(ROOT / "examples/cases/bellhop/field-g/field-g.json").run()
     result.write_native(tmp_path / "native")
@@ -155,9 +176,9 @@ c["receivers"]["range"] = np.linspace(50, 1000, 10000)
 c["receivers"]["depth"] = np.linspace(10, 90, 100)
 c = pg.bellhop.Case.from_dict(c)
 class Observed:
-    def _run_native(self, token):
+    def _run_native(self, token, threads):
         print("ready", flush=True)
-        return c._run_native(token)
+        return c._run_native(token, threads)
 try:
     with pg.bellhop.run_many([Observed()], workers=1) as results:
         next(results)
@@ -217,7 +238,7 @@ def test_cancelled_call_has_stable_code_and_restores_thread_scope():
     token = _core.Cancellation()
     token.cancel()
     with pytest.raises(pg.CancelledError) as caught:
-        call(case._native.run, token)
+        call(case._native.run, token, 4)
     assert caught.value.code == "BH0304"
     assert case.run().field is not None
 

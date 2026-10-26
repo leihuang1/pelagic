@@ -43,18 +43,24 @@ class _Sweep:
         self.close()
 
 
-def run_many(cases, workers=1):
+def run_many(cases, workers=1, threads=None):
     """Yield in input order, retaining at most workers running/ready results.
 
+    Each solve uses up to threads CPU threads; the default shares the available
+    CPUs between workers. Results are identical for every thread count.
     On failure or interruption cancel and join remaining work. Use a with-block
     when stopping iteration early, so abandoned work is cancelled immediately.
     """
     if isinstance(workers, bool) or not isinstance(workers, int) or workers < 1:
         raise ValueError("workers must be a positive integer")
-    return _Sweep(_iterate(cases, workers))
+    if threads is None:
+        threads = max(1, _core.available_threads() // workers)
+    elif isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
+        raise ValueError("threads must be a positive integer")
+    return _Sweep(_iterate(cases, workers, threads))
 
 
-def _iterate(cases, workers):
+def _iterate(cases, workers, threads):
     token = _core.Cancellation()
     executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="pelagic")
     source = iter(cases)
@@ -90,7 +96,7 @@ def _iterate(cases, workers):
                 # ThreadPoolExecutor registers a new thread AFTER starting it; defer
                 # SIGINT until both its registration and our future bookkeeping finish.
                 with _defer_interrupt():
-                    future = executor.submit(case._run_native, token)
+                    future = executor.submit(case._run_native, token, threads)
                     active[future] = submitted
                     future.add_done_callback(lambda f, i=submitted: completed(f, i))
                     submitted += 1

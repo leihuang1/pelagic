@@ -217,6 +217,7 @@ Run `pelagic-server --help` for flag names.
 | --- | ---: | --- |
 | `BELLHOP_LISTEN` | `0.0.0.0:8080` | listener address |
 | `BELLHOP_WORKERS` | logical CPU count | maximum admitted blocking requests |
+| `BELLHOP_SOLVER_THREADS` | `1` | threads for each admitted simulation; results do not depend on it |
 | `BELLHOP_REQUEST_TIMEOUT_SECONDS` | `120` | queue plus execution timeout |
 | `BELLHOP_MAX_BODY_BYTES` | `16777216` | request-body limit |
 | `BELLHOP_MAX_JSON_RESPONSE_BYTES` | `67108864` | JSON response limit |
@@ -231,7 +232,12 @@ Run `pelagic-server --help` for flag names.
 Logging uses `tracing` and the standard `RUST_LOG` filter; its fallback is
 `info`.
 
-CPU work runs in Tokio's blocking pool behind a Tower concurrency limit. A
+CPU work runs in Tokio's blocking pool behind a Tower concurrency limit. At
+most `BELLHOP_WORKERS × BELLHOP_SOLVER_THREADS` solver threads run at once, so
+raise the second and lower the first to finish fewer, larger requests sooner.
+With one solver thread a request uses the memory of a single-threaded solve.
+With more, it can also hold up to 256 MiB plus 32 MiB per thread of ray
+records. A
 request timeout returns `504` immediately, but Rust blocking work cannot be
 forcefully cancelled: that simulation continues in the background until it
 finishes and retains its worker slot. Size, concurrency, and solver limits

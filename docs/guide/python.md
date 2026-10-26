@@ -166,6 +166,10 @@ with pg.bellhop.run_many(cases, workers=4) as results:
 
 `pg.kraken.run_many` works the same way.
 
+- Each case solves on `threads` CPU threads. By default the available CPUs are
+  shared between the workers, so four workers on a 16-CPU machine use four
+  threads each. Results are bit-for-bit the same for any thread count. Prefer
+  more workers for many small cases and more threads for a few large ones.
 - At most `workers` results are held in memory at once, unless you keep them,
   for example with `list(...)`.
 - If one case fails, the remaining work is cancelled and the exception's
@@ -173,8 +177,8 @@ with pg.bellhop.run_many(cases, workers=4) as results:
 - Ctrl-C, or interrupting a Jupyter kernel, cancels running solves promptly.
 - Use the `with` block, or call `.close()`, if you stop iterating early.
 
-A single `case.run()` also releases the GIL, so you can run cases from your own
-threads.
+A single `case.run()` uses every available CPU; `case.run(threads=2)` limits
+it. It also releases the GIL, so you can run cases from your own threads.
 
 ## Errors and warnings
 

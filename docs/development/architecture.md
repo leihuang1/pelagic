@@ -81,8 +81,42 @@ the [porting map](porting-map.md) links Rust modules to the Fortran sources.
 
 ## Concurrency and cancellation
 
-The solvers are single-threaded and deterministic. Independent cases may run
-concurrently, for example through Python's `run_many`. KRAKEN frequency blocks
-inside one case always run in order. Cancellation is a thread-scoped token that
-the solvers check inside ray tracing, influence, modal searches and FIELD.
-Without a token, behaviour is unchanged.
+The solvers are deterministic: **every result and diagnostic is bit-for-bit the
+same for any thread count.** The count is thread-scoped, like cancellation:
+adapters wrap a solve in `bellhop::parallelism::with_threads` or
+`kraken::parallelism::with_threads`, and the default is one thread. The CLI and
+Python default to the available CPUs and the server to one thread per request.
+
+Each crate's `parallelism::map` evaluates independent items on scoped threads
+and returns them in item order. Workers inherit the caller's cancellation token,
+and an item never fans out again. A call starts at most 1024 workers, and a
+thread the system refuses leaves its share to the others. Order-dependent work stays on the calling
+thread:
+
+- **BELLHOP** traces a batch of rays in parallel. Each ray's influence is
+  recorded as `Effects`: single-precision field contributions, arrival
+  candidates or eigenray hits. The calling thread then applies each ray in
+  launch order. Pressure sums, arrival merging, resource limits and error
+  precedence are therefore those of one thread. With one thread, each ray is
+  applied as it is evaluated, as before. Otherwise a batch ends at 4 rays per
+  thread or 256 MiB of records, whichever comes first. A worker gives up a ray
+  whose records reach 32 MiB; the calling thread then applies that ray, and
+  every later one, as it evaluates it, so memory stays bounded on any grid. A
+  ray beyond the ray-point limit is rejected before its influence is
+  evaluated. Applied effect buffers are reused, because some allocators keep a
+  freshly grown buffer per ray.
+- **KRAKEN** runs each mode's Sturm bisection in parallel; every mode bisects
+  the whole interval on its own. Range-independent FIELD tabulates each mode's
+  amplitude, receiver offset and range phase once, then computes rows of
+  receivers in parallel with the same operations per modal term. The phase and
+  amplitude tables hold about a million modal terms at most, in blocks of
+  ranges and sources.
+  Range-dependent FIELD reuses each profile's receiver-depth brackets.
+  Frequency blocks and profiles run in order, because each carries the previous
+  mode count forward.
+
+`tests/parallelism.rs` in both crates compares every fixture and example, and
+BELLHOP resource-limit failures, across thread counts. Independent cases may
+also run concurrently, for example through Python's `run_many`. Cancellation is
+a thread-scoped token that the solvers check inside ray tracing, influence,
+modal searches and FIELD. Without a token, behaviour is unchanged.

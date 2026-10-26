@@ -16,7 +16,7 @@ serde = "1.0"
 bellhop = { path = "../bellhop" }
 kraken = { path = "../kraken" }
 output = { path = "../output" }
-clap = { version = "4.5.41", features = ["derive"] }
+clap = { version = "4.5.41", features = ["derive", "env"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 
 [dev-dependencies]

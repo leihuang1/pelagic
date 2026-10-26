@@ -3,6 +3,7 @@
 mod bellhop;
 mod kraken;
 
+use std::num::NonZeroUsize;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -33,6 +34,9 @@ impl From<Format> for output::directory::Format {
 struct Cli {
     #[arg(long, global = true, value_enum, default_value = "text")]
     diagnostics: Diagnostics,
+    /// Solver threads [default: all available CPUs]. Results are identical for any count.
+    #[arg(long, global = true, env = "PELAGIC_THREADS")]
+    threads: Option<NonZeroUsize>,
     #[command(subcommand)]
     command: Command,
 }
@@ -94,9 +98,16 @@ fn main() -> ExitCode {
             return ExitCode::from(if error.use_stderr() { 2 } else { 0 });
         }
     };
+    let threads = cli
+        .threads
+        .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
     let (exit_code, warnings) = output::diagnostic::capture(|| match cli.command {
-        Command::Bellhop(command) => bellhop::execute(command, cli.diagnostics),
-        Command::Kraken(command) => kraken::execute(command, cli.diagnostics),
+        Command::Bellhop(command) => ::bellhop::parallelism::with_threads(threads, || {
+            bellhop::execute(command, cli.diagnostics)
+        }),
+        Command::Kraken(command) => ::kraken::parallelism::with_threads(threads, || {
+            kraken::execute(command, cli.diagnostics)
+        }),
         Command::Version { json } => {
             if json {
                 println!(

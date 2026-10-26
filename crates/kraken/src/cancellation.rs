@@ -23,6 +23,11 @@ pub fn with_token<T>(token: Arc<AtomicBool>, operation: impl FnOnce() -> T) -> T
     operation()
 }
 
+/// The token of the current scope, for handing to solver worker threads.
+pub(crate) fn current() -> Option<Arc<AtomicBool>> {
+    TOKEN.with(|slot| slot.borrow().clone())
+}
+
 #[must_use]
 pub fn cancelled() -> bool {
     TOKEN.with(|slot| {

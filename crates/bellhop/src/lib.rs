@@ -5,6 +5,7 @@ pub mod case;
 pub mod diagnostic;
 pub mod input;
 pub mod model;
+pub mod parallelism;
 pub mod result;
 pub mod solver;
 

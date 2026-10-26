@@ -3,6 +3,7 @@
 use std::error::Error;
 use std::io;
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use bellhop::solver::SimulationLimits;
@@ -24,6 +25,10 @@ struct Args {
     /// Maximum number of requests admitted to blocking simulation work.
     #[arg(long, env = "BELLHOP_WORKERS", default_value_t = default_workers())]
     workers: usize,
+
+    /// Threads for each admitted simulation. Results are identical for any count.
+    #[arg(long, env = "BELLHOP_SOLVER_THREADS", default_value_t = NonZeroUsize::MIN)]
+    solver_threads: NonZeroUsize,
 
     /// End-to-end request timeout, including time spent waiting for a worker.
     #[arg(long, env = "BELLHOP_REQUEST_TIMEOUT_SECONDS", default_value_t = 120)]
@@ -102,11 +107,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         max_body_bytes: args.max_body_bytes,
         max_json_response_bytes: args.max_json_response_bytes,
         simulation_limits: limits,
+        solver_threads: args.solver_threads,
         auth_token: args.auth_token,
     };
 
     let listener = tokio::net::TcpListener::bind(args.listen).await?;
-    tracing::info!(address = %args.listen, workers = args.workers, "pelagic server listening");
+    tracing::info!(
+        address = %args.listen,
+        workers = args.workers,
+        solver_threads = args.solver_threads,
+        "pelagic server listening"
+    );
     axum::serve(listener, app(config))
         .with_graceful_shutdown(shutdown_signal())
         .await?;

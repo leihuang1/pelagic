@@ -165,16 +165,60 @@ fn factor() -> Complex32 {
     Complex32::new(0.0, 1.0) * (2.0 * pi).sqrt() * Complex32::from_polar(1.0, pi * 0.25)
 }
 
-#[allow(clippy::cast_possible_truncation)]
 fn sample(set: &ModeSet, mode: &crate::NormalMode, depth: f64) -> Complex32 {
+    sample_at(mode, bracket(set, depth))
+}
+
+/// The upper sample and single-precision weight for `depth`; `None` when the
+/// set has one sample. Shared by every mode of the set.
+#[allow(clippy::cast_possible_truncation)]
+fn bracket(set: &ModeSet, depth: f64) -> Option<(usize, f32)> {
     let z = &set.sampled_depths_m;
     if z.len() == 1 {
-        return single(mode.eigenfunction[0]);
+        return None;
     }
     let upper = z.partition_point(|d| *d < depth).clamp(1, z.len() - 1);
     let w = (depth as f32 - z[upper - 1] as f32) / (z[upper] as f32 - z[upper - 1] as f32);
+    Some((upper, w))
+}
+
+fn sample_at(mode: &crate::NormalMode, bracket: Option<(usize, f32)>) -> Complex32 {
+    let Some((upper, w)) = bracket else {
+        return single(mode.eigenfunction[0]);
+    };
     let left = single(mode.eigenfunction[upper - 1]);
     left + w * (single(mode.eigenfunction[upper]) - left)
+}
+
+/// Receiver-depth brackets of one profile, kept while ranges stay in its segment.
+struct Brackets {
+    profile: usize,
+    depths: Vec<Option<(usize, f32)>>,
+}
+
+impl Brackets {
+    fn new() -> Self {
+        Self {
+            profile: usize::MAX,
+            depths: Vec::new(),
+        }
+    }
+
+    fn select(
+        &mut self,
+        modes: &[ModeSet],
+        profile: usize,
+        depths: &[f64],
+    ) -> &[Option<(usize, f32)>] {
+        if self.profile != profile {
+            self.profile = profile;
+            self.depths = depths
+                .iter()
+                .map(|&depth| bracket(&modes[profile], depth))
+                .collect();
+        }
+        &self.depths
+    }
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -193,6 +237,7 @@ fn adiabatic(
     let mut count = excitation.len().min(modes[1].modes.len());
     let constants: Vec<_> = excitation.iter().map(|s| double(factor() * s)).collect();
     let mut integral = vec![Complex64::new(0.0, 0.0); excitation.len()];
+    let (mut left_brackets, mut right_brackets) = (Brackets::new(), Brackets::new());
     let mut segment = 0;
     let mut previous = 0.0_f64;
     for (ir, &range) in first.receiver_ranges_m.iter().enumerate() {
@@ -258,11 +303,13 @@ fn adiabatic(
                 h
             })
             .collect();
-        for (iz, &depth) in first.receiver_depths_m.iter().enumerate() {
+        let left_at = left_brackets.select(modes, segment, &first.receiver_depths_m);
+        let right_at = right_brackets.select(modes, right, &first.receiver_depths_m);
+        for (iz, (&left_at, &right_at)) in left_at.iter().zip(right_at).enumerate() {
             let contributions = (0..count).map(|m| {
                 double(interpolate(
-                    sample(&modes[segment], &modes[segment].modes[m], depth),
-                    sample(&modes[right], &modes[right].modes[m], depth),
+                    sample_at(&modes[segment].modes[m], left_at),
+                    sample_at(&modes[right].modes[m], right_at),
                     w,
                 )) * hank[m]
             });
@@ -322,6 +369,7 @@ fn coupled(
             }
         })
         .collect();
+    let mut brackets = Brackets::new();
     let mut segment = 0;
     let mut previous = 0.0;
     for (ir, &range) in first.receiver_ranges_m.iter().enumerate() {
@@ -342,11 +390,12 @@ fn coupled(
             segment += 1;
         }
         advance(&mut a, &modes[segment], range - previous);
-        for (iz, &depth) in first.receiver_depths_m.iter().enumerate() {
+        let at = brackets.select(modes, segment, &first.receiver_depths_m);
+        for (iz, &at) in at.iter().enumerate() {
             let sum: Complex32 = a
                 .iter()
                 .zip(&modes[segment].modes)
-                .map(|(a, mode)| a * sample(&modes[segment], mode, depth))
+                .map(|(a, mode)| a * sample_at(mode, at))
                 .sum();
             let value = if first.source_geometry == SourceGeometry::Point && range != 0.0 {
                 single(double(sum) / range.sqrt())
