@@ -2,9 +2,10 @@
 
     python examples/python/sweep.py
 
-Builds one case per source depth, runs them on four worker threads and collects
-the results in input order. With xarray installed, the results are also stacked
-into one labelled DataArray. Writes results/sweep.png.
+Builds one case per source depth, runs them in parallel (by default one worker
+per case, up to one per CPU) and collects the results in input order. With
+xarray installed, the results are also stacked into one labelled DataArray.
+Writes results/sweep.png.
 """
 from pathlib import Path
 import time
@@ -31,7 +32,7 @@ def with_source_depth(depth):
 cases = [with_source_depth(depth) for depth in depths]
 start = time.perf_counter()
 fields = []
-with pg.bellhop.run_many(cases, workers=4) as results:  # yields results in input order
+with pg.bellhop.run_many(cases) as results:  # yields results in input order
     for depth, result in zip(depths, results):
         fields.append(result.field)
         print(f"source {depth:6.0f} m: mean TL {np.mean(np.minimum(result.field.transmission_loss(), 150)):.1f} dB")
