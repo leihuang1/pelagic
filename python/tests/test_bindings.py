@@ -130,8 +130,9 @@ def test_thread_count_never_changes_results():
         expected = fingerprint(case.run(threads=1))
         for threads in (3, None):
             assert fingerprint(case.run(threads=threads)) == expected
-        with pg.bellhop.run_many([case] * 2, workers=2, threads=2) as results:
-            assert all(fingerprint(r) == expected for r in results)
+        for split in (dict(workers=2, threads=2), {}):
+            with pg.bellhop.run_many([case] * 2, **split) as results:
+                assert all(fingerprint(r) == expected for r in results)
     for invalid in (0, -1, True, 1.5):
         with pytest.raises(ValueError):
             cases[0].run(threads=invalid)
@@ -158,6 +159,79 @@ def test_run_many_reports_failed_input_and_joins_all_workers():
     assert caught.value.case_index == 1
     assert caught.value.code == "BH0301"
     assert not any(t.name.startswith("pelagic") for t in threads())
+
+
+def test_run_many_splits_the_cpus_between_cases_by_default(monkeypatch):
+    import pelagic._sweep as sweep
+    pools, seen = [], []
+
+    class Pool(sweep.ThreadPoolExecutor):
+        def __init__(self, max_workers, **kwargs):
+            pools.append(max_workers)
+            super().__init__(max_workers, **kwargs)
+
+    class Observed:
+        def _run_native(self, token, threads):
+            seen.append(threads)
+            return case._run_native(token, threads)
+
+    def split(cases, **kwargs):
+        pools.clear()
+        seen.clear()
+        with pg.bellhop.run_many(cases, **kwargs) as results:
+            list(results)
+        return pools[0], set(seen)
+
+    monkeypatch.setattr(sweep, "ThreadPoolExecutor", Pool)
+    monkeypatch.setattr(sweep._core, "available_threads", lambda: 8)
+    case = pg.bellhop.load(ROOT / "examples/cases/bellhop/field-g/field-g.json")
+    assert split([Observed()] * 3) == (3, {2})
+    assert split([Observed()] * 20) == (8, {1})
+    assert split(Observed() for _ in range(3)) == (8, {1})  # Unsized: one worker per CPU.
+    assert split([Observed()] * 3, workers=2) == (2, {4})
+    assert split([Observed()] * 20, threads=4) == (2, {4})
+    assert split([Observed()] * 3, workers=5, threads=3) == (5, {3})
+    assert split([]) == (1, set())
+    for invalid in (dict(workers=0), dict(threads=True), dict(return_exceptions=1)):
+        with pytest.raises(ValueError):
+            pg.bellhop.run_many([case], **invalid)
+
+
+def test_run_many_can_yield_case_errors_and_continue():
+    from threading import enumerate as threads
+    case = pg.bellhop.load(ROOT / "examples/cases/bellhop/field-g/field-g.json")
+    document = case.to_dict()
+    document["bellhop"]["beam"] = "geometric_gaussian_ray_centered"
+    unsupported = pg.bellhop.Case.from_dict(document)
+    with pg.bellhop.run_many([unsupported, case, unsupported, case], workers=2,
+                             return_exceptions=True) as results:
+        results = list(results)
+    for index in (0, 2):
+        assert isinstance(results[index], pg.SimulationError)
+        assert (results[index].code, results[index].case_index) == ("BH0301", index)
+    expected = case.run().field.pressure
+    for index in (1, 3):
+        np.testing.assert_array_equal(results[index].field.pressure, expected)
+    assert not any(t.name.startswith("pelagic") for t in threads())
+
+
+def test_run_many_still_raises_cancellation_and_foreign_errors():
+    from threading import enumerate as threads
+    case = pg.bellhop.load(ROOT / "examples/cases/bellhop/field-g/field-g.json")
+    cancelled = pg.CancelledError([pg.Diagnostic("BH0304", "error", "execution", "simulation cancelled")])
+
+    class Broken:
+        def __init__(self, error):
+            self.error = error
+
+        def _run_native(self, token, threads):
+            raise self.error
+
+    for error in (cancelled, RuntimeError("not a Pelagic failure")):
+        with pytest.raises(type(error)) as caught:
+            list(pg.bellhop.run_many([case, Broken(error), case], workers=2, return_exceptions=True))
+        assert caught.value is error
+        assert not any(t.name.startswith("pelagic") for t in threads())
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX SIGINT integration test")

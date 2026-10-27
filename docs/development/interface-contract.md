@@ -140,8 +140,14 @@ Rules that every adapter follows:
 - Solves release the GIL. Cancellation uses a thread-local token checked inside
   the solvers (`BH0304`/`KR0304`), and Ctrl-C maps to it.
 - `run_many` uses a thread pool with at most `workers` undelivered results.
-  Unless `threads` is given, each solve gets `available CPUs // workers`
-  threads (at least one); `case.run()` gets all of them.
+  Unless `workers` is given, there are `available CPUs // threads` workers
+  (`threads` counting as 1 when not given), but no more than the number of
+  cases when the input has a length, and at least one. Unless `threads` is
+  given, each solve gets `available CPUs // workers` threads (at least one);
+  `case.run()` gets all of them.
+- `run_many` raises a case's error and cancels the rest by default. With
+  `return_exceptions=True`, a `PelagicError` other than `CancelledError` is
+  yielded in that case's place, with `case_index` set, and the sweep goes on.
 - Arrays are converted once to little-endian bytes and exposed through
   `np.frombuffer`. A field briefly needs about 2× its size in memory.
 - Wheels are abi3 (`cp39-abi3`). No HDF5 is linked: `native-output` is the
