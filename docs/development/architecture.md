@@ -105,12 +105,13 @@ thread:
   ray beyond the ray-point limit is rejected before its influence is
   evaluated. Applied effect buffers are reused, because some allocators keep a
   freshly grown buffer per ray.
-- **KRAKEN** runs each mode's Sturm bisection in parallel; every mode bisects
-  the whole interval on its own. Range-independent FIELD tabulates each mode's
-  amplitude, receiver offset and range phase once, then computes rows of
-  receivers in parallel with the same operations per modal term. The phase and
-  amplitude tables hold about a million modal terms at most, in blocks of
-  ranges and sources.
+- **KRAKEN** bisects every mode over the whole interval on its own, so modes
+  run in parallel. Up to eight modes share each pass over the mesh, which
+  evaluates all of their Sturm counts with each count's own operations.
+  Range-independent FIELD tabulates each mode's amplitude, receiver offset and
+  range phase once, then computes rows of receivers in parallel with the same
+  operations per modal term. The phase and amplitude tables hold about a
+  million modal terms at most, in blocks of ranges and sources.
   Range-dependent FIELD reuses each profile's receiver-depth brackets.
   Frequency blocks and profiles run in order, because each carries the previous
   mode count forward.

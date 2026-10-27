@@ -20,6 +20,12 @@ in the [interface contract](docs/development/interface-contract.md).
   receiver's mode-shape samples once per profile. With one thread that
   960,000-point field is 4 times faster, and the Gulf of Mexico example 1.8
   times faster.
+- **Faster KRAKEN mode search.** Each pass over the mesh now advances the
+  bisection of up to eight modes instead of one, so their Sturm counts
+  overlap. Results are bit-for-bit unchanged. With one thread on an Apple M4
+  Pro, `pelagic kraken run` is 3.3 times faster on the surface-duct example,
+  2.7 times on the 960,000-point field and 1.8 times on the Gulf of Mexico
+  example.
 - **Thread controls.** The CLI takes `--threads N` or `PELAGIC_THREADS` and
   defaults to the available CPUs. Python adds `case.run(threads=)` and
   `run_many(..., threads=)`, which by default shares the CPUs between workers.

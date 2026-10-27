@@ -36,7 +36,7 @@
 | `misc/RootFinderSecantMod.f90::ZSecantCX` | `kraken::solver::complex_modes::{solve,secant}` | Unchanged secant/deflation; lossless-fluid spacing prediction bounded by bottom cp enables full original BroadBand/MunkK at unchanged 300M ceiling |
 | `Kraken/kraken.f90::Solve2` finite-solid real search | `kraken::solver::modes::Mesh::solid_roots` | Deflated secants/raw-root Neville and ordered M search bound verified for single/multi-fluid finite elasticity |
 | `Kraken/BCImpedance{c}Mod.f90` elastic A half-space formula | `kraken::solver::elastic::half_space` | KRAKEN/KRAKENC top+bottom, full modes/FIELD/CLI-HDF5 differential verified |
-| `Kraken/kraken.f90::{FUNCT,AcousticLayers,Solve1,Bisection}` elastic mode count/isolation | `kraken::solver::modes::Mesh::elastic_count` | Verified real top/bottom; shared intervals, ZBRENTX and subsequent non-deflated Solve2 |
+| `Kraken/kraken.f90::{FUNCT,AcousticLayers,Solve1,Bisection}` elastic mode count/isolation | `kraken::solver::modes::Mesh::elastic_count_lanes` | Verified real top/bottom; shared intervals, ZBRENTX and subsequent non-deflated Solve2 |
 | `Kraken/RootFinderBrent.f90::ZBRENTX` extended-range real root refinement | `kraken::solver::modes::brent` | Pinned exponents, sequential assignments and same-sign initialized-root history retained |
 | `Kraken/kraken{c}.f90::Normalize` half-space admittance derivative | `kraken::solver::{modes,complex_modes}` | Real/complex elastic half-space normalization verified; pinned group/loss limitations retained |
 | `KrakenField/EvaluateMod.f90::Evaluate` | `kraken::solver::synthesize_field` | Single-profile X/R/S and coherent/incoherent addition verified |
