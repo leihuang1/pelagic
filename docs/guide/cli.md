@@ -81,6 +81,27 @@ KRAKEN limits the total output to 256 MiB by default; change this with
 `--max-output-bytes`. KRAKEN cases with several frequencies write
 `case.f0000.mod`, `case.f0001.mod`, and so on, one pair per frequency.
 
+## Threads
+
+A run uses every CPU available to the program. On Linux that honours CPU
+affinity (`taskset`, batch schedulers) and container CPU quotas. Results are
+bit-for-bit the same for any number of threads, so the setting only changes
+the speed:
+
+```sh
+pelagic --threads 4 bellhop run case.json --output results/case
+PELAGIC_THREADS=1 pelagic kraken run case.json --output results/case
+```
+
+`--threads` goes before or after the subcommand, like `--diagnostics`.
+`PELAGIC_THREADS` applies when the flag is absent. If you run several `pelagic`
+processes at once, for example from a job array, `xargs -P` or MATLAB `parfor`,
+give each one a share of the CPUs so that they do not compete.
+
+BELLHOP shares the rays of each source between threads. KRAKEN shares the mode
+search and the FIELD receivers. KRAKEN frequencies and range-dependent profiles
+still run one after another, because each one continues from the last.
+
 ## Exit codes
 
 | Code | Meaning |

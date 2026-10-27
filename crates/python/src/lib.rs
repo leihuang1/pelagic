@@ -5,6 +5,7 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyModule};
 use sha2::{Digest, Sha256};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
@@ -205,9 +206,14 @@ impl NativeCase {
         &self.warnings
     }
 
-    fn run(&self, py: Python<'_>, cancellation: &Cancellation) -> PyResult<NativeResult> {
+    fn run(
+        &self,
+        py: Python<'_>,
+        cancellation: &Cancellation,
+        threads: NonZeroUsize,
+    ) -> PyResult<NativeResult> {
         let token = cancellation.token.clone();
-        let data = py.detach(|| match self.data.as_ref() {
+        let solve = || match self.data.as_ref() {
             CaseData::Bellhop(case) => bellhop::cancellation::with_token(token, || {
                 bellhop::solver::run(case, bellhop::solver::SimulationLimits::default())
                     .map(ResultData::Bellhop)
@@ -231,6 +237,11 @@ impl NativeCase {
                 }
                 Ok(ResultData::Kraken(results))
             }),
+        };
+        let data = py.detach(|| {
+            bellhop::parallelism::with_threads(threads, || {
+                kraken::parallelism::with_threads(threads, solve)
+            })
         })?;
         Ok(NativeResult {
             case: self.data.clone(),
@@ -353,8 +364,15 @@ impl NativeResult {
     }
 }
 
+/// CPUs available to this process, honouring affinity and container quotas.
+#[pyfunction]
+fn available_threads() -> usize {
+    std::thread::available_parallelism().map_or(1, NonZeroUsize::get)
+}
+
 #[pymodule]
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(available_threads, module)?)?;
     module.add_class::<Cancellation>()?;
     module.add_class::<NativeCase>()?;
     module.add_class::<NativeResult>()?;

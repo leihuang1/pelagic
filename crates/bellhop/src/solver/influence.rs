@@ -28,10 +28,100 @@ pub(super) struct InfluenceCounts {
 pub(super) enum InfluenceTarget<'a> {
     Eigenrays(&'a mut [ReceiverEigenrays]),
     Arrivals(&'a mut [ReceiverArrivals]),
+    Field(&'a mut [Complex32]),
+}
+
+/// One ray's influence in evaluation order. A ray is evaluated without touching
+/// shared receivers; [`apply`] then adds its effects exactly where and in the
+/// order that direct application would have.
+pub(super) enum Effects {
+    Eigenrays(Vec<EigenrayHit>),
+    Arrivals(Vec<(usize, ArrivalCandidate)>),
+    /// Single-precision contributions, rounded as they are accumulated.
     Field {
-        pressure: &'a mut [Complex32],
         coherent: bool,
+        values: Vec<(usize, Complex32)>,
     },
+}
+
+impl Effects {
+    pub(super) fn new(kind: RunKind) -> Self {
+        match kind {
+            RunKind::Eigenrays => Self::Eigenrays(Vec::new()),
+            RunKind::Arrivals => Self::Arrivals(Vec::new()),
+            RunKind::Coherent | RunKind::SemiCoherent | RunKind::Incoherent => Self::Field {
+                coherent: kind == RunKind::Coherent,
+                values: Vec::new(),
+            },
+            RunKind::Rays => unreachable!("ray traces record no influence"),
+        }
+    }
+
+    pub(super) fn bytes(&self) -> usize {
+        match self {
+            Self::Eigenrays(hits) => hits.len() * std::mem::size_of::<EigenrayHit>(),
+            Self::Arrivals(candidates) => {
+                candidates.len() * std::mem::size_of::<(usize, ArrivalCandidate)>()
+            }
+            Self::Field { values, .. } => values.len() * std::mem::size_of::<(usize, Complex32)>(),
+        }
+    }
+
+    pub(super) fn clear(&mut self) {
+        match self {
+            Self::Eigenrays(hits) => hits.clear(),
+            Self::Arrivals(candidates) => candidates.clear(),
+            Self::Field { values, .. } => values.clear(),
+        }
+    }
+}
+
+/// Where an influence kernel sends a ray's effects.
+pub(super) enum Recorder<'a, 'b> {
+    /// The thread that owns the receivers applies each effect at once.
+    Apply {
+        target: &'a mut InfluenceTarget<'b>,
+        coherent: bool,
+        states: &'a [RayState],
+        limits: &'a InfluenceLimits,
+        counts: &'a mut InfluenceCounts,
+    },
+    /// A worker records effects for [`apply`], and gives up the ray as `full`
+    /// at `limit` bytes; the owning thread then applies the ray itself.
+    Record {
+        effects: &'a mut Effects,
+        limit: usize,
+        full: bool,
+    },
+}
+
+impl Recorder<'_, '_> {
+    pub(super) fn is_full(&self) -> bool {
+        matches!(self, Self::Record { full: true, .. })
+    }
+
+    fn is_eigenrays(&self) -> bool {
+        match self {
+            Self::Apply { target, .. } => matches!(target, InfluenceTarget::Eigenrays(_)),
+            Self::Record { effects, .. } => matches!(effects, Effects::Eigenrays(_)),
+        }
+    }
+
+    fn recorded(effects: &Effects, limit: usize, full: &mut bool) -> Result<(), &'static str> {
+        if effects.bytes() < limit {
+            Ok(())
+        } else {
+            *full = true;
+            Err("influence record limit reached")
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct EigenrayHit {
+    cell_index: usize,
+    state_index: usize,
+    source_angle_degrees: f64,
 }
 
 #[allow(
@@ -46,7 +136,7 @@ pub(super) fn cerveny_cartesian(
     states: &[RayState],
     launch_angle_radians: f64,
     angular_spacing_radians: f64,
-    target: &mut InfluenceTarget<'_>,
+    recorder: &mut Recorder<'_, '_>,
 ) -> Result<(), &'static str> {
     if states.len() < 3 {
         return Ok(());
@@ -214,7 +304,7 @@ pub(super) fn cerveny_cartesian(
                     Complex64::new((constant * image_sum).norm_sqr(), 0.0)
                 };
                 let cell_index = receiver_index * depth_count + depth_index;
-                add_raw_field_contribution(target, cell_index, contribution)?;
+                record_raw_field(recorder, cell_index, contribution)?;
             }
         }
     }
@@ -233,7 +323,7 @@ pub(super) fn cerveny_ray_centered(
     states: &[RayState],
     launch_angle_radians: f64,
     angular_spacing_radians: f64,
-    target: &mut InfluenceTarget<'_>,
+    recorder: &mut Recorder<'_, '_>,
 ) -> Result<(), &'static str> {
     if states.len() < 2 {
         return Ok(());
@@ -411,7 +501,7 @@ pub(super) fn cerveny_ray_centered(
                     }
                     contribution *= hermite(normal, radius_max, 2.0 * radius_max);
                     let cell_index = receiver_index * depth_count + depth_index;
-                    add_raw_field_contribution(target, cell_index, contribution)?;
+                    record_raw_field(recorder, cell_index, contribution)?;
                 }
                 prior = Some((normal_b, range_b, receiver_b));
             }
@@ -491,9 +581,7 @@ pub(super) fn geo_hat_cartesian(
     states: &[RayState],
     launch_angle_radians: f64,
     angular_spacing_radians: f64,
-    target: &mut InfluenceTarget<'_>,
-    limits: &InfluenceLimits,
-    counts: &mut InfluenceCounts,
+    recorder: &mut Recorder<'_, '_>,
 ) -> Result<(), &'static str> {
     if states.len() < 2 {
         return Ok(());
@@ -587,11 +675,10 @@ pub(super) fn geo_hat_cartesian(
                         phase += PI / 2.0;
                     }
                     let cell_index = receiver_index * depth_count + depth_index;
-                    apply_contribution(
-                        target,
+                    record(
+                        recorder,
                         cell_index,
                         state_index,
-                        states,
                         ArrivalCandidate {
                             amplitude,
                             phase_radians: phase,
@@ -603,8 +690,6 @@ pub(super) fn geo_hat_cartesian(
                             incoherent_intensity: constant.powi(2) * hat_weight,
                         },
                         case.environment.frequency_hz,
-                        limits,
-                        counts,
                     )?;
                 }
             }
@@ -641,9 +726,7 @@ pub(super) fn geo_hat_ray_centered(
     states: &[RayState],
     launch_angle_radians: f64,
     angular_spacing_radians: f64,
-    target: &mut InfluenceTarget<'_>,
-    limits: &InfluenceLimits,
-    counts: &mut InfluenceCounts,
+    recorder: &mut Recorder<'_, '_>,
 ) -> Result<(), &'static str> {
     if states.len() < 2 {
         return Ok(());
@@ -736,11 +819,10 @@ pub(super) fn geo_hat_ray_centered(
                         phase += PI / 2.0;
                     }
                     let cell_index = receiver_index * depth_count + depth_index;
-                    apply_contribution(
-                        target,
+                    record(
+                        recorder,
                         cell_index,
                         state_index,
-                        states,
                         ArrivalCandidate {
                             amplitude,
                             phase_radians: phase,
@@ -752,8 +834,6 @@ pub(super) fn geo_hat_ray_centered(
                             incoherent_intensity: constant.powi(2) * hat_weight,
                         },
                         case.environment.frequency_hz,
-                        limits,
-                        counts,
                     )?;
                 }
                 if receiver_index == final_index {
@@ -784,9 +864,7 @@ pub(super) fn simple_gaussian(
     states: &[RayState],
     launch_angle_radians: f64,
     angular_spacing_radians: f64,
-    target: &mut InfluenceTarget<'_>,
-    limits: &InfluenceLimits,
-    counts: &mut InfluenceCounts,
+    recorder: &mut Recorder<'_, '_>,
 ) -> Result<(), &'static str> {
     if states.len() < 2 {
         return Ok(());
@@ -849,12 +927,11 @@ pub(super) fn simple_gaussian(
 
             for (depth_index, &receiver_depth) in depths.iter().take(depth_count).enumerate() {
                 let cell_index = receiver_index * depth_count + depth_index;
-                if matches!(target, InfluenceTarget::Eigenrays(_)) {
-                    apply_contribution(
-                        target,
+                if recorder.is_eigenrays() {
+                    record(
+                        recorder,
                         cell_index,
                         state_index,
-                        states,
                         ArrivalCandidate {
                             amplitude: 0.0,
                             phase_radians: 0.0,
@@ -866,8 +943,6 @@ pub(super) fn simple_gaussian(
                             incoherent_intensity: 0.0,
                         },
                         case.environment.frequency_hz,
-                        limits,
-                        counts,
                     )?;
                     continue;
                 }
@@ -885,7 +960,7 @@ pub(super) fn simple_gaussian(
                         * (angular_frequency * contribution_delay - current.phase_radians - phase);
                 let contribution = ratio * normalization * current.amplitude * exponent.exp()
                     / source_distance.sqrt();
-                add_raw_field_contribution(target, cell_index, contribution)?;
+                record_raw_field(recorder, cell_index, contribution)?;
             }
             q_old = q;
             receiver_index += 1;
@@ -904,9 +979,7 @@ pub(super) fn geo_gaussian_cartesian(
     states: &[RayState],
     launch_angle_radians: f64,
     angular_spacing_radians: f64,
-    target: &mut InfluenceTarget<'_>,
-    limits: &InfluenceLimits,
-    counts: &mut InfluenceCounts,
+    recorder: &mut Recorder<'_, '_>,
 ) -> Result<(), &'static str> {
     if states.len() < 2 {
         return Ok(());
@@ -1010,11 +1083,10 @@ pub(super) fn geo_gaussian_cartesian(
                         phase += PI / 2.0;
                     }
                     let cell_index = receiver_index * depth_count + depth_index;
-                    apply_contribution(
-                        target,
+                    record(
+                        recorder,
                         cell_index,
                         state_index,
-                        states,
                         ArrivalCandidate {
                             amplitude,
                             phase_radians: phase,
@@ -1028,8 +1100,6 @@ pub(super) fn geo_gaussian_cartesian(
                                 * gaussian_weight,
                         },
                         case.environment.frequency_hz,
-                        limits,
-                        counts,
                     )?;
                 }
             }
@@ -1060,58 +1130,141 @@ pub(super) fn geo_gaussian_cartesian(
     Ok(())
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::too_many_arguments)]
-fn apply_contribution(
-    target: &mut InfluenceTarget<'_>,
+#[allow(clippy::cast_possible_truncation)]
+fn record(
+    recorder: &mut Recorder<'_, '_>,
     cell_index: usize,
     state_index: usize,
-    states: &[RayState],
     candidate: ArrivalCandidate,
     frequency_hz: f64,
-    limits: &InfluenceLimits,
-    counts: &mut InfluenceCounts,
 ) -> Result<(), &'static str> {
     if cell_index.is_multiple_of(256) {
         crate::cancellation::check()?;
     }
-    match target {
-        InfluenceTarget::Eigenrays(receivers) => {
-            let point_count = state_index + 1;
-            if counts.eigenrays >= limits.max_eigenrays
-                || counts.eigenray_points.saturating_add(point_count) > limits.max_eigenray_points
-            {
-                return Err("eigenray resource limit exceeded");
-            }
-            receivers[cell_index].eigenrays.push(trajectory_from_states(
-                candidate.source_angle_degrees,
-                &states[..=state_index],
-                RayTermination::ReceiverHit,
-            ));
-            counts.eigenrays += 1;
-            counts.eigenray_points += point_count;
-            Ok(())
-        }
-        InfluenceTarget::Arrivals(receivers) => add_arrival(
-            &mut receivers[cell_index],
-            candidate,
-            frequency_hz,
+    let hit = EigenrayHit {
+        cell_index,
+        state_index,
+        source_angle_degrees: candidate.source_angle_degrees,
+    };
+    match recorder {
+        Recorder::Apply {
+            target,
+            coherent,
+            states,
             limits,
             counts,
-        ),
-        InfluenceTarget::Field { pressure, coherent } => {
-            let contribution = if *coherent {
-                let angular_frequency = 2.0 * PI * frequency_hz;
-                let exponent = Complex64::new(0.0, -1.0)
-                    * (angular_frequency * candidate.delay - candidate.phase_radians);
-                candidate.amplitude * exponent.exp()
-            } else {
-                let attenuation = (2.0 * PI * frequency_hz * candidate.delay.im).exp();
-                Complex64::new(candidate.incoherent_intensity * attenuation.powi(2), 0.0)
-            };
-            pressure[cell_index] += Complex32::new(contribution.re as f32, contribution.im as f32);
-            Ok(())
+        } => match target {
+            InfluenceTarget::Eigenrays(receivers) => {
+                add_eigenray(receivers, hit, states, limits, counts)
+            }
+            InfluenceTarget::Arrivals(receivers) => add_arrival(
+                &mut receivers[cell_index],
+                candidate,
+                frequency_hz,
+                limits,
+                counts,
+            ),
+            InfluenceTarget::Field(pressure) => {
+                pressure[cell_index] += field_contribution(*coherent, &candidate, frequency_hz);
+                Ok(())
+            }
+        },
+        Recorder::Record {
+            effects,
+            limit,
+            full,
+        } => {
+            match &mut **effects {
+                Effects::Eigenrays(hits) => hits.push(hit),
+                Effects::Arrivals(candidates) => candidates.push((cell_index, candidate)),
+                Effects::Field { coherent, values } => values.push((
+                    cell_index,
+                    field_contribution(*coherent, &candidate, frequency_hz),
+                )),
+            }
+            Recorder::recorded(effects, *limit, full)
         }
     }
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn field_contribution(
+    coherent: bool,
+    candidate: &ArrivalCandidate,
+    frequency_hz: f64,
+) -> Complex32 {
+    let contribution = if coherent {
+        let angular_frequency = 2.0 * PI * frequency_hz;
+        let exponent = Complex64::new(0.0, -1.0)
+            * (angular_frequency * candidate.delay - candidate.phase_radians);
+        candidate.amplitude * exponent.exp()
+    } else {
+        let attenuation = (2.0 * PI * frequency_hz * candidate.delay.im).exp();
+        Complex64::new(candidate.incoherent_intensity * attenuation.powi(2), 0.0)
+    };
+    Complex32::new(contribution.re as f32, contribution.im as f32)
+}
+
+fn add_eigenray(
+    receivers: &mut [ReceiverEigenrays],
+    hit: EigenrayHit,
+    states: &[RayState],
+    limits: &InfluenceLimits,
+    counts: &mut InfluenceCounts,
+) -> Result<(), &'static str> {
+    let point_count = hit.state_index + 1;
+    if counts.eigenrays >= limits.max_eigenrays
+        || counts.eigenray_points.saturating_add(point_count) > limits.max_eigenray_points
+    {
+        return Err("eigenray resource limit exceeded");
+    }
+    receivers[hit.cell_index]
+        .eigenrays
+        .push(trajectory_from_states(
+            hit.source_angle_degrees,
+            &states[..=hit.state_index],
+            RayTermination::ReceiverHit,
+        ));
+    counts.eigenrays += 1;
+    counts.eigenray_points += point_count;
+    Ok(())
+}
+
+/// Apply one ray's recorded effects in recording order, exactly as
+/// [`Recorder::Apply`] would have. Drains `effects`, keeping its capacity.
+pub(super) fn apply(
+    effects: &mut Effects,
+    target: &mut InfluenceTarget<'_>,
+    states: &[RayState],
+    frequency_hz: f64,
+    limits: &InfluenceLimits,
+    counts: &mut InfluenceCounts,
+) -> Result<(), &'static str> {
+    match (effects, target) {
+        (Effects::Eigenrays(hits), InfluenceTarget::Eigenrays(receivers)) => {
+            for hit in hits.drain(..) {
+                add_eigenray(receivers, hit, states, limits, counts)?;
+            }
+        }
+        (Effects::Arrivals(candidates), InfluenceTarget::Arrivals(receivers)) => {
+            for (cell_index, candidate) in candidates.drain(..) {
+                add_arrival(
+                    &mut receivers[cell_index],
+                    candidate,
+                    frequency_hz,
+                    limits,
+                    counts,
+                )?;
+            }
+        }
+        (Effects::Field { values, .. }, InfluenceTarget::Field(pressure)) => {
+            for (cell_index, value) in values.drain(..) {
+                pressure[cell_index] += value;
+            }
+        }
+        _ => unreachable!("effects are recorded for the run's target"),
+    }
+    Ok(())
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -1172,7 +1325,7 @@ pub(super) fn scale_arrivals(case: &Case, receivers: &mut [ReceiverArrivals]) {
     }
 }
 
-struct ArrivalCandidate {
+pub(super) struct ArrivalCandidate {
     amplitude: f64,
     phase_radians: f64,
     delay: Complex64,
@@ -1286,19 +1439,36 @@ fn uniform_receiver_index(ranges: &[f64], range: f64) -> usize {
 }
 
 #[allow(clippy::cast_possible_truncation)]
-fn add_raw_field_contribution(
-    target: &mut InfluenceTarget<'_>,
+fn record_raw_field(
+    recorder: &mut Recorder<'_, '_>,
     cell_index: usize,
     contribution: Complex64,
 ) -> Result<(), &'static str> {
     if cell_index.is_multiple_of(256) {
         crate::cancellation::check()?;
     }
-    let InfluenceTarget::Field { pressure, .. } = target else {
-        return Err("simple-Gaussian arrivals are not supported");
-    };
-    pressure[cell_index] += Complex32::new(contribution.re as f32, contribution.im as f32);
-    Ok(())
+    let value = Complex32::new(contribution.re as f32, contribution.im as f32);
+    match recorder {
+        Recorder::Apply {
+            target: InfluenceTarget::Field(pressure),
+            ..
+        } => {
+            pressure[cell_index] += value;
+            Ok(())
+        }
+        Recorder::Record {
+            effects,
+            limit,
+            full,
+        } => {
+            let Effects::Field { values, .. } = &mut **effects else {
+                return Err("simple-Gaussian arrivals are not supported");
+            };
+            values.push((cell_index, value));
+            Recorder::recorded(effects, *limit, full)
+        }
+        Recorder::Apply { .. } => Err("simple-Gaussian arrivals are not supported"),
+    }
 }
 
 fn crosses_caustic(q: f64, old_q: f64) -> bool {

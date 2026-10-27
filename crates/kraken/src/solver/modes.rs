@@ -773,8 +773,8 @@ impl<'a> Mesh<'a> {
             .and_then(|n| n.checked_add(*work))
             .filter(|n| *n <= MAX_WORK)
             .ok_or_else(|| error("KR0302", "modal mesh-work limit exceeded", "mesh_points"))?;
-        let mut roots = Vec::with_capacity(count);
-        for mode in 0..count {
+        // Each mode bisects the whole interval on its own, so modes may run concurrently.
+        crate::parallelism::map(count, |mode| {
             crate::cancellation::check()?;
             let mut left = low;
             let mut right = high;
@@ -789,9 +789,10 @@ impl<'a> Mesh<'a> {
                     right = middle;
                 }
             }
-            roots.push(left.midpoint(right));
-        }
-        Ok(roots)
+            Ok(left.midpoint(right))
+        })
+        .into_iter()
+        .collect()
     }
 
     // Solve1 shares isolating intervals, then refines signed dispersion with

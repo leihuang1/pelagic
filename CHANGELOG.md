@@ -5,6 +5,34 @@ are on the [releases page](https://github.com/leihuang1/pelagic/releases).
 Changes to public interfaces are listed under **Compatibility**. The rules are
 in the [interface contract](docs/development/interface-contract.md).
 
+## Unreleased
+
+- **Multi-threaded solves with unchanged results.** BELLHOP shares the rays of
+  each source between threads. KRAKEN shares its mode search and FIELD
+  receivers. Results and diagnostics are bit-for-bit the same as with one
+  thread, and every native and HDF5 product of the examples is unchanged. On a
+  14-CPU machine, `pelagic bellhop run` on the field examples is 5 to 8 times
+  faster, and a 960,000-point KRAKEN field 25 times faster. One thread uses the
+  same memory as before. More threads let BELLHOP hold up to 256 MiB plus
+  32 MiB per thread of ray records, whatever the grid size.
+- **Faster KRAKEN FIELD on one thread.** Modal phases are computed once per
+  range instead of once per receiver, and range-dependent FIELD finds each
+  receiver's mode-shape samples once per profile. With one thread that
+  960,000-point field is 4 times faster, and the Gulf of Mexico example 1.8
+  times faster.
+- **Thread controls.** The CLI takes `--threads N` or `PELAGIC_THREADS` and
+  defaults to the available CPUs. Python adds `case.run(threads=)` and
+  `run_many(..., threads=)`, which by default shares the CPUs between workers.
+  MATLAB adds `run(c, 'Threads', n)`. `pelagic-server` adds
+  `BELLHOP_SOLVER_THREADS`, which defaults to one thread per request.
+
+**Compatibility**
+
+- The CLI, Python `case.run()` and MATLAB `run` now use every available CPU by
+  default. Set `--threads 1`, `PELAGIC_THREADS=1` or `threads=1` to keep the
+  previous single-threaded behaviour, for example when running many processes
+  side by side.
+
 ## 0.5.0 — 2026-10-25
 
 - **Case JSON version 2**, designed to be written by hand. It follows the

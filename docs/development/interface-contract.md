@@ -130,12 +130,18 @@ Rules that every adapter follows:
   `case_sha256` and `input_sha256`.
 - **Exact version match** between the MATLAB toolbox and its CLI
   (`pelagic.version()`). Adapters never download or update software.
+- **Threads change speed, never results.** Every adapter can set the solver
+  thread count (CLI `--threads`/`PELAGIC_THREADS`, Python `threads=`, MATLAB
+  `'Threads'`, server `BELLHOP_SOLVER_THREADS`). It is not a case field and is
+  not recorded in provenance, because no product depends on it.
 
 ### Python (`crates/python`, `python/pelagic`)
 
 - Solves release the GIL. Cancellation uses a thread-local token checked inside
   the solvers (`BH0304`/`KR0304`), and Ctrl-C maps to it.
 - `run_many` uses a thread pool with at most `workers` undelivered results.
+  Unless `threads` is given, each solve gets `available CPUs // workers`
+  threads (at least one); `case.run()` gets all of them.
 - Arrays are converted once to little-endian bytes and exposed through
   `np.frombuffer`. A field briefly needs about 2× its size in memory.
 - Wheels are abi3 (`cp39-abi3`). No HDF5 is linked: `native-output` is the

@@ -3,6 +3,7 @@
 //! Synchronous HTTP facade for modern, self-contained BELLHOP cases.
 
 use std::io::{self, Write};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -46,6 +47,8 @@ pub struct ServerConfig {
     pub max_body_bytes: usize,
     pub max_json_response_bytes: usize,
     pub simulation_limits: SimulationLimits,
+    /// Threads for each admitted simulation; results are identical for any count.
+    pub solver_threads: NonZeroUsize,
     pub auth_token: Option<String>,
 }
 
@@ -57,6 +60,7 @@ impl Default for ServerConfig {
             max_body_bytes: 16 * 1024 * 1024,
             max_json_response_bytes: 64 * 1024 * 1024,
             simulation_limits: SimulationLimits::default(),
+            solver_threads: NonZeroUsize::MIN,
             auth_token: None,
         }
     }
@@ -65,6 +69,7 @@ impl Default for ServerConfig {
 #[derive(Clone)]
 struct AppState {
     simulation_limits: SimulationLimits,
+    solver_threads: NonZeroUsize,
     max_json_response_bytes: usize,
     auth_token: Option<Arc<str>>,
     worker_slots: Arc<Semaphore>,
@@ -86,6 +91,7 @@ pub fn app(config: ServerConfig) -> Router {
 
     let state = AppState {
         simulation_limits: config.simulation_limits,
+        solver_threads: config.solver_threads,
         max_json_response_bytes: config.max_json_response_bytes,
         auth_token: config.auth_token.map(Arc::from),
         worker_slots: Arc::new(Semaphore::new(config.workers)),
@@ -928,10 +934,11 @@ async fn blocking_worker<T: Send + 'static>(
                 "simulation worker pool failed",
             )
         })?;
+    let threads = state.solver_threads;
     // Dropping the request (including timeout) does not cancel blocking work.
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        work()
+        bellhop::parallelism::with_threads(threads, work)
     })
     .await
     .map_err(|error| {
@@ -1101,6 +1108,7 @@ mod tests {
     async fn dropped_requests_keep_worker_slots_until_blocking_work_finishes() {
         let state = super::AppState {
             simulation_limits: super::SimulationLimits::default(),
+            solver_threads: std::num::NonZeroUsize::MIN,
             max_json_response_bytes: 1024,
             auth_token: None,
             worker_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
@@ -1390,6 +1398,23 @@ mod tests {
             serde_json::from_slice(&to_bytes(limited.into_body(), usize::MAX).await.unwrap())
                 .unwrap();
         assert_eq!(body["error"]["code"], "resource_limit_exceeded");
+    }
+
+    #[tokio::test]
+    async fn solver_threads_do_not_change_responses() {
+        let mut responses = Vec::new();
+        for threads in [1, 3] {
+            let response = app(ServerConfig {
+                solver_threads: std::num::NonZeroUsize::new(threads).unwrap(),
+                ..ServerConfig::default()
+            })
+            .oneshot(json_request("/v1/field", CASE))
+            .await
+            .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            responses.push(to_bytes(response.into_body(), usize::MAX).await.unwrap());
+        }
+        assert_eq!(responses[0], responses[1]);
     }
 
     #[tokio::test]

@@ -44,6 +44,10 @@ modes = r.frequencies{1}.profiles{1}.modes;
 plot(real(modes.wavenumbers), 'o');
 ```
 
+`run` uses every available CPU. Results are bit-for-bit the same for any
+thread count. `pelagic.bellhop.run(c, 'Threads', 2)` limits it, for example
+inside `parfor`, where each worker should take a share of the CPUs.
+
 `load` converts the input to Pelagic's JSON format, so the struct has the
 fields described in [BELLHOP JSON](../bellhop/json.md) and
 [KRAKEN JSON](../kraken/json.md). You can also build a struct from scratch, or

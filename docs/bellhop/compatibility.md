@@ -25,7 +25,7 @@ Implemented:
 
 Numerically implemented:
 
-- deterministic single-threaded `R` ray traces
+- deterministic `R` ray traces, identical for any thread count
 - `N/C/P/S/Q/A` sound-speed evaluation and derivatives
 - reference modified polygon/midpoint integration with interface and boundary step reduction
 - flat, piecewise-linear, curvilinear, and range-dependent boundaries
