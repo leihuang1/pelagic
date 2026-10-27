@@ -61,7 +61,9 @@ catch exception
     assert(strcmp(ds(1).field, 'frequency'));
 end
 % The thread count never changes results; invalid counts are adapter errors.
-assert(isequal(pelagic.bellhop.run(c, 'Threads', 1).pressure, pelagic.bellhop.run(c, 'threads', 3).pressure));
+one = pelagic.bellhop.run(c, 'Threads', 1);
+three = pelagic.bellhop.run(c, 'threads', 3);
+assert(isequal(one.pressure, three.pressure));
 for invalid = {0, 1.5, Inf, 'two', [1, 2]}
     try
         pelagic.bellhop.run(c, 'Threads', invalid{1});
@@ -75,7 +77,8 @@ c.frequency = [c.frequency, c.frequency];
 r = pelagic.kraken.run(c);
 assert(numel(r.frequencies) == 2);
 assert(isequal(r.frequencies{1}.field.pressure, r.frequencies{2}.field.pressure));
-assert(isequal(pelagic.kraken.run(c, 'Threads', 2).frequencies{1}.field.pressure, r.frequencies{1}.field.pressure));
+two = pelagic.kraken.run(c, 'Threads', 2);
+assert(isequal(two.frequencies{1}.field.pressure, r.frequencies{1}.field.pressure));
 assert(size(r.frequencies{1}.profiles{1}.modes.eigenfunctions, 2) == numel(r.frequencies{1}.profiles{1}.modes.wavenumbers));
 previous = getenv('PELAGIC_CLI');
 restore = onCleanup(@() setenv('PELAGIC_CLI', previous)); %#ok<NASGU>
