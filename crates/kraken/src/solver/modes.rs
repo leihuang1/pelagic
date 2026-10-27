@@ -18,6 +18,8 @@ const MAX_SHAPES: usize = 5_000_000;
 // use measured root work or faster isolation if larger spectra are required.
 const MAX_WORK: usize = 2_500_000_000;
 const ROOT_STEPS: usize = 64;
+// Modes bisected together; one mesh pass serves all of their Sturm counts.
+const ROOT_LANES: usize = 8;
 
 pub(super) fn solve(case: &Case, mut root_limit: usize) -> Result<ModeSet, DiagnosticReport> {
     let omega = 2.0 * PI * case.frequency_hz;
@@ -533,12 +535,20 @@ impl<'a> Mesh<'a> {
 
     // Inertia of the symmetric tridiagonal acoustic operator A(x): number of roots above x.
     fn count(&self, x: f64) -> usize {
+        self.count_lanes([x])[0]
+    }
+
+    // `count` at K points in one mesh pass. Each lane repeats the scalar
+    // recurrence exactly; interleaving K independent division chains keeps
+    // the divider busy where one chain would wait on each quotient.
+    #[allow(clippy::needless_range_loop)] // Lane k mirrors the scalar recurrence.
+    fn count_lanes<const K: usize>(&self, x: [f64; K]) -> [usize; K] {
         if crate::solver::elastic::has_half_space(self.case) {
-            return self.elastic_count(x);
+            return self.elastic_count_lanes(x);
         }
+        let mut pivot = [0.0_f64; K];
+        let mut count = [0; K];
         if self.layers.len() > 1 {
-            let mut pivot: f64 = 0.0;
-            let mut count = 0;
             let mut first = true;
             for (medium, layer) in self.layers.iter().enumerate() {
                 let start = usize::from(
@@ -549,44 +559,54 @@ impl<'a> Mesh<'a> {
                         medium + 1 == self.layers.len()
                             && self.case.bottom_boundary == BottomBoundary::Vacuum,
                     );
+                let e = 1.0 / (layer.h * layer.density);
+                let (h2, hd) = (layer.h * layer.h, layer.h * layer.density);
                 for i in start..end {
-                    let diagonal = self.layer_diagonal(x, medium, i);
-                    let e = 1.0 / (layer.h * layer.density);
-                    pivot = if first {
-                        diagonal
-                    } else {
-                        diagonal - e * e / pivot
-                    };
+                    // Interior rows inline `layer_diagonal`'s plain branch.
+                    let interior = (medium > 0 || i > 0) && i < layer.intervals;
+                    for k in 0..K {
+                        let diagonal = if interior {
+                            (self.b1[layer.coefficient_start + i] - h2 * x[k]) / hd
+                        } else {
+                            self.layer_diagonal(x[k], medium, i)
+                        };
+                        pivot[k] = if first {
+                            diagonal
+                        } else {
+                            diagonal - e * e / pivot[k]
+                        };
+                        if pivot[k].abs() < 1e-30 {
+                            pivot[k] = -1e-30;
+                        }
+                        if pivot[k] > 0.0 {
+                            count[k] += 1;
+                        }
+                    }
                     first = false;
-                    if pivot.abs() < 1e-30 {
-                        pivot = -1e-30;
-                    }
-                    if pivot > 0.0 {
-                        count += 1;
-                    }
                 }
             }
             return count;
         }
-        let shift = self.h * self.h * x;
+        let h2 = self.h * self.h;
+        let shift = x.map(|x| h2 * x);
         let first = usize::from(self.case.surface_boundary == SurfaceBoundary::Vacuum);
         let end = self.b1.len() - usize::from(self.case.bottom_boundary == BottomBoundary::Vacuum);
-        let mut pivot = 0.0;
-        let mut count = 0;
         for i in first..end {
-            let d = if i == 0 {
-                self.surface_diagonal(x)
-            } else if i + 1 == self.b1.len() {
-                self.bottom_diagonal(x)
-            } else {
-                self.b1[i] - shift
-            };
-            pivot = if i == first { d } else { d - 1.0 / pivot };
-            if pivot.abs() < 1e-30 {
-                pivot = -1e-30;
-            }
-            if pivot > 0.0 {
-                count += 1;
+            for k in 0..K {
+                let d = if i == 0 {
+                    self.surface_diagonal(x[k])
+                } else if i + 1 == self.b1.len() {
+                    self.bottom_diagonal(x[k])
+                } else {
+                    self.b1[i] - shift[k]
+                };
+                pivot[k] = if i == first { d } else { d - 1.0 / pivot[k] };
+                if pivot[k].abs() < 1e-30 {
+                    pivot[k] = -1e-30;
+                }
+                if pivot[k] > 0.0 {
+                    count[k] += 1;
+                }
             }
         }
         count
@@ -594,88 +614,105 @@ impl<'a> Mesh<'a> {
 
     // AcousticLayers/FUNCT includes the elastic impedance poles in ModeCount;
     // acoustic-matrix inertia alone misses the Scholte/interface branch.
-    fn elastic_count(&self, x: f64) -> usize {
-        let mut count = 0;
-        let impedance = |boundary: &BottomBoundary, cp, density: f64, loss, k2: Complex64| {
-            if matches!(boundary, BottomBoundary::ElasticHalfSpace { .. }) {
-                crate::solver::elastic::half_space(
-                    boundary,
-                    x.into(),
-                    self.omega,
-                    cp,
-                    density,
-                    loss,
-                    true,
-                )
-            } else if boundary.is_half_space() {
-                (
-                    (Complex64::new(x, 0.0) - k2).sqrt().re.into(),
-                    density.into(),
-                )
-            } else if *boundary == BottomBoundary::Vacuum {
-                (1.0.into(), 0.0.into())
-            } else {
-                (0.0.into(), 1.0.into())
+    #[allow(clippy::needless_range_loop)] // Lane k mirrors the scalar recurrence.
+    fn elastic_count_lanes<const K: usize>(&self, x: [f64; K]) -> [usize; K] {
+        let impedance =
+            |x: f64, boundary: &BottomBoundary, cp, density: f64, loss, k2: Complex64| {
+                if matches!(boundary, BottomBoundary::ElasticHalfSpace { .. }) {
+                    crate::solver::elastic::half_space(
+                        boundary,
+                        x.into(),
+                        self.omega,
+                        cp,
+                        density,
+                        loss,
+                        true,
+                    )
+                } else if boundary.is_half_space() {
+                    (
+                        (Complex64::new(x, 0.0) - k2).sqrt().re.into(),
+                        density.into(),
+                    )
+                } else if *boundary == BottomBoundary::Vacuum {
+                    (1.0.into(), 0.0.into())
+                } else {
+                    (0.0.into(), 1.0.into())
+                }
+            };
+        let mut count = [0; K];
+        let mut f = [0.0; K];
+        let mut g = [0.0; K];
+        for k in 0..K {
+            let (fk, gk) = impedance(
+                x[k],
+                &self.case.bottom_boundary,
+                self.case.bottom_sound_speed_mps,
+                self.case.bottom_density_g_cm3,
+                self.case.bottom_attenuation_db_per_wavelength,
+                self.bottom_complex_k2,
+            );
+            if matches!(
+                self.case.bottom_boundary,
+                BottomBoundary::ElasticHalfSpace { .. }
+            ) && gk.re > 0.0
+            {
+                count[k] += 1;
             }
-        };
-        let (f, g) = impedance(
-            &self.case.bottom_boundary,
-            self.case.bottom_sound_speed_mps,
-            self.case.bottom_density_g_cm3,
-            self.case.bottom_attenuation_db_per_wavelength,
-            self.bottom_complex_k2,
-        );
-        if matches!(
-            self.case.bottom_boundary,
-            BottomBoundary::ElasticHalfSpace { .. }
-        ) && g.re > 0.0
-        {
-            count += 1;
+            (f[k], g[k]) = (fk.re, gk.re);
         }
-        let (mut f, mut g) = (f.re, g.re);
         for layer in self.layers.iter().rev() {
-            let shift = layer.h * layer.h * x;
-            let mut p0 = 0.0;
-            let mut p1 = -2.0 * g;
-            let mut p2 = (self.b1[layer.coefficient_start + layer.intervals] - shift) * g
-                - (2.0 * f) * (layer.h * layer.density);
+            let shift = x.map(|x| layer.h * layer.h * x);
+            let mut p0 = [0.0; K];
+            let mut p1 = g.map(|g| -2.0 * g);
+            let mut p2 = [0.0; K];
+            for k in 0..K {
+                p2[k] = (self.b1[layer.coefficient_start + layer.intervals] - shift[k]) * g[k]
+                    - (2.0 * f[k]) * (layer.h * layer.density);
+            }
             for &coefficient in self.b1
                 [layer.coefficient_start..layer.coefficient_start + layer.intervals]
                 .iter()
                 .rev()
             {
-                p0 = p1;
-                p1 = p2;
-                p2 = (shift - coefficient) * p1 - p0;
-                if p0 * p1 <= 0.0 {
-                    count += 1;
-                }
-                if p2.abs() > 1e50 {
-                    p0 *= 1e-50;
-                    p1 *= 1e-50;
-                    p2 *= 1e-50;
+                for k in 0..K {
+                    p0[k] = p1[k];
+                    p1[k] = p2[k];
+                    p2[k] = (shift[k] - coefficient) * p1[k] - p0[k];
+                    if p0[k] * p1[k] <= 0.0 {
+                        count[k] += 1;
+                    }
+                    if p2[k].abs() > 1e50 {
+                        p0[k] *= 1e-50;
+                        p1[k] *= 1e-50;
+                        p2[k] *= 1e-50;
+                    }
                 }
             }
-            f = -(p2 - p0) / (2.0 * layer.h) / layer.density;
-            g = -p1;
+            for k in 0..K {
+                f[k] = -(p2[k] - p0[k]) / (2.0 * layer.h) / layer.density;
+                g[k] = -p1[k];
+            }
         }
-        let (ft, gt) = impedance(
-            &self.case.surface_boundary,
-            self.case.surface_sound_speed_mps,
-            self.case.surface_density_g_cm3,
-            self.case.surface_attenuation_db_per_wavelength,
-            self.surface_complex_k2,
-        );
-        if matches!(
-            self.case.surface_boundary,
-            BottomBoundary::ElasticHalfSpace { .. }
-        ) && gt.re > 0.0
-        {
-            count += 1;
-        }
-        let delta = -f * gt.re - g * ft.re;
-        if g * delta > 0.0 {
-            count += 1;
+        for k in 0..K {
+            let (ft, gt) = impedance(
+                x[k],
+                &self.case.surface_boundary,
+                self.case.surface_sound_speed_mps,
+                self.case.surface_density_g_cm3,
+                self.case.surface_attenuation_db_per_wavelength,
+                self.surface_complex_k2,
+            );
+            if matches!(
+                self.case.surface_boundary,
+                BottomBoundary::ElasticHalfSpace { .. }
+            ) && gt.re > 0.0
+            {
+                count[k] += 1;
+            }
+            let delta = -f[k] * gt.re - g[k] * ft.re;
+            if g[k] * delta > 0.0 {
+                count[k] += 1;
+            }
         }
         count
     }
@@ -773,26 +810,70 @@ impl<'a> Mesh<'a> {
             .and_then(|n| n.checked_add(*work))
             .filter(|n| *n <= MAX_WORK)
             .ok_or_else(|| error("KR0302", "modal mesh-work limit exceeded", "mesh_points"))?;
-        // Each mode bisects the whole interval on its own, so modes may run concurrently.
-        crate::parallelism::map(count, |mode| {
+        // Each mode bisects the whole interval on its own, so groups of modes
+        // may run concurrently. Fill every thread before widening the groups.
+        let size = count
+            .div_ceil(crate::parallelism::threads())
+            .min(ROOT_LANES);
+        let mut roots = Vec::with_capacity(count);
+        for group in crate::parallelism::map(count.div_ceil(size), |group| {
+            let modes = group * size..count.min(group * size + size);
+            match modes.len() {
+                1 => self.bisect::<1>(low, high, above, modes),
+                2 => self.bisect::<2>(low, high, above, modes),
+                3 | 4 => self.bisect::<4>(low, high, above, modes),
+                _ => self.bisect::<ROOT_LANES>(low, high, above, modes),
+            }
+        }) {
+            roots.extend(group?);
+        }
+        Ok(roots)
+    }
+
+    // Bisect up to K modes in lockstep, one mesh pass per step. Each lane
+    // takes exactly the steps it would take alone and drops out where it
+    // would stop; spare lanes ride along unread.
+    #[allow(clippy::float_cmp, clippy::needless_range_loop)]
+    fn bisect<const K: usize>(
+        &self,
+        low: f64,
+        high: f64,
+        above: usize,
+        modes: std::ops::Range<usize>,
+    ) -> Result<Vec<f64>, DiagnosticReport> {
+        let mut left = [low; K];
+        let mut right = [high; K];
+        let mut active = [false; K];
+        active[..modes.len()].fill(true);
+        for _ in 0..ROOT_STEPS {
             crate::cancellation::check()?;
-            let mut left = low;
-            let mut right = high;
-            for _ in 0..ROOT_STEPS {
-                let middle = left.midpoint(right);
-                if middle == left || middle == right {
-                    break;
-                }
-                if self.count(middle) > above + mode {
-                    left = middle;
-                } else {
-                    right = middle;
+            let mut middle = left;
+            for k in 0..modes.len() {
+                if active[k] {
+                    middle[k] = left[k].midpoint(right[k]);
+                    active[k] = middle[k] != left[k] && middle[k] != right[k];
                 }
             }
-            Ok(left.midpoint(right))
-        })
-        .into_iter()
-        .collect()
+            if !active.contains(&true) {
+                break;
+            }
+            let counts = self.count_lanes(middle);
+            for (k, mode) in modes.clone().enumerate() {
+                if active[k] {
+                    if counts[k] > above + mode {
+                        left[k] = middle[k];
+                    } else {
+                        right[k] = middle[k];
+                    }
+                }
+            }
+        }
+        Ok(left
+            .iter()
+            .zip(&right)
+            .take(modes.len())
+            .map(|(left, &right)| left.midpoint(right))
+            .collect())
     }
 
     // Solve1 shares isolating intervals, then refines signed dispersion with
@@ -1241,9 +1322,94 @@ fn inverse_iteration(d: &[f64], e: &[f64]) -> Result<Vec<f64>, DiagnosticReport>
 #[cfg(test)]
 mod tests {
     use super::{MAX_MODE_LIMIT, MAX_WORK, Mesh, brent, solve};
-    use crate::solver::pekeris;
-    use crate::{Case, Interpolation, legacy::load_case, solver::profile::Profile};
+    use crate::solver::{elastic, layers, pekeris};
+    use crate::{
+        Case, DiagnosticReport, Interpolation, legacy::load_case, solver::profile::Profile,
+    };
+    use num_complex::Complex64;
+    use std::f64::consts::PI;
     use std::path::Path;
+
+    // The first mesh, built as `solve` builds it.
+    fn first_mesh<'a>(
+        case: &'a Case,
+        profiles: &[Profile<'_>],
+    ) -> Result<Mesh<'a>, DiagnosticReport> {
+        let omega = 2.0 * PI * case.frequency_hz;
+        let (bottom_k2, bottom_complex_k2) = if case.bottom_boundary.is_half_space() {
+            let c = elastic::complex_speed(
+                case.bottom_sound_speed_mps,
+                case.bottom_attenuation_db_per_wavelength,
+            );
+            (
+                (omega / case.bottom_sound_speed_mps).powi(2),
+                Complex64::new(omega * omega, 0.0) / c.powi(2),
+            )
+        } else {
+            (0.0, 0.0.into())
+        };
+        let layers = layers::mesh_layers(case, 1)?;
+        let mut mesh = Mesh::new(case, profiles, layers, omega, bottom_k2, bottom_complex_k2)?;
+        mesh.top_solids = elastic::SolidMesh::build(case, 1, true, true)?;
+        mesh.bottom_solids = elastic::SolidMesh::build(case, 1, false, true)?;
+        Ok(mesh)
+    }
+
+    // Every window of K consecutive points, wrapping, so each point meets every lane.
+    fn assert_lanes<const K: usize>(mesh: &Mesh, x: &[f64], single: &[usize], name: &str) {
+        for start in 0..x.len() {
+            let lanes: [f64; K] = std::array::from_fn(|k| x[(start + k) % x.len()]);
+            let expected: [usize; K] = std::array::from_fn(|k| single[(start + k) % x.len()]);
+            assert_eq!(mesh.count_lanes(lanes), expected, "{name} at {lanes:?}");
+        }
+    }
+
+    #[test]
+    fn lockstep_counts_match_single_counts() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let mut paths: Vec<_> = std::fs::read_dir(fixtures)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "env"))
+            .collect();
+        paths.sort();
+        let mut meshes = 0;
+        for env in paths {
+            // Some fixtures are KRAKENC-only or need a later mesh.
+            let Ok(case) = load_case(&env, env.with_extension("flp")) else {
+                continue;
+            };
+            let Ok(profiles) = layers::iter(&case)
+                .map(|layer| Profile::new_layer(&case, layer))
+                .collect::<Result<Vec<_>, _>>()
+            else {
+                continue;
+            };
+            let Ok(mesh) = first_mesh(&case, &profiles) else {
+                continue;
+            };
+            // Evanescent to beyond the slowest speed, the half-space branch
+            // points, and each layer's edge diagonals at zero.
+            let top = (mesh.omega / mesh.min_speed).powi(2);
+            let mut x: Vec<f64> = (0..=60).map(|i| top * f64::from(i) / 48.0).collect();
+            x.extend([mesh.bottom_k2, mesh.surface_k2]);
+            for layer in &mesh.layers {
+                for i in [0, layer.intervals] {
+                    x.push(mesh.b1[layer.coefficient_start + i] / (layer.h * layer.h));
+                }
+            }
+            for i in 0..x.len() {
+                x.extend([x[i].next_down(), x[i].next_up()]);
+            }
+            let single: Vec<usize> = x.iter().map(|&x| mesh.count(x)).collect();
+            let name = env.display().to_string();
+            assert_lanes::<2>(&mesh, &x, &single, &name);
+            assert_lanes::<4>(&mesh, &x, &single, &name);
+            assert_lanes::<8>(&mesh, &x, &single, &name);
+            meshes += 1;
+        }
+        assert!(meshes > 100, "only {meshes} fixture meshes built");
+    }
 
     #[test]
     fn scaled_brent_and_elastic_isolation_remain_bounded() {
