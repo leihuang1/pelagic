@@ -258,9 +258,11 @@ dependencies = [
  "hdf5-metno",
  "kraken",
  "output",
+ "same-file",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "winapi-util",
 ]
 
 [[package]]

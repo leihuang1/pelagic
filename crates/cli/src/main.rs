@@ -2,6 +2,7 @@
 
 mod bellhop;
 mod kraken;
+mod many;
 
 use std::num::NonZeroUsize;
 use std::process::ExitCode;
@@ -13,6 +14,16 @@ enum Format {
     Legacy,
     Hdf5,
     Both,
+}
+
+impl Format {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Legacy => "legacy",
+            Self::Hdf5 => "hdf5",
+            Self::Both => "both",
+        }
+    }
 }
 
 impl From<Format> for output::directory::Format {
@@ -34,7 +45,7 @@ impl From<Format> for output::directory::Format {
 struct Cli {
     #[arg(long, global = true, value_enum, default_value = "text")]
     diagnostics: Diagnostics,
-    /// Solver threads [default: all available CPUs]. Results are identical for any count.
+    /// Solver threads [default: all available CPUs, shared between run-many's workers]. Results are identical for any count.
     #[arg(long, global = true, env = "PELAGIC_THREADS")]
     threads: Option<NonZeroUsize>,
     #[command(subcommand)]
@@ -103,10 +114,10 @@ fn main() -> ExitCode {
         .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
     let (exit_code, warnings) = output::diagnostic::capture(|| match cli.command {
         Command::Bellhop(command) => ::bellhop::parallelism::with_threads(threads, || {
-            bellhop::execute(command, cli.diagnostics)
+            bellhop::execute(command, cli.diagnostics, cli.threads)
         }),
         Command::Kraken(command) => ::kraken::parallelism::with_threads(threads, || {
-            kraken::execute(command, cli.diagnostics)
+            kraken::execute(command, cli.diagnostics, cli.threads)
         }),
         Command::Version { json } => {
             if json {
@@ -114,6 +125,7 @@ fn main() -> ExitCode {
                     "{}",
                     serde_json::json!({
                         "version": env!("CARGO_PKG_VERSION"), "diagnostics_version": 1,
+                        "run_many_status_version": many::STATUS_VERSION,
                         "case_schema_versions": {"bellhop": ::bellhop::json::SCHEMA_VERSION, "kraken": ::kraken::json::SCHEMA_VERSION},
                         "hdf5_schema_versions": {"bellhop": output::bellhop::SCHEMA_VERSION, "kraken": output::kraken::SCHEMA_VERSION},
                         "compatibility_reference": "Acoustics Toolbox v2023.5",

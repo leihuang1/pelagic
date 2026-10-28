@@ -197,3 +197,28 @@ fn malformed_and_traversing_manifests_never_claim_unrelated_files() {
     }
     fs::remove_dir_all(parent).unwrap();
 }
+
+#[test]
+fn manifest_hash_tracks_publication_and_verification_finds_modified_artifacts() {
+    let parent = root("manifest-hash");
+    let out = parent.join("results");
+    assert_eq!(manifest_sha256(&out).unwrap(), None);
+    assert_eq!(verified_manifest_sha256(&out).unwrap(), None);
+    write(&out, "a.txt", b"first").unwrap();
+    let first = manifest_sha256(&out).unwrap().unwrap();
+    assert_eq!(first.len(), 64);
+    assert_eq!(verified_manifest_sha256(&out).unwrap(), Some(first.clone()));
+    write(&out, "a.txt", b"second").unwrap();
+    let second = verified_manifest_sha256(&out).unwrap().unwrap();
+    assert_ne!(second, first);
+    fs::write(out.join("a.txt"), b"edited").unwrap();
+    assert_eq!(manifest_sha256(&out).unwrap(), Some(second));
+    assert!(
+        verified_manifest_sha256(&out)
+            .unwrap_err()
+            .contains("modified")
+    );
+    fs::remove_file(out.join("a.txt")).unwrap();
+    assert!(verified_manifest_sha256(&out).is_err());
+    fs::remove_dir_all(parent).unwrap();
+}

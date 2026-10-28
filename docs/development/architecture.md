@@ -118,6 +118,7 @@ thread:
 
 `tests/parallelism.rs` in both crates compares every fixture and example, and
 BELLHOP resource-limit failures, across thread counts. Independent cases may
-also run concurrently, for example through Python's `run_many`. Cancellation is
-a thread-scoped token that the solvers check inside ray tracing, influence,
+also run concurrently, through Python's `run_many` or the CLI's `run-many`,
+which publishes each case through the same code as `run`. Cancellation is a
+thread-scoped token that the solvers check inside ray tracing, influence,
 modal searches and FIELD. Without a token, behaviour is unchanged.

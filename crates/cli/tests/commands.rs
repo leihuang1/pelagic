@@ -8,9 +8,11 @@ fn unified_cli_routes_solver_commands_and_rejects_invalid_formats_and_old_overwr
         vec!["bellhop", "validate", "--help"],
         vec!["bellhop", "export", "--help"],
         vec!["bellhop", "run", "--help"],
+        vec!["bellhop", "run-many", "--help"],
         vec!["kraken", "--help"],
         vec!["kraken", "export", "--help"],
         vec!["kraken", "run", "--help"],
+        vec!["kraken", "run-many", "--help"],
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_pelagic"))
             .args(&args)

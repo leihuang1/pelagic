@@ -120,6 +120,7 @@ Adapter codes:
 | `PG0202` | The `pelagic` program's version or protocol does not match the toolbox |
 | `PG0402` | Native output from Python could not be written safely |
 | `PG0403` | Warning: a temporary directory could not be removed |
+| `PG0404` | `run-many` could not write its status file, or refused one that is a link, a case or another program's file |
 
 A diagnostic's `field` names the input it refers to. For JSON it is the path
 of the offending value, such as `frequencies[0].propagation`. For legacy files,

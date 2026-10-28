@@ -199,6 +199,20 @@ pub fn run_legacy_directory(
     maximum: u64,
 ) -> Result<RunSummary, RunError> {
     let input = kraken::input::load_legacy(env, flp, solver).map_err(RunError::Input)?;
+    run_legacy_input_directory(env, &input, output, format, maximum)
+}
+
+/// Publish legacy inputs already loaded from `env`, as `run_legacy_directory`
+/// does, without reading them again.
+/// # Errors
+/// Returns ordered numerical, quota or recoverable publication errors.
+pub fn run_legacy_input_directory(
+    env: &Path,
+    input: &kraken::input::FieldInput,
+    output: &Path,
+    format: super::directory::Format,
+    maximum: u64,
+) -> Result<RunSummary, RunError> {
     let snapshots = input
         .snapshots()
         .iter()
@@ -407,7 +421,11 @@ fn write_run(
     Ok(summary)
 }
 
-fn read_source(path: &Path) -> Result<String, RunError> {
+/// Read a JSON case as `run_json_directory` does, for callers that need its
+/// snapshot before running it with `run_json_source_directory`.
+/// # Errors
+/// Returns the same input diagnostic as `run_json_directory`.
+pub fn read_source(path: &Path) -> Result<String, RunError> {
     let mut source = String::new();
     fs::File::open(path)
         .and_then(|file| {

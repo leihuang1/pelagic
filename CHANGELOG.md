@@ -37,6 +37,14 @@ in the [interface contract](docs/development/interface-contract.md).
   instead of 5.7 s with the previous default of one worker. With
   `return_exceptions=True`, a failed case's `PelagicError` is yielded in its
   place and the other cases carry on.
+- **`pelagic bellhop run-many` and `pelagic kraken run-many`** solve many
+  cases in one command, each into `DIR/<stem>/` exactly as `run` writes it.
+  Cases come from files, directories or `--list`. A failed case doesn't stop
+  the others. Each case adds a line to a status file, and `--resume` skips
+  cases whose input files, options and results are unchanged. `--shard I/N` splits
+  the cases between the tasks of a cluster job array. By default the CPUs are
+  split between cases as in Python: 28 Gulf of Mexico cases take 1.1 s,
+  against 6.6 s running them one after another with `pelagic kraken run`.
 
 **Compatibility**
 
@@ -47,6 +55,9 @@ in the [interface contract](docs/development/interface-contract.md).
 - Python `run_many` now defaults to one worker per case, up to the CPU count,
   instead of one worker, so it can hold that many results in memory. Pass
   `workers=1` for the previous behaviour.
+- New public format: the `run-many` status file, version 1, also reported by
+  `pelagic version --json` as `run_many_status_version`. New code `PG0404`:
+  the status file could not be written.
 
 ## 0.5.0 — 2026-10-25
 

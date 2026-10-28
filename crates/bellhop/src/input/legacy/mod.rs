@@ -52,9 +52,17 @@ pub struct CaseInput {
     outcome: LoadOutcome<Case>,
     source: String,
     paths: Vec<PathBuf>,
+    auxiliary_sources: Vec<String>,
 }
 
 impl CaseInput {
+    /// Exact sources of the consumed auxiliary inputs, one per path after the
+    /// primary one and in the same order.
+    #[must_use]
+    pub fn auxiliary_sources(&self) -> &[String] {
+        &self.auxiliary_sources
+    }
+
     /// Consume the read-only input record without rereading or reconstructing provenance.
     #[must_use]
     pub fn into_parts(self) -> (LoadOutcome<Case>, String, Vec<PathBuf>) {
@@ -62,15 +70,18 @@ impl CaseInput {
     }
 }
 
-/// Load with the same parsing/diagnostics as `load_case`, retaining the primary
-/// snapshot for hashing and consumed auxiliary paths for output protection.
-/// Auxiliary contents are not retained or added to the BELLHOP HDF5 schema.
+/// Load with the same parsing/diagnostics as `load_case`, retaining the exact
+/// snapshots for hashing and consumed auxiliary paths for output protection.
+/// Auxiliary contents are not added to the BELLHOP HDF5 schema.
 /// # Errors
 /// Returns the same primary/auxiliary read, parse and validation diagnostics.
 #[allow(clippy::too_many_lines)]
 pub fn load_case_with_inputs(path: &Path) -> Result<CaseInput, DiagnosticReport> {
     let source = read_environment(path)?;
-    let mut paths = vec![path.to_path_buf()];
+    let mut read = Consumed {
+        paths: vec![path.to_path_buf()],
+        sources: Vec::new(),
+    };
     let env::ParsedEnvironment {
         value: environment,
         mut diagnostics,
@@ -95,7 +106,7 @@ pub fn load_case_with_inputs(path: &Path) -> Result<CaseInput, DiagnosticReport>
             .map(|point| point.depth_m)
             .collect();
         collect_auxiliary(
-            read_auxiliary(path, "ssp", "range_dependent_sound_speed", &mut paths).and_then(
+            read_auxiliary(path, "ssp", "range_dependent_sound_speed", &mut read).and_then(
                 |(source, path)| parse_range_dependent_sound_speed(&source, &path, &depths),
             ),
             &mut diagnostics,
@@ -106,7 +117,7 @@ pub fn load_case_with_inputs(path: &Path) -> Result<CaseInput, DiagnosticReport>
 
     let altimetry = if environment.top_boundary.has_shape_file {
         collect_auxiliary(
-            read_auxiliary(path, "ati", "altimetry", &mut paths).and_then(|(source, path)| {
+            read_auxiliary(path, "ati", "altimetry", &mut read).and_then(|(source, path)| {
                 parse_boundary_shape(
                     &source,
                     &path,
@@ -122,7 +133,7 @@ pub fn load_case_with_inputs(path: &Path) -> Result<CaseInput, DiagnosticReport>
 
     let bathymetry = if environment.bottom_boundary.has_shape_file {
         collect_auxiliary(
-            read_auxiliary(path, "bty", "bathymetry", &mut paths).and_then(|(source, path)| {
+            read_auxiliary(path, "bty", "bathymetry", &mut read).and_then(|(source, path)| {
                 parse_boundary_shape(
                     &source,
                     &path,
@@ -141,7 +152,7 @@ pub fn load_case_with_inputs(path: &Path) -> Result<CaseInput, DiagnosticReport>
         BoundaryCondition::ReflectionCoefficientFile
     ) {
         collect_auxiliary(
-            read_auxiliary(path, "brc", "bottom_reflection", &mut paths).and_then(
+            read_auxiliary(path, "brc", "bottom_reflection", &mut read).and_then(
                 |(source, path)| parse_reflection_coefficients(&source, &path, "bottom_reflection"),
             ),
             &mut diagnostics,
@@ -155,7 +166,7 @@ pub fn load_case_with_inputs(path: &Path) -> Result<CaseInput, DiagnosticReport>
         BoundaryCondition::ReflectionCoefficientFile
     ) {
         collect_auxiliary(
-            read_auxiliary(path, "trc", "top_reflection", &mut paths).and_then(|(source, path)| {
+            read_auxiliary(path, "trc", "top_reflection", &mut read).and_then(|(source, path)| {
                 parse_reflection_coefficients(&source, &path, "top_reflection")
             }),
             &mut diagnostics,
@@ -169,7 +180,7 @@ pub fn load_case_with_inputs(path: &Path) -> Result<CaseInput, DiagnosticReport>
         BoundaryCondition::PrecalculatedReflectionCoefficient
     ) {
         let table = collect_auxiliary(
-            read_auxiliary(path, "irc", "internal_reflection", &mut paths)
+            read_auxiliary(path, "irc", "internal_reflection", &mut read)
                 .and_then(|(source, path)| parse_internal_reflection_coefficients(&source, &path)),
             &mut diagnostics,
         );
@@ -186,7 +197,7 @@ pub fn load_case_with_inputs(path: &Path) -> Result<CaseInput, DiagnosticReport>
 
     let source_beam_pattern = if environment.run.has_source_beam_pattern {
         collect_auxiliary(
-            read_auxiliary(path, "sbp", "source_beam_pattern", &mut paths)
+            read_auxiliary(path, "sbp", "source_beam_pattern", &mut read)
                 .and_then(|(source, path)| parse_source_beam_pattern(&source, &path)),
             &mut diagnostics,
         )
@@ -216,7 +227,8 @@ pub fn load_case_with_inputs(path: &Path) -> Result<CaseInput, DiagnosticReport>
     Ok(CaseInput {
         outcome,
         source,
-        paths,
+        paths: read.paths,
+        auxiliary_sources: read.sources,
     })
 }
 
@@ -233,16 +245,23 @@ fn read_environment(path: &Path) -> Result<String, DiagnosticReport> {
         .map_err(|error| DiagnosticReport::from_diagnostic(Diagnostic::io(path, &error)))
 }
 
+/// Every input file read so far, and the sources of the auxiliary ones.
+struct Consumed {
+    paths: Vec<PathBuf>,
+    sources: Vec<String>,
+}
+
 fn read_auxiliary(
     environment_path: &Path,
     extension: &str,
     field: &'static str,
-    consumed: &mut Vec<PathBuf>,
+    consumed: &mut Consumed,
 ) -> Result<(String, PathBuf), Diagnostic> {
     let path = environment_path.with_extension(extension);
     fs::read_to_string(&path)
         .map(|source| {
-            consumed.push(path.clone());
+            consumed.paths.push(path.clone());
+            consumed.sources.push(source.clone());
             (source, path.clone())
         })
         .map_err(|error| {
