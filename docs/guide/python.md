@@ -158,7 +158,7 @@ def at(frequency):
     return pg.bellhop.Case.from_dict(spec)
 
 cases = [at(f) for f in (50, 100, 200, 400)]
-with pg.bellhop.run_many(cases, workers=4) as results:
+with pg.bellhop.run_many(cases) as results:
     for case, result in zip(cases, results):
         loss = result.field.transmission_loss()[0, :, -1]   # last range
         print(case.to_dict()["frequency"], loss.round(1))
@@ -166,16 +166,33 @@ with pg.bellhop.run_many(cases, workers=4) as results:
 
 `pg.kraken.run_many` works the same way.
 
-- Each case solves on `threads` CPU threads. By default the available CPUs are
-  shared between the workers, so four workers on a 16-CPU machine use four
-  threads each. Results are bit-for-bit the same for any thread count. Prefer
-  more workers for many small cases and more threads for a few large ones.
+- By default there is one worker per case, up to one per available CPU, and
+  each case solves on the CPUs left per worker. On a 16-CPU machine, 4 cases
+  run as 4 workers with 4 threads each, and 100 cases as 16 workers with one
+  thread each. Set `workers=`, `threads=` or both to choose the split
+  yourself; with only `threads=`, there are CPUs ÷ `threads` workers. Results
+  are bit-for-bit the same for any split. One thread per case is the fastest
+  way through many cases.
 - At most `workers` results are held in memory at once, unless you keep them,
   for example with `list(...)`.
 - If one case fails, the remaining work is cancelled and the exception's
   `case_index` tells you which case failed.
 - Ctrl-C, or interrupting a Jupyter kernel, cancels running solves promptly.
 - Use the `with` block, or call `.close()`, if you stop iterating early.
+
+To keep going past failed cases, pass `return_exceptions=True`. A case's
+`PelagicError` is then yielded in that case's place, and the other cases go on.
+A `CancelledError`, Ctrl-C or an error that is not a `PelagicError` still stops
+the sweep.
+
+```python
+with pg.kraken.run_many(cases, return_exceptions=True) as results:
+    for case, result in zip(cases, results):
+        if isinstance(result, pg.PelagicError):
+            print(f"case {result.case_index} failed: {result}")
+            continue
+        ...
+```
 
 A single `case.run()` uses every available CPU; `case.run(threads=2)` limits
 it. It also releases the GIL, so you can run cases from your own threads.

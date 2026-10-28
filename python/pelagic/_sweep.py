@@ -1,9 +1,11 @@
 """Bounded independent-case concurrency; never parallelizes a KRAKEN frequency sequence."""
+from collections.abc import Sized
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from contextlib import contextmanager
 import signal
 from threading import Lock, current_thread, main_thread
 from . import _core
+from .errors import CancelledError, PelagicError
 from .results import from_native
 
 
@@ -43,24 +45,35 @@ class _Sweep:
         self.close()
 
 
-def run_many(cases, workers=1, threads=None):
+def run_many(cases, workers=None, threads=None, return_exceptions=False):
     """Yield in input order, retaining at most workers running/ready results.
 
-    Each solve uses up to threads CPU threads; the default shares the available
-    CPUs between workers. Results are identical for every thread count.
-    On failure or interruption cancel and join remaining work. Use a with-block
-    when stopping iteration early, so abandoned work is cancelled immediately.
+    By default there is one worker per case, up to one per available CPU (or
+    CPUs // threads when threads is given), and each solve uses the CPUs left
+    per worker. Results are identical for every split.
+
+    A failed case raises its error and cancels the remaining work. With
+    return_exceptions=True a case's PelagicError, other than CancelledError, is
+    yielded in that case's place instead, and the sweep continues. Interruption
+    always cancels and joins remaining work. Use a with-block when stopping
+    iteration early, so abandoned work is cancelled immediately.
     """
-    if isinstance(workers, bool) or not isinstance(workers, int) or workers < 1:
-        raise ValueError("workers must be a positive integer")
+    for name, value in (("workers", workers), ("threads", threads)):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+            raise ValueError(f"{name} must be a positive integer")
+    if not isinstance(return_exceptions, bool):
+        raise ValueError("return_exceptions must be True or False")
+    available = _core.available_threads()
+    if workers is None:
+        workers = max(1, available // (threads or 1))
+        if isinstance(cases, Sized):
+            workers = max(1, min(workers, len(cases)))
     if threads is None:
-        threads = max(1, _core.available_threads() // workers)
-    elif isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
-        raise ValueError("threads must be a positive integer")
-    return _Sweep(_iterate(cases, workers, threads))
+        threads = max(1, available // workers)
+    return _Sweep(_iterate(cases, workers, threads, return_exceptions))
 
 
-def _iterate(cases, workers, threads):
+def _iterate(cases, workers, threads, return_exceptions):
     token = _core.Cancellation()
     executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="pelagic")
     source = iter(cases)
@@ -77,10 +90,14 @@ def _iterate(cases, workers, threads):
                 failures.append(error)
                 token.cancel()
 
+    def isolated(error):
+        # A case's own failure, yielded in its place; cancellation still ends the sweep.
+        return return_exceptions and isinstance(error, PelagicError) and not isinstance(error, CancelledError)
+
     def completed(future, index):
         # Cancels siblings promptly while the consumer is busy; the main loop records
         # the same failure itself because wait() can return before callbacks run.
-        if not future.cancelled() and future.exception() is not None:
+        if not future.cancelled() and future.exception() is not None and not isolated(future.exception()):
             fail(future.exception(), index)
 
     try:
@@ -107,7 +124,7 @@ def _iterate(cases, workers, threads):
             if expected in ready:
                 native = ready.pop(expected)
                 expected += 1
-                yield from_native(native)
+                yield native if isinstance(native, PelagicError) else from_native(native)
                 del native
                 continue
             if not active:
@@ -117,10 +134,15 @@ def _iterate(cases, workers, threads):
                 raise failures[0]
             for future in done:
                 index = active.pop(future)
-                if future.exception() is not None:
-                    fail(future.exception(), index)
+                error = future.exception()
+                if error is None:
+                    ready[index] = future.result()
+                elif isolated(error):
+                    error.case_index = index
+                    ready[index] = error
+                else:
+                    fail(error, index)
                     raise failures[0]
-                ready[index] = future.result()
     finally:
         token.cancel()
         for future in active:

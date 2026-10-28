@@ -31,6 +31,12 @@ in the [interface contract](docs/development/interface-contract.md).
   `run_many(..., threads=)`, which by default shares the CPUs between workers.
   MATLAB adds `run(c, 'Threads', n)`. `pelagic-server` adds
   `BELLHOP_SOLVER_THREADS`, which defaults to one thread per request.
+- **Python sweeps split the CPUs by themselves.** `run_many` starts one worker
+  per case, up to one per available CPU, and gives each solve the CPUs left
+  per worker. On a 14-CPU Apple M4 Pro, 28 Gulf of Mexico cases take 0.8 s
+  instead of 5.7 s with the previous default of one worker. With
+  `return_exceptions=True`, a failed case's `PelagicError` is yielded in its
+  place and the other cases carry on.
 
 **Compatibility**
 
@@ -38,6 +44,9 @@ in the [interface contract](docs/development/interface-contract.md).
   default. Set `--threads 1`, `PELAGIC_THREADS=1` or `threads=1` to keep the
   previous single-threaded behaviour, for example when running many processes
   side by side.
+- Python `run_many` now defaults to one worker per case, up to the CPU count,
+  instead of one worker, so it can hold that many results in memory. Pass
+  `workers=1` for the previous behaviour.
 
 ## 0.5.0 — 2026-10-25
 
