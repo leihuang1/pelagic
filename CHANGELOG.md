@@ -45,6 +45,14 @@ in the [interface contract](docs/development/interface-contract.md).
   the cases between the tasks of a cluster job array. By default the CPUs are
   split between cases as in Python: 28 Gulf of Mexico cases take 1.1 s,
   against 6.6 s running them one after another with `pelagic kraken run`.
+- **MATLAB sweeps with `runMany`.** `pelagic.bellhop.runMany` and
+  `pelagic.kraken.runMany` solve a cell array of case structs or file paths
+  with one `run-many` call, sharing the CPUs between cases without the
+  Parallel Computing Toolbox. Results come back in input order, as `run`
+  returns them. A failed case leaves `[]` and an entry in the second output,
+  `failures`; with one output, the first failure is thrown after every case
+  has finished. `'Output'` keeps the result files. It works in Octave too. 28
+  Gulf of Mexico cases take 2.0 s, against 7.5 s in a loop of `run`.
 
 **Compatibility**
 

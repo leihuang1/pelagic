@@ -79,7 +79,7 @@ examples/cli/run-all.sh         # needs `pelagic` on PATH, or PELAGIC_CLI set
 | [`example_arrivals.m`](matlab/example_arrivals.m) | The arrival table and impulse response |
 | [`example_modes.m`](matlab/example_modes.m) | Mode shapes, dispersion and modal TL |
 | [`example_range_dependent.m`](matlab/example_range_dependent.m) | Adiabatic versus coupled modes, choosing the `.flp` |
-| [`example_sweep.m`](matlab/example_sweep.m) | Changing a case struct in a loop |
+| [`example_sweep.m`](matlab/example_sweep.m) | Changing a case struct for each run; solving them all with `runMany` |
 | [`example_edit_case.m`](matlab/example_edit_case.m) | Turning a ray case into a TL case; saving the JSON |
 | [`example_errors.m`](matlab/example_errors.m) | Error identifiers, `pelagic.diagnostics` and load warnings |
 

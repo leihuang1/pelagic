@@ -159,6 +159,10 @@ Rules that every adapter follows:
 - Starts the CLI with Java `ProcessBuilder`, never a shell string.
 - Looks for the CLI in `PELAGIC_CLI`, then `bin/<platform>/` inside the
   toolbox, then `PATH` (`+internal/cli.m`).
+- `runMany` writes each case as `cNNNNN.json`, numbered by position (a path is
+  loaded first), and makes one `run-many --format hdf5` call. Only status
+  records appended by that call count, so an `'Output'` folder can be reused.
+  Results match `run` except for diagnostics' `source.path`.
 - `+internal/encode.m` and `decode.m` are the JSON codec, shared by MATLAB and
   Octave. It needs no schema knowledge: every case-JSON list also accepts a
   single number, and every table row has at least two values, so a cell of plain
