@@ -53,6 +53,12 @@ in the [interface contract](docs/development/interface-contract.md).
   `failures`; with one output, the first failure is thrown after every case
   has finished. `'Output'` keeps the result files. It works in Octave too. 28
   Gulf of Mexico cases take 2.0 s, against 7.5 s in a loop of `run`.
+- **Cluster sweeps guide.** [Sweeps on a cluster](docs/guide/cluster.md)
+  covers Slurm and PBS job arrays with `run-many --shard --resume`, CPU
+  binding, memory sizing, resubmitting killed tasks, and `xargs` or GNU
+  `parallel` on one machine. New examples: `examples/cli/slurm-sweep.sh`, run
+  shard by shard in CI, and `examples/cli/sweep-status.py`, which lists done,
+  failed and missing cases, and cases whose status files disagree.
 
 **Compatibility**
 

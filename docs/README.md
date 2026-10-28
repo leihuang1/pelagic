@@ -11,6 +11,7 @@ New to Pelagic? Start with [Getting started](getting-started.md).
 | Use it from Python | [Python guide](guide/python.md) |
 | Use it from MATLAB or Octave | [MATLAB/Octave guide](guide/matlab.md) |
 | Run it from the command line or a script | [Command-line guide](guide/cli.md) |
+| Run a sweep on a cluster (Slurm, PBS) | [Sweeps on a cluster](guide/cluster.md) |
 | Serve BELLHOP over HTTP | [HTTP service](guide/http.md) |
 | Fix an error, or look up a code | [Troubleshooting](guide/troubleshooting.md) |
 
