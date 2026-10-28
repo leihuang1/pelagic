@@ -46,7 +46,8 @@ plot(real(modes.wavenumbers), 'o');
 
 `run` uses every available CPU. Results are bit-for-bit the same for any
 thread count. `pelagic.bellhop.run(c, 'Threads', 2)` limits it, for example
-inside `parfor`, where each worker should take a share of the CPUs.
+inside `parfor`, where each worker should take a share of the CPUs. To solve
+many cases, [`runMany`](#many-cases) does that sharing for you.
 
 `load` converts the input to Pelagic's JSON format, so the struct has the
 fields described in [BELLHOP JSON](../bellhop/json.md) and
@@ -111,6 +112,54 @@ f.field.pressure         % [source, receiver_depth, receiver_range]
 `r.provenance` records the Pelagic version, the pinned reference and the exact
 JSON that ran (`case_json`). `r.diagnostics` holds any warnings from the run.
 
+## Many cases
+
+`runMany` solves a cell array of cases with one call to the `pelagic` program,
+which shares the CPUs between them. It needs no Parallel Computing Toolbox:
+
+```matlab
+base = pelagic.bellhop.load('munk-tl.json');
+frequencies = [50 100 200 400];
+cases = cell(size(frequencies));
+for k = 1:numel(frequencies)
+    cases{k} = base;
+    cases{k}.frequency = frequencies(k);
+end
+results = pelagic.bellhop.runMany(cases);
+r = results{3};   % the 200 Hz case, as pelagic.bellhop.run(cases{3}) returns it
+```
+
+`pelagic.kraken.runMany` works the same way.
+
+- **Cases** are structs or file paths, in any mix. A path is loaded first, so
+  its result is that of `run(load(path))`. `pelagic.kraken.runMany` loads a
+  `.env` with its same-stem `.flp` and the KRAKEN solver; to choose another
+  `'flp'` or `'solver'`, load the case yourself.
+- **Results** are a cell array the size of `cases`, in the same order. Each
+  is what `run` returns, except that a warning's `source.path` names the
+  temporary file the case was written to, where `run` gives `stdin.json`.
+  Warnings are also issued as MATLAB warnings, starting with the case number.
+- **CPUs.** By default there is one worker per case, up to one per available
+  CPU, and each case solves on the CPUs left per worker.
+  `'Workers', w` and `'Threads', t` set the split yourself. Results are
+  bit-for-bit the same for any split.
+- **Failures.** A failed case doesn't stop the others. With two outputs,
+  `[results, failures] = pelagic.bellhop.runMany(cases)` leaves `[]` in a
+  failed case's place, and `failures` has one element per failed case, in
+  order, with `index`, `code`, `message` and `diagnostics`; `cases{index}` is
+  the case that failed, whatever the shape of `cases`. With one output,
+  `runMany` throws once every case has finished. The error is the first
+  failure's: `pelagic.diagnostics` returns its diagnostics, and the message
+  also gives its `index` and the `failure_count`.
+- **Files.** `'Output', folder` keeps each case's HDF5 file and report in
+  `folder/c00001/`, `folder/c00002/`, … numbered by position, with the
+  [status file](cli.md#status-file-and-resuming) in `folder/status.ndjson`.
+  Without it, the temporary files are removed.
+
+On a 14-CPU Apple M4 Pro, 28 Gulf of Mexico KRAKEN cases take 2.0 s with
+`runMany`, against 7.5 s in a loop of `run`. Every result is held in memory
+until `runMany` returns, so split a sweep too large for that into batches.
+
 ## Errors and warnings
 
 Errors have identifiers such as `pelagic:BH0201`. To see every problem the
@@ -130,9 +179,10 @@ output. Codes are explained in [Troubleshooting](troubleshooting.md#error-codes)
 
 ## Saving files
 
-`run` returns results in memory and removes its temporary files. To keep
-Toolbox-format or HDF5 files, use the [command-line program](cli.md) of the
-same version:
+`run` returns results in memory and removes its temporary files.
+`runMany(cases, 'Output', folder)` keeps each case's HDF5 file. To keep
+Toolbox-format files, use the [command-line program](cli.md) of the same
+version:
 
 ```matlab
 system('pelagic bellhop run case.env --format both --output results');

@@ -80,6 +80,68 @@ assert(isequal(r.frequencies{1}.field.pressure, r.frequencies{2}.field.pressure)
 two = pelagic.kraken.run(c, 'Threads', 2);
 assert(isequal(two.frequencies{1}.field.pressure, r.frequencies{1}.field.pressure));
 assert(size(r.frequencies{1}.profiles{1}.modes.eigenfunctions, 2) == numel(r.frequencies{1}.profiles{1}.modes.wavenumbers));
+% runMany solves every case in one CLI call; each result is what run returns.
+field_g = fullfile(root, 'examples', 'cases', 'bellhop', 'field-g', 'field-g.json');
+base = pelagic.bellhop.load(field_g);
+deeper = base; deeper.source.depth = 40;
+bad = base; bad.frequency = -1;
+missing = fullfile(tempname, 'missing.json');
+cases = {base, field_g, deeper, bad, missing};
+[many, failures] = pelagic.bellhop.runMany(cases, 'Workers', 2, 'Threads', 1);
+assert(isequal(size(many), size(cases)) && isempty(many{4}) && isempty(many{5}));
+same_result(many{1}, pelagic.bellhop.run(base));
+loaded = pelagic.bellhop.load(field_g);
+same_result(many{2}, pelagic.bellhop.run(loaded));
+same_result(many{3}, pelagic.bellhop.run(deeper));
+assert(isequal([failures.index], [4, 5]));
+assert(strcmp(failures(1).code, 'BH0201') && strcmp(failures(1).diagnostics{1}.field, 'frequency'));
+assert(strcmp(failures(2).code, 'BH0001') && strcmp(failures(2).diagnostics{1}.field, 'input'));
+% Any shape of cell array works; a failed column does not hold back the others.
+[grid, failures] = pelagic.bellhop.runMany({missing, base; missing, deeper});
+assert(isequal(size(grid), [2, 2]) && isempty(grid{1, 1}) && isempty(grid{2, 1}));
+assert(isequal(grid{1, 2}.pressure, many{1}.pressure) && isequal(grid{2, 2}.pressure, many{3}.pressure));
+assert(isequal([failures.index], [1, 2]));
+% With one output, the first failure is thrown after every case has finished.
+try
+    many = pelagic.bellhop.runMany({base, bad, bad});
+    error('test:MissingError', 'Expected a runMany failure');
+catch exception
+    assert(strcmp(exception.identifier, 'pelagic:BH0201'));
+    ds = pelagic.diagnostics(exception);
+    assert(strcmp(ds(1).field, 'frequency'));
+    payload = jsondecode(exception.message);
+    assert(payload.index == 2 && payload.failure_count == 2);
+end
+% 'Output' keeps each case's files; a later call into it reports only its own cases.
+kept = tempname;
+clean_kept = onCleanup(@() rmdir(kept, 's')); %#ok<NASGU>
+first = pelagic.bellhop.runMany({base, deeper}, 'Output', kept);
+assert(isfile(fullfile(kept, 'c00001', 'c00001.h5')) && isfile(fullfile(kept, 'c00002', 'c00002.h5')));
+assert(isfile(fullfile(kept, 'status.ndjson')));
+assert(isequal(first{2}.pressure, many{3}.pressure));
+folder = kept;
+if ~exist('OCTAVE_VERSION', 'builtin'), folder = string(kept); end  % Octave has no strings
+[again, failures] = pelagic.bellhop.runMany({bad, deeper}, 'Output', folder);
+assert(isempty(again{1}) && isequal([failures.index], 1) && isequal(again{2}.pressure, many{3}.pressure));
+[none, failures] = pelagic.bellhop.runMany({});
+assert(isempty(none) && isempty(failures));
+invalid = {{'not a cell'}, {{1}}, {{base, {}}}, {{''}}, {{base}, 'Workers', 0}, ...
+    {{base}, 'Threads', 1.5}, {{base}, 'Output'}, {{base}, 'Output', 5}, {{base}, 'Bogus', 1}};
+for k = 1:numel(invalid)
+    args = invalid{k};
+    try
+        pelagic.bellhop.runMany(args{:});
+        error('test:MissingError', 'Expected invalid runMany arguments');
+    catch exception
+        assert(strcmp(exception.identifier, 'pelagic:PG0002'), 'invalid arguments %d: %s', k, exception.identifier);
+    end
+end
+pekeris = fullfile(root, 'examples', 'cases', 'kraken', 'pekeris', 'pekeris.env');
+[kr, failures] = pelagic.kraken.runMany({c, pekeris}, 'Threads', 2);
+assert(isempty(failures));
+same_result(kr{1}, pelagic.kraken.run(c));
+legacy = pelagic.kraken.load(pekeris);
+same_result(kr{2}, pelagic.kraken.run(legacy));
 previous = getenv('PELAGIC_CLI');
 restore = onCleanup(@() setenv('PELAGIC_CLI', previous)); %#ok<NASGU>
 if ~ispc
@@ -99,6 +161,16 @@ if ~ispc
     pelagic.bellhop.load(fullfile(root, 'examples', 'cases', 'bellhop', 'field-g', 'field-g.json'));
     calls = regexp(strtrim(fileread(log)), '\n', 'split');
     assert(numel(calls) == 2, 'expected one version check and one export, got %d calls', numel(calls));
+    % A case the CLI never reports fails, though an earlier call into the same
+    % Output folder recorded it as solved.
+    stopper = fullfile(scratch, 'pelagic-stopper');
+    fid = fopen(stopper, 'w');
+    fprintf(fid, '#!/bin/sh\nfor a in "$@"; do if [ "$a" = run-many ]; then exit 3; fi; done\nexec "%s" "$@"\n', real);
+    fclose(fid);
+    assert(javaObject('java.io.File', stopper).setExecutable(true, true));
+    setenv('PELAGIC_CLI', stopper);
+    [stale, failures] = pelagic.bellhop.runMany({base, deeper}, 'Output', kept);
+    assert(isempty(stale{2}) && isequal([failures.index], [1, 2]) && strcmp(failures(2).code, 'PG0001'));
 end
 setenv('PELAGIC_CLI', fullfile(tempname, 'missing-pelagic'));
 try
@@ -109,6 +181,16 @@ catch exception
     assert(strcmp(ds(1).code, 'PG0001') && strcmp(ds(1).severity, 'error'));
 end
 fprintf('MATLAB/Octave bindings: PASS\n');
+end
+
+function same_result(actual, expected)
+% Diagnostics differ only in source.path: run reads stdin, runMany a file.
+assert(isequal(rmfield(actual, 'diagnostics'), rmfield(expected, 'diagnostics')));
+assert(numel(actual.diagnostics) == numel(expected.diagnostics));
+for k = 1:numel(actual.diagnostics)
+    a = actual.diagnostics{k}; e = expected.diagnostics{k};
+    assert(isequal(rmfield(a, 'source'), rmfield(e, 'source')));
+end
 end
 
 function verify_case(model, c, field)
