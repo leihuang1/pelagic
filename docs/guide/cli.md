@@ -146,7 +146,8 @@ pelagic kraken run-many --list cases.txt --output results --shard 3/50 --resume
 counting from 0, leaves remainder `I` when divided by `N`. The `N` shards
 together cover every case exactly once, and neighbouring cases, which often
 cost about the same, go to different shards. Every shard checks the whole list
-for clashing stems, so all of them accept or reject the same input.
+for clashing stems, so all of them accept or reject the same input. See
+[sweeps on a cluster](cluster.md) for Slurm and PBS job arrays.
 
 ### Status file and resuming
 

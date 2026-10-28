@@ -9,7 +9,7 @@ examples/
   cases/       24 input cases: Acoustics Toolbox files plus the same case as JSON
   python/      16 Python scripts
   matlab/      8 MATLAB/Octave scripts
-  cli/         shell, PowerShell and HDF5-reading examples
+  cli/         shell, PowerShell, cluster-sweep and HDF5-reading examples
   http/        a client for the HTTP service
   notebooks/   a Jupyter gallery with pinned Fortran comparisons
 ```
@@ -25,7 +25,8 @@ examples/
 | Studying ray paths and arrival structure | [`rays.py`](python/rays.py), [`eigenrays.py`](python/eigenrays.py), [`arrivals.py`](python/arrivals.py) |
 | Studying normal modes | [`modes.py`](python/modes.py), [`seabeds.py`](python/seabeds.py), [`leaky_modes.py`](python/leaky_modes.py) |
 | Working with range-dependent or broadband problems | [`range_dependent.py`](python/range_dependent.py), [`broadband_pulse.py`](python/broadband_pulse.py) |
-| Running many cases | [`sweep.py`](python/sweep.py) |
+| Running many cases | [`sweep.py`](python/sweep.py), [`example_sweep.m`](matlab/example_sweep.m) |
+| Running a sweep on a cluster | [`slurm-sweep.sh`](cli/slurm-sweep.sh), [`sweep-status.py`](cli/sweep-status.py) |
 | Integrating Pelagic into other software | [`pipeline.sh`](cli/pipeline.sh), [`read_hdf5.py`](cli/read_hdf5.py), [`client.py`](http/client.py) |
 | An arlpy user | [`arlpy_backend.py`](python/arlpy_backend.py) |
 
@@ -92,6 +93,8 @@ These are tested in MATLAB. In Octave they need graphics for the plots.
 | [`cli/run-all.sh`](cli/run-all.sh) / [`cli/run-all.ps1`](cli/run-all.ps1) | Validate and run every case, from JSON and from Toolbox files |
 | [`cli/pipeline.sh`](cli/pipeline.sh) | JSON on stdin, `--diagnostics json`, `version --json` |
 | [`cli/read_hdf5.py`](cli/read_hdf5.py) | Reading the HDF5 results with h5py |
+| [`cli/slurm-sweep.sh`](cli/slurm-sweep.sh) | A sweep as a Slurm job array: `run-many` with `--shard` and `--resume` |
+| [`cli/sweep-status.py`](cli/sweep-status.py) | Done, failed, unclear and missing cases from all of a sweep's status files |
 | [`http/client.py`](http/client.py) | Validate, `/v1/field`, `/v1/arrivals` and `/v1/run` from Python |
 
 ## Cases
