@@ -18,10 +18,14 @@ kraken = { path = "../kraken" }
 output = { path = "../output" }
 clap = { version = "4.5.41", features = ["derive", "env"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
+same-file = "1.0.6"
+sha2 = "0.10.9"
+
+[target.'cfg(windows)'.dependencies]
+winapi-util = "0.1.11"
 
 [dev-dependencies]
 hdf5 = { package = "hdf5-metno", version = "0.14.1", features = ["static"] }
-sha2 = "0.10.9"
 
 [lints]
 workspace = true

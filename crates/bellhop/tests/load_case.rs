@@ -120,9 +120,9 @@ fn resolves_top_and_bottom_reflection_tables() {
     fs::write(directory.join("reflection.trc"), table).unwrap();
 
     let expected_source = fs::read(&environment).unwrap();
-    let (outcome, source, paths) = bellhop::legacy::load_case_with_inputs(&environment)
-        .unwrap()
-        .into_parts();
+    let input = bellhop::legacy::load_case_with_inputs(&environment).unwrap();
+    assert_eq!(input.auxiliary_sources(), [table, table]);
+    let (outcome, source, paths) = input.into_parts();
     assert_eq!(source.as_bytes(), expected_source);
     assert_eq!(
         paths,

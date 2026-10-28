@@ -63,6 +63,31 @@ pub fn stem(input: &Path) -> Result<String, String> {
     Ok(stem)
 }
 
+/// SHA-256 of the manifest in a result directory, or `None` without one.
+/// # Errors
+/// Rejects an invalid or symlinked manifest, and filesystem errors.
+pub fn manifest_sha256(output: &Path) -> Result<Option<String>, String> {
+    let path = output.join(MANIFEST);
+    match read_manifest(&path)? {
+        Some(_) => fingerprint(&path, MANIFEST).map(|manifest| Some(manifest.sha256)),
+        None => Ok(None),
+    }
+}
+
+/// [`manifest_sha256`], once every artifact the manifest lists still matches it.
+/// # Errors
+/// Also rejects a missing or modified artifact.
+pub fn verified_manifest_sha256(output: &Path) -> Result<Option<String>, String> {
+    let path = output.join(MANIFEST);
+    let Some(manifest) = read_manifest(&path)? else {
+        return Ok(None);
+    };
+    for artifact in &manifest.artifacts {
+        verify(&output.join(&artifact.name), artifact, false)?;
+    }
+    fingerprint(&path, MANIFEST).map(|manifest| Some(manifest.sha256))
+}
+
 /// Run a writer in exclusively owned scratch, then update only verified owned artifacts.
 /// All writer handles must be closed before it returns. Error conversion stays solver-specific.
 /// # Errors

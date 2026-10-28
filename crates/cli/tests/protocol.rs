@@ -23,6 +23,7 @@ fn version_and_stdin_use_the_public_machine_contract() {
     let version: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(version["case_schema_versions"]["bellhop"], 2);
     assert_eq!(version["case_schema_versions"]["kraken"], 2);
+    assert_eq!(version["run_many_status_version"], 1);
     for (model, bytes) in [
         (
             "bellhop",

@@ -18,6 +18,7 @@ Anything in this table is public. A change to one needs an entry in the
 | KRAKEN HDF5 | [guide/kraken-hdf5.md](../guide/kraken-hdf5.md) | 1 | `output::kraken::SCHEMA_VERSION` |
 | Native files and result directory manifest | [guide/native-output.md](../guide/native-output.md) | manifest 1 | `native-output/src/directory.rs` |
 | Diagnostics protocol | [below](#diagnostics) | 1 | `crates/cli/src/main.rs` (`diagnostics_version`) |
+| `run-many` status file | [guide/cli.md](../guide/cli.md#status-file-and-resuming) | 1 (`status_version`) | `crates/cli/src/many.rs` (`STATUS_VERSION`) |
 | CLI commands, flags, exit codes | [guide/cli.md](../guide/cli.md) | package version | `Cargo.toml` |
 | Python API: `pelagic` and its submodules, except names starting with `_` | [guide/python.md](../guide/python.md) | package version | `Cargo.toml` |
 | MATLAB API: `pelagic.*`, except `pelagic.internal.*` | [guide/matlab.md](../guide/matlab.md) | package version | `matlab/VERSION` |
@@ -101,7 +102,7 @@ To add a code:
 Current adapter codes: `PG0001` adapter I/O or process start, `PG0002` invalid
 arguments, `PG0103` JSON transport, `PG0201` unknown model, `PG0202` CLI
 version or protocol mismatch, `PG0402` Python native output, `PG0403` scratch
-cleanup warning.
+cleanup warning, `PG0404` `run-many` status file.
 
 ### Exit codes
 
