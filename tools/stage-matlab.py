@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Verify build artifacts before bundling matching CLIs; never downloads or executes them."""
+"""Verify build artifacts before bundling matching CLIs; never downloads or executes them.
+
+The toolbox bundles all five platforms. Pull requests build four, so their
+MATLAB tests stage only those with --platforms."""
 import argparse
 import hashlib
 from pathlib import Path
@@ -8,9 +11,9 @@ import shutil
 PLATFORMS = ("linux-x64", "linux-arm64", "macos-arm64", "macos-x64", "windows-x64")
 
 
-def stage(source, destination):
+def stage(source, destination, platforms=PLATFORMS):
     verified = []
-    for platform in PLATFORMS:
+    for platform in platforms:
         root = source / ("cli-" + platform)
         hashes = {}
         for line in (root / "SHA256SUMS").read_text().splitlines():
@@ -36,5 +39,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("destination", type=Path)
+    parser.add_argument("--platforms", nargs="+", choices=PLATFORMS, default=PLATFORMS)
     args = parser.parse_args()
-    stage(args.source, args.destination)
+    stage(args.source, args.destination, args.platforms)

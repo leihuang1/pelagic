@@ -46,3 +46,8 @@ def test_matlab_staging_checks_every_platform_before_copying(tmp_path):
     with pytest.raises(ValueError, match="checksum mismatch"):
         stage.stage(tmp_path, tmp_path / "failed")
     assert not (tmp_path / "failed").exists()
+    # Pull requests stage only the platforms they build.
+    subset = [platform for platform in stage.PLATFORMS if platform not in ("macos-x64", "windows-x64")]
+    (tmp_path / "cli-macos-x64/pelagic").unlink()
+    stage.stage(tmp_path, tmp_path / "subset", subset)
+    assert sorted(path.parent.name for path in (tmp_path / "subset").glob("*/pelagic*")) == sorted(subset)

@@ -14,16 +14,38 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'release' }}
 
 jobs:
+  plan:
+    # Intel macOS is by far the slowest wheel, so pull requests skip it. Pushes
+    # to main, manual runs and releases build and test all five platforms.
+    runs-on: ubuntu-22.04
+    outputs:
+      wheels: ${{ steps.plan.outputs.wheels }}
+      platforms: ${{ steps.plan.outputs.platforms }}
+    steps:
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+        shell: python3 {0}
+        run: |
+          import json, os
+          wheels = [
+              {"os": "ubuntu-22.04", "target": "x86_64-unknown-linux-gnu", "platform": "linux-x64"},
+              {"os": "ubuntu-24.04-arm", "target": "aarch64-unknown-linux-gnu", "platform": "linux-arm64"},
+              {"os": "macos-15", "target": "aarch64-apple-darwin", "platform": "macos-arm64"},
+              {"os": "macos-15-intel", "target": "x86_64-apple-darwin", "platform": "macos-x64"},
+              {"os": "windows-2022", "target": "x86_64-pc-windows-msvc", "platform": "windows-x64", "interpreter": "python"},
+          ]
+          if os.environ["EVENT"] == "pull_request":
+              wheels = [wheel for wheel in wheels if wheel["platform"] != "macos-x64"]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print("wheels=" + json.dumps({"include": wheels}), file=output)
+              print("platforms=" + " ".join(wheel["platform"] for wheel in wheels), file=output)
+
   wheels:
+    needs: plan
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - {os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, platform: linux-x64}
-          - {os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, platform: linux-arm64}
-          - {os: macos-15, target: aarch64-apple-darwin, platform: macos-arm64}
-          - {os: macos-15-intel, target: x86_64-apple-darwin, platform: macos-x64}
-          - {os: windows-2022, target: x86_64-pc-windows-msvc, platform: windows-x64, interpreter: python}
+      matrix: ${{ fromJSON(needs.plan.outputs.wheels) }}
     runs-on: ${{ matrix.os }}
     steps:
       - run: git config --global core.autocrlf false
@@ -126,7 +148,7 @@ jobs:
           PELAGIC_CLI="$PWD/cli/pelagic" python -m pytest python/tests/test_bindings.py -q
 
   matlab:
-    needs: wheels
+    needs: [plan, wheels]
     strategy:
       fail-fast: false
       matrix:
@@ -142,7 +164,7 @@ jobs:
           path: cli-artifacts
       - name: Verify and stage bundled CLIs
         shell: bash
-        run: python tools/stage-matlab.py cli-artifacts matlab/bin
+        run: python tools/stage-matlab.py cli-artifacts matlab/bin --platforms ${{ needs.plan.outputs.platforms }}
       - name: Exercise toolbox archive execute-bit loss
         if: runner.os == 'Linux'
         run: chmod a-x matlab/bin/linux-x64/pelagic
@@ -151,13 +173,14 @@ jobs:
       - uses: matlab-actions/run-command@v2
         with:
           command: addpath('matlab/tests'); test_bindings; test_curated; test_examples
+      # The toolbox bundles all five CLIs, which pull requests do not build.
       - name: Package the toolbox once, from the Linux runner
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && github.event_name != 'pull_request'
         uses: matlab-actions/run-command@v2
         with:
           command: addpath('matlab'); build_toolbox
       - uses: actions/upload-artifact@v4
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && github.event_name != 'pull_request'
         with: {name: matlab-toolbox, path: target/pelagic.mltbx}
 
   octave:
