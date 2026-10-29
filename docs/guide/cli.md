@@ -166,7 +166,7 @@ is killed still leaves every finished case recorded:
 | `version` | The Pelagic version, which the results record |
 | `format` | `legacy`, `hdf5` or `both` |
 | `options` | Options that change the results: `{"solver": …, "max_output_bytes": …}` for KRAKEN, `{}` for BELLHOP |
-| `input_sha256` | SHA-256 over every file the case read, auxiliary files included, each as its length in 8 little-endian bytes followed by its bytes; `null` if the case could not be read |
+| `input_sha256` | SHA-256 over every file the case read, auxiliary files included, each as its length in 8 little-endian bytes followed by its bytes. `null` if the case could not be loaded: a BELLHOP case or legacy KRAKEN files that cannot be read, parsed or validated, or a KRAKEN JSON file that cannot be read. A KRAKEN JSON case is validated only when solved, so an invalid one still has its hash |
 | `outcome` | `ok`, `failed` or `skipped` |
 | `exit_code` | What `run` would have returned: `0`, `2`, `3` or `4` |
 | `seconds` | Wall time for the case |
