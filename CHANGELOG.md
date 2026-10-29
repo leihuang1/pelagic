@@ -34,6 +34,13 @@ in the [interface contract](docs/development/interface-contract.md).
   of Mexico example takes 0.17 s instead of 0.30 s with one thread and 0.12 s
   instead of 0.27 s with all 14; the coupled example takes 0.19 s instead of
   0.22 s, and 0.11 s instead of 0.16 s.
+- **Faster BELLHOP geometric beams.** Hat and Gaussian geometric beams in
+  Cartesian coordinates find the receiver depths each ray segment can reach
+  by binary search when the depths are in increasing order, instead of testing
+  every depth. Each coherent contribution also skips `exp(0) = 1` when the
+  medium has no attenuation. Results are bit-for-bit unchanged. With one
+  thread on an Apple M4 Pro, `pelagic bellhop run` on the Munk and seamount
+  examples is 1.2 times faster, and on a 401 × 1001 field 1.6 times.
 - **Thread controls.** The CLI takes `--threads N` or `PELAGIC_THREADS` and
   defaults to the available CPUs. Python adds `case.run(threads=)` and
   `run_many(..., threads=)`, which by default shares the CPUs between workers.

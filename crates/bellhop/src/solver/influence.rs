@@ -591,6 +591,7 @@ pub(super) fn geo_hat_cartesian(
     let depths = &positions.receiver_depths_m;
     let rectilinear = case.environment.run.receiver_grid == ReceiverGrid::Rectilinear;
     let depth_count = if rectilinear { depths.len() } else { 1 };
+    let sorted = rectilinear && depths.is_sorted();
     let q0 = states[0].speed_mps / angular_spacing_radians;
     let launch_angle_degrees = launch_angle_radians.to_degrees();
     let ratio = match case.environment.run.source_geometry {
@@ -640,11 +641,12 @@ pub(super) fn geo_hat_cartesian(
         } else {
             (f64::NEG_INFINITY, f64::INFINITY)
         };
+        let window = depth_window(depths, sorted, depth_count, minimum_depth, maximum_depth);
 
         loop {
             let receiver_range = ranges[receiver_index];
             if receiver_range >= range_a.min(range_b) && receiver_range < range_a.max(range_b) {
-                for depth_index in 0..depth_count {
+                for depth_index in window.clone() {
                     let receiver_depth = if rectilinear {
                         depths[depth_index]
                     } else {
@@ -989,6 +991,7 @@ pub(super) fn geo_gaussian_cartesian(
     let depths = &positions.receiver_depths_m;
     let rectilinear = case.environment.run.receiver_grid == ReceiverGrid::Rectilinear;
     let depth_count = if rectilinear { depths.len() } else { 1 };
+    let sorted = rectilinear && depths.is_sorted();
     let q0 = states[0].speed_mps / angular_spacing_radians;
     let launch_angle_degrees = launch_angle_radians.to_degrees();
     let ratio = match case.environment.run.source_geometry {
@@ -1045,11 +1048,12 @@ pub(super) fn geo_gaussian_cartesian(
         } else {
             (f64::NEG_INFINITY, f64::INFINITY)
         };
+        let window = depth_window(depths, sorted, depth_count, minimum_depth, maximum_depth);
 
         loop {
             let receiver_range = ranges[receiver_index];
             if receiver_range >= range_a.min(range_b) && receiver_range < range_a.max(range_b) {
-                for depth_index in 0..depth_count {
+                for depth_index in window.clone() {
                     let receiver_depth = if rectilinear {
                         depths[depth_index]
                     } else {
@@ -1197,12 +1201,24 @@ fn field_contribution(
         let angular_frequency = 2.0 * PI * frequency_hz;
         let exponent = Complex64::new(0.0, -1.0)
             * (angular_frequency * candidate.delay - candidate.phase_radians);
-        candidate.amplitude * exponent.exp()
+        candidate.amplitude * exp(exponent)
     } else {
         let attenuation = (2.0 * PI * frequency_hz * candidate.delay.im).exp();
         Complex64::new(candidate.incoherent_intensity * attenuation.powi(2), 0.0)
     };
     Complex32::new(contribution.re as f32, contribution.im as f32)
+}
+
+/// `exponent.exp()` bit for bit. A zero real part, which a delay without
+/// attenuation gives, skips `exp(±0) = 1` and the products with it; num-complex
+/// treats an argument specially only when its real part is infinite or NaN.
+#[allow(clippy::float_cmp)]
+fn exp(exponent: Complex64) -> Complex64 {
+    if exponent.re == 0.0 {
+        Complex64::new(exponent.im.cos(), exponent.im.sin())
+    } else {
+        exponent.exp()
+    }
 }
 
 fn add_eigenray(
@@ -1471,6 +1487,23 @@ fn record_raw_field(
     }
 }
 
+/// The indices of the receiver depths in `minimum..=maximum`, as the callers'
+/// own test rejects the others; every index unless the depths are sorted.
+#[allow(clippy::neg_cmp_op_on_partial_ord)] // a NaN bound rejects nothing, as in the test
+fn depth_window(
+    depths: &[f64],
+    sorted: bool,
+    count: usize,
+    minimum: f64,
+    maximum: f64,
+) -> std::ops::Range<usize> {
+    if !sorted {
+        return 0..count;
+    }
+    depths.partition_point(|&depth| depth < minimum)
+        ..depths.partition_point(|&depth| !(depth > maximum))
+}
+
 fn crosses_caustic(q: f64, old_q: f64) -> bool {
     (q <= 0.0 && old_q > 0.0) || (q >= 0.0 && old_q < 0.0)
 }
@@ -1497,7 +1530,8 @@ fn spacing(value: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{crosses_caustic, spacing};
+    use super::{crosses_caustic, depth_window, exp, spacing};
+    use num_complex::Complex64;
 
     #[test]
     #[allow(clippy::float_cmp)]
@@ -1512,5 +1546,76 @@ mod tests {
         assert!(crosses_caustic(0.0, 1.0));
         assert!(crosses_caustic(0.0, -1.0));
         assert!(!crosses_caustic(1.0, 1.0));
+    }
+
+    #[test]
+    fn exp_matches_num_complex_bit_for_bit() {
+        // Random bit patterns reach every exponent, infinities and NaNs; the
+        // uniform values are phases like those of real delays.
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = || {
+            state ^= state >> 12;
+            state ^= state << 25;
+            state ^= state >> 27;
+            state.wrapping_mul(0x2545_f491_4f6c_dd1d)
+        };
+        let mut imaginary = vec![
+            0.0,
+            -0.0,
+            f64::from_bits(1),
+            f64::MIN_POSITIVE,
+            std::f64::consts::PI,
+            1.0e15,
+            f64::MAX,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+        ];
+        for _ in 0..50_000 {
+            imaginary.push(f64::from_bits(next()));
+            #[allow(clippy::cast_precision_loss)]
+            imaginary.push((next() >> 11) as f64 / (1_u64 << 53) as f64 * 2.0e6 - 1.0e6);
+        }
+        for im in imaginary {
+            for re in [0.0, -0.0, 1.0e-300, -2.5, f64::INFINITY, f64::NAN] {
+                let z = Complex64::new(re, im);
+                let (trimmed, reference) = (exp(z), z.exp());
+                assert_eq!(
+                    (trimmed.re.to_bits(), trimmed.im.to_bits()),
+                    (reference.re.to_bits(), reference.im.to_bits()),
+                    "{z:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn depth_window_is_exactly_the_depths_the_test_accepts() {
+        let depths = [-0.0, 0.0, 10.0, 10.0, 25.5, 100.0, 4000.0];
+        let bounds = [
+            f64::NEG_INFINITY,
+            -1.0,
+            -0.0,
+            0.0,
+            5.0,
+            10.0,
+            25.5,
+            99.0,
+            100.0,
+            5000.0,
+            f64::INFINITY,
+            f64::NAN,
+        ];
+        for minimum in bounds {
+            for maximum in bounds {
+                let accepted: Vec<_> = (0..depths.len())
+                    .filter(|&i| !(depths[i] < minimum || depths[i] > maximum))
+                    .collect();
+                let window: Vec<_> =
+                    depth_window(&depths, true, depths.len(), minimum, maximum).collect();
+                assert_eq!(window, accepted, "{minimum}..={maximum}");
+            }
+        }
+        assert_eq!(depth_window(&[5.0, 1.0], false, 2, 2.0, 3.0), 0..2);
     }
 }
