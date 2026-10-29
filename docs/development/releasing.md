@@ -63,7 +63,9 @@ python3 tools/check-docs.py
 
 Open a PR titled `release: Pelagic X.Y.Z`. Merge it only when all three
 workflows (CI, Language bindings, Windows release) are green. Note the merge
-commit SHA.
+commit SHA. Pull requests skip the Intel macOS wheel and the toolbox package,
+so also wait for the `Language bindings` run that the merge starts on `main`
+to be green before publishing.
 
 ## 3. Full numerical acceptance on the merge commit
 

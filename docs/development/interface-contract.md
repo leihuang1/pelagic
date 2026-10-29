@@ -199,7 +199,8 @@ about 70 lines.
 
 These checks run in `.github/workflows/bindings.yml`. They verify the adapters,
 not the numerics. Numerical correctness comes from the
-[reference comparisons](reference.md).
+[reference comparisons](reference.md). Pull requests run them on four
+platforms; pushes to `main` and releases add Intel macOS.
 
 - **Python:** every curated fixture is run through Python and through the CLI
   (HDF5 and native). Fields, modes, rays, arrivals and native bytes must match
