@@ -7,6 +7,11 @@ use crate::{
 };
 use num_complex::{Complex32, Complex64};
 
+// Range factors, mode amplitudes and finished rows are held for blocks of at
+// most this many values (1 MiB of complex doubles), so memory stays near a
+// direct march; larger tables gain little.
+const TABLE_VALUES: usize = 1 << 16;
+
 /// Compute every profile's modes and synthesize one range-dependent field.
 /// # Errors
 /// Returns modal, cumulative storage/work or non-finite pressure diagnostics.
@@ -112,6 +117,28 @@ fn solve_field_with_limit(
             "field_grid",
         ));
     }
+    let pressure = synthesize(case, &modes, samples, TABLE_VALUES)?;
+    Ok(ProfileSimulationResult {
+        modes,
+        field: PressureField {
+            source_depths_m: first.source_depths_m.clone(),
+            receiver_depths_m: first.receiver_depths_m.clone(),
+            receiver_ranges_m: first.receiver_ranges_m.clone(),
+            receiver_offsets_m: first.receiver_offsets_m.clone(),
+            pressure,
+        },
+    })
+}
+
+/// The pressure of every source block, holding at most about `table_values`
+/// per-range modal terms or pressures at once; the size never changes the result.
+fn synthesize(
+    case: &FieldCase,
+    modes: &[ModeSet],
+    samples: usize,
+    table_values: usize,
+) -> Result<Vec<Complex64>, DiagnosticReport> {
+    let first = &case.profiles[0];
     let mut pressure = vec![Complex64::new(0.0, 0.0); samples];
     for (source, &depth) in first.source_depths_m.iter().enumerate() {
         let count = modes[0].modes.len().min(first.mode_limit);
@@ -132,8 +159,10 @@ fn solve_field_with_limit(
         let block = &mut pressure[source * samples / first.source_depths_m.len()
             ..(source + 1) * samples / first.source_depths_m.len()];
         match case.propagation {
-            FieldPropagation::Adiabatic => adiabatic(case, &modes, &excitation, block)?,
-            FieldPropagation::Coupled => coupled(case, &modes, &excitation, block)?,
+            FieldPropagation::Adiabatic => {
+                adiabatic(case, modes, &excitation, block, table_values)?;
+            }
+            FieldPropagation::Coupled => coupled(case, modes, &excitation, block, table_values)?,
             FieldPropagation::RangeIndependent => unreachable!(),
         }
     }
@@ -147,16 +176,7 @@ fn solve_field_with_limit(
             "field_grid",
         ));
     }
-    Ok(ProfileSimulationResult {
-        modes,
-        field: PressureField {
-            source_depths_m: first.source_depths_m.clone(),
-            receiver_depths_m: first.receiver_depths_m.clone(),
-            receiver_ranges_m: first.receiver_ranges_m.clone(),
-            receiver_offsets_m: first.receiver_offsets_m.clone(),
-            pressure,
-        },
-    })
+    Ok(pressure)
 }
 
 #[allow(clippy::approx_constant)]
@@ -190,137 +210,199 @@ fn sample_at(mode: &crate::NormalMode, bracket: Option<(usize, f32)>) -> Complex
     left + w * (single(mode.eigenfunction[upper]) - left)
 }
 
-/// Receiver-depth brackets of one profile, kept while ranges stay in its segment.
-struct Brackets {
-    profile: usize,
-    depths: Vec<Option<(usize, f32)>>,
-}
-
-impl Brackets {
-    fn new() -> Self {
-        Self {
-            profile: usize::MAX,
-            depths: Vec::new(),
-        }
-    }
-
-    fn select(
-        &mut self,
-        modes: &[ModeSet],
-        profile: usize,
-        depths: &[f64],
-    ) -> &[Option<(usize, f32)>] {
-        if self.profile != profile {
-            self.profile = profile;
-            self.depths = depths
-                .iter()
-                .map(|&depth| bracket(&modes[profile], depth))
-                .collect();
-        }
-        &self.depths
-    }
-}
-
 #[allow(clippy::cast_possible_truncation)]
 fn interpolate(left: Complex32, right: Complex32, w: f64) -> Complex32 {
     single(double(left) + w * double(right - left))
 }
 
-#[allow(clippy::float_cmp, clippy::cast_possible_truncation)]
+/// Fill a block of `len` ranges from `start`, one receiver depth per work item
+/// and at most about `table_values` pressures held at once. Each row samples
+/// its depth once per profile, then evaluates every range of the block.
+fn fill_rows(
+    pressure: &mut [Complex64],
+    depths: &[f64],
+    range_count: usize,
+    (start, len): (usize, usize),
+    table_values: usize,
+    row: impl Fn(f64) -> Vec<Complex64> + Sync,
+) -> Result<(), DiagnosticReport> {
+    let batch = (table_values / len).max(1);
+    for (batch_index, depths) in depths.chunks(batch).enumerate() {
+        let rows = crate::parallelism::map(depths.len(), |index| {
+            crate::cancellation::check()?;
+            Ok(row(depths[index]))
+        });
+        for (offset, values) in rows.into_iter().enumerate() {
+            let iz = batch_index * batch + offset;
+            pressure[iz * range_count + start..][..len].copy_from_slice(&values?);
+        }
+    }
+    Ok(())
+}
+
+/// One receiver range of the adiabatic march: the profiles it lies between,
+/// its weight, and a term per mode: the phase integral, then the range factor.
+struct AdiabaticRange {
+    segment: usize,
+    right: usize,
+    w: f64,
+    range: f64,
+    terms: Vec<Complex64>,
+}
+
+impl AdiabaticRange {
+    /// The range with each mode's phase integral replaced by its range factor.
+    #[allow(clippy::float_cmp)]
+    fn with_factors(&self, first: &Case, modes: &[ModeSet], constants: &[Complex64]) -> Self {
+        let incoherent = first.mode_addition == ModeAddition::Incoherent;
+        let factors = self
+            .terms
+            .iter()
+            .enumerate()
+            .map(|(m, integral)| {
+                let k = interpolate(
+                    single(modes[self.segment].modes[m].horizontal_wavenumber_rad_per_m),
+                    single(modes[self.right].modes[m].horizontal_wavenumber_rad_per_m),
+                    self.w,
+                );
+                let phase =
+                    Complex64::new(integral.im, if incoherent { 0.0 } else { -integral.re });
+                let h = constants[m]
+                    * if incoherent {
+                        phase.exp()
+                    } else {
+                        double(single(phase.exp()))
+                    };
+                match first.source_geometry {
+                    SourceGeometry::Line => h / double(k),
+                    SourceGeometry::Point if self.range == 0.0 => Complex64::new(0.0, 0.0),
+                    SourceGeometry::Point => h / (double(k) * self.range).sqrt(),
+                    SourceGeometry::ScaledCylindrical => h / double(k.sqrt()),
+                }
+            })
+            .collect();
+        Self {
+            terms: factors,
+            ..*self
+        }
+    }
+}
+
+/// One receiver depth's pressure at each range of a block, from its range factors.
+fn adiabatic_row(
+    steps: &[AdiabaticRange],
+    modes: &[ModeSet],
+    depth: f64,
+    incoherent: bool,
+) -> Vec<Complex64> {
+    // Each mode's shape at this depth in both profiles, as interpolate() takes them.
+    let mut profiles = None;
+    let (mut base, mut slope) = (Vec::new(), Vec::new());
+    steps
+        .iter()
+        .map(|step| {
+            if profiles != Some((step.segment, step.right)) {
+                profiles = Some((step.segment, step.right));
+                let left_at = bracket(&modes[step.segment], depth);
+                let right_at = bracket(&modes[step.right], depth);
+                (base, slope) = modes[step.segment]
+                    .modes
+                    .iter()
+                    .zip(&modes[step.right].modes)
+                    .map(|(left, right)| {
+                        let left = sample_at(left, left_at);
+                        (double(left), double(sample_at(right, right_at) - left))
+                    })
+                    .unzip();
+            }
+            let contributions = base
+                .iter()
+                .zip(&slope)
+                .zip(&step.terms)
+                .map(|((&base, &slope), term)| double(single(base + step.w * slope)) * term);
+            let value = if incoherent {
+                Complex64::new(contributions.map(|p| p.norm_sqr()).sum::<f64>().sqrt(), 0.0)
+            } else {
+                contributions.sum()
+            };
+            double(single(value))
+        })
+        .collect()
+}
+
 fn adiabatic(
     case: &FieldCase,
     modes: &[ModeSet],
     excitation: &[Complex32],
     pressure: &mut [Complex64],
+    table_values: usize,
 ) -> Result<(), DiagnosticReport> {
     let first = &case.profiles[0];
+    let incoherent = first.mode_addition == ModeAddition::Incoherent;
     let mut count = excitation.len().min(modes[1].modes.len());
     let constants: Vec<_> = excitation.iter().map(|s| double(factor() * s)).collect();
     let mut integral = vec![Complex64::new(0.0, 0.0); excitation.len()];
-    let (mut left_brackets, mut right_brackets) = (Brackets::new(), Brackets::new());
     let mut segment = 0;
     let mut previous = 0.0_f64;
-    for (ir, &range) in first.receiver_ranges_m.iter().enumerate() {
-        crate::cancellation::check()?;
-        let mut left = previous.max(case.ranges_m[segment]);
-        while segment + 1 < modes.len() && range > case.ranges_m[segment + 1] {
-            let boundary = case.ranges_m[segment + 1];
+    let range_count = first.receiver_ranges_m.len();
+    let block_len = (table_values / excitation.len().max(1)).clamp(1, range_count.max(1));
+    for (block_index, ranges) in first.receiver_ranges_m.chunks(block_len).enumerate() {
+        // The phase integral runs on from range to range, so the march is sequential.
+        let mut steps = Vec::with_capacity(ranges.len());
+        for &range in ranges {
+            crate::cancellation::check()?;
+            let mut left = previous.max(case.ranges_m[segment]);
+            while segment + 1 < modes.len() && range > case.ranges_m[segment + 1] {
+                let boundary = case.ranges_m[segment + 1];
+                integrate(
+                    modes,
+                    &case.ranges_m,
+                    segment,
+                    left,
+                    boundary,
+                    &mut integral[..count],
+                );
+                left = boundary;
+                segment += 1;
+                if segment + 1 < modes.len() {
+                    count = count.min(modes[segment + 1].modes.len());
+                }
+            }
             integrate(
                 modes,
                 &case.ranges_m,
                 segment,
                 left,
-                boundary,
+                range,
                 &mut integral[..count],
             );
-            left = boundary;
-            segment += 1;
-            if segment + 1 < modes.len() {
-                count = count.min(modes[segment + 1].modes.len());
-            }
-        }
-        integrate(
-            modes,
-            &case.ranges_m,
-            segment,
-            left,
-            range,
-            &mut integral[..count],
-        );
-        let right = (segment + 1).min(modes.len() - 1);
-        let w = if right == segment {
-            0.0
-        } else {
-            (range - case.ranges_m[segment]) / (case.ranges_m[right] - case.ranges_m[segment])
-        };
-        let hank: Vec<_> = (0..count)
-            .map(|m| {
-                let k = interpolate(
-                    single(modes[segment].modes[m].horizontal_wavenumber_rad_per_m),
-                    single(modes[right].modes[m].horizontal_wavenumber_rad_per_m),
-                    w,
-                );
-                let phase = Complex64::new(
-                    integral[m].im,
-                    if first.mode_addition == ModeAddition::Incoherent {
-                        0.0
-                    } else {
-                        -integral[m].re
-                    },
-                );
-                let mut h = constants[m]
-                    * if first.mode_addition == ModeAddition::Incoherent {
-                        phase.exp()
-                    } else {
-                        double(single(phase.exp()))
-                    };
-                h = match first.source_geometry {
-                    SourceGeometry::Line => h / double(k),
-                    SourceGeometry::Point if range == 0.0 => Complex64::new(0.0, 0.0),
-                    SourceGeometry::Point => h / (double(k) * range).sqrt(),
-                    SourceGeometry::ScaledCylindrical => h / double(k.sqrt()),
-                };
-                h
-            })
-            .collect();
-        let left_at = left_brackets.select(modes, segment, &first.receiver_depths_m);
-        let right_at = right_brackets.select(modes, right, &first.receiver_depths_m);
-        for (iz, (&left_at, &right_at)) in left_at.iter().zip(right_at).enumerate() {
-            let contributions = (0..count).map(|m| {
-                double(interpolate(
-                    sample_at(&modes[segment].modes[m], left_at),
-                    sample_at(&modes[right].modes[m], right_at),
-                    w,
-                )) * hank[m]
-            });
-            let value = if first.mode_addition == ModeAddition::Incoherent {
-                Complex64::new(contributions.map(|p| p.norm_sqr()).sum::<f64>().sqrt(), 0.0)
+            let right = (segment + 1).min(modes.len() - 1);
+            let w = if right == segment {
+                0.0
             } else {
-                contributions.sum()
+                (range - case.ranges_m[segment]) / (case.ranges_m[right] - case.ranges_m[segment])
             };
-            pressure[iz * first.receiver_ranges_m.len() + ir] = double(single(value));
+            steps.push(AdiabaticRange {
+                segment,
+                right,
+                w,
+                range,
+                terms: integral[..count].to_vec(),
+            });
+            previous = range;
         }
-        previous = range;
+        let steps = crate::parallelism::map(steps.len(), |index| {
+            steps[index].with_factors(first, modes, &constants)
+        });
+        let block = (block_index * block_len, ranges.len());
+        fill_rows(
+            pressure,
+            &first.receiver_depths_m,
+            range_count,
+            block,
+            table_values,
+            |depth| adiabatic_row(&steps, modes, depth, incoherent),
+        )?;
     }
     Ok(())
 }
@@ -349,12 +431,20 @@ fn integrate(
     }
 }
 
+/// One receiver range of the coupled march: its profile and mode amplitudes.
+struct CoupledRange {
+    segment: usize,
+    range: f64,
+    amplitudes: Vec<Complex32>,
+}
+
 #[allow(clippy::float_cmp)]
 fn coupled(
     case: &FieldCase,
     modes: &[ModeSet],
     excitation: &[Complex32],
     pressure: &mut [Complex64],
+    table_values: usize,
 ) -> Result<(), DiagnosticReport> {
     let first = &case.profiles[0];
     let mut a: Vec<_> = excitation
@@ -369,42 +459,79 @@ fn coupled(
             }
         })
         .collect();
-    let mut brackets = Brackets::new();
     let mut segment = 0;
     let mut previous = 0.0;
-    for (ir, &range) in first.receiver_ranges_m.iter().enumerate() {
-        crate::cancellation::check()?;
-        while segment + 1 < modes.len()
-            && range > case.ranges_m[segment].midpoint(case.ranges_m[segment + 1])
-        {
-            let boundary = case.ranges_m[segment].midpoint(case.ranges_m[segment + 1]);
-            advance(&mut a, &modes[segment], boundary - previous);
-            a = project(
-                &case.profiles[segment],
-                &case.profiles[segment + 1],
-                &modes[segment],
-                &modes[segment + 1],
-                &a,
-            )?;
-            previous = boundary;
-            segment += 1;
+    let range_count = first.receiver_ranges_m.len();
+    let largest = modes.iter().map(|m| m.modes.len()).max().unwrap_or(0);
+    let block_len = (table_values / largest.max(1)).clamp(1, range_count.max(1));
+    for (block_index, ranges) in first.receiver_ranges_m.chunks(block_len).enumerate() {
+        // Each range advances the previous one's amplitudes, so the march is sequential.
+        let mut steps = Vec::with_capacity(ranges.len());
+        for &range in ranges {
+            crate::cancellation::check()?;
+            while segment + 1 < modes.len()
+                && range > case.ranges_m[segment].midpoint(case.ranges_m[segment + 1])
+            {
+                let boundary = case.ranges_m[segment].midpoint(case.ranges_m[segment + 1]);
+                advance(&mut a, &modes[segment], boundary - previous);
+                a = project(
+                    &case.profiles[segment],
+                    &case.profiles[segment + 1],
+                    &modes[segment],
+                    &modes[segment + 1],
+                    &a,
+                )?;
+                previous = boundary;
+                segment += 1;
+            }
+            advance(&mut a, &modes[segment], range - previous);
+            steps.push(CoupledRange {
+                segment,
+                range,
+                amplitudes: a[..a.len().min(modes[segment].modes.len())].to_vec(),
+            });
+            previous = range;
         }
-        advance(&mut a, &modes[segment], range - previous);
-        let at = brackets.select(modes, segment, &first.receiver_depths_m);
-        for (iz, &at) in at.iter().enumerate() {
-            let sum: Complex32 = a
-                .iter()
-                .zip(&modes[segment].modes)
-                .map(|(a, mode)| a * sample_at(mode, at))
-                .sum();
-            let value = if first.source_geometry == SourceGeometry::Point && range != 0.0 {
-                single(double(sum) / range.sqrt())
-            } else {
-                sum
-            };
-            pressure[iz * first.receiver_ranges_m.len() + ir] = double(value);
-        }
-        previous = range;
+        let block = (block_index * block_len, ranges.len());
+        fill_rows(
+            pressure,
+            &first.receiver_depths_m,
+            range_count,
+            block,
+            table_values,
+            |depth| {
+                let mut profile = None;
+                let mut shapes = Vec::new();
+                steps
+                    .iter()
+                    .map(|step| {
+                        if profile != Some(step.segment) {
+                            profile = Some(step.segment);
+                            let at = bracket(&modes[step.segment], depth);
+                            shapes = modes[step.segment]
+                                .modes
+                                .iter()
+                                .map(|mode| sample_at(mode, at))
+                                .collect();
+                        }
+                        let sum: Complex32 = step
+                            .amplitudes
+                            .iter()
+                            .zip(&shapes)
+                            .map(|(a, shape)| a * shape)
+                            .sum();
+                        let value = if first.source_geometry == SourceGeometry::Point
+                            && step.range != 0.0
+                        {
+                            single(double(sum) / step.range.sqrt())
+                        } else {
+                            sum
+                        };
+                        double(value)
+                    })
+                    .collect()
+            },
+        )?;
     }
     Ok(())
 }
@@ -601,4 +728,58 @@ fn project(
             Ok(sum)
         })
         .collect()
+}
+
+#[cfg(test)]
+#[test]
+fn table_size_never_changes_the_range_dependent_field() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    for (stem, addition, geometry) in [
+        ("ProfilesAd", ModeAddition::Coherent, SourceGeometry::Point),
+        ("ProfilesAd", ModeAddition::Incoherent, SourceGeometry::Line),
+        (
+            "ProfilesAd",
+            ModeAddition::Coherent,
+            SourceGeometry::ScaledCylindrical,
+        ),
+        ("ProfilesCm", ModeAddition::Coherent, SourceGeometry::Point),
+        ("ProfilesCm", ModeAddition::Coherent, SourceGeometry::Line),
+    ] {
+        let root = fixtures.join(stem);
+        let field = crate::legacy::load_field_cases(
+            root.with_extension("env"),
+            root.with_extension("flp"),
+            crate::ModeSolver::Kraken,
+        )
+        .unwrap()
+        .remove(0);
+        let profiles = field
+            .profiles
+            .iter()
+            .map(|profile| {
+                let mut input = profile.clone().into_definition();
+                input.source_depths_m = vec![75.0, 25.0, 50.0];
+                input.mode_addition = addition;
+                input.source_geometry = geometry;
+                Case::from_definition(input).unwrap()
+            })
+            .collect();
+        let case = FieldCase::new(profiles, field.ranges_m, field.propagation).unwrap();
+        let expected = solve_field(&case).unwrap();
+        let largest = expected.modes.iter().map(|m| m.modes.len()).max().unwrap();
+        // One value per table puts each range and each receiver depth in a block of its own.
+        for table_values in [1, 2, largest, 3 * largest + 1] {
+            let pressure = synthesize(
+                &case,
+                &expected.modes,
+                expected.field.pressure.len(),
+                table_values,
+            );
+            assert_eq!(
+                format!("{pressure:?}"),
+                format!("{:?}", Ok::<_, DiagnosticReport>(&expected.field.pressure)),
+                "{stem} {addition:?} {geometry:?} with {table_values}-value tables"
+            );
+        }
+    }
 }

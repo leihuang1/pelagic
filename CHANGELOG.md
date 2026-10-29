@@ -26,6 +26,14 @@ in the [interface contract](docs/development/interface-contract.md).
   Pro, `pelagic kraken run` is 3.3 times faster on the surface-duct example,
   2.7 times on the 960,000-point field and 1.8 times on the Gulf of Mexico
   example.
+- **Faster range-dependent KRAKEN FIELD.** Adiabatic and coupled FIELD
+  interpolate each receiver depth's mode shapes once per profile instead of
+  once per range, and share receiver depths and adiabatic range factors
+  between threads. Results are bit-for-bit unchanged, and peak memory stays
+  within 3 MiB of before. On an Apple M4 Pro, `pelagic kraken run` on the Gulf
+  of Mexico example takes 0.17 s instead of 0.30 s with one thread and 0.12 s
+  instead of 0.27 s with all 14; the coupled example takes 0.19 s instead of
+  0.22 s, and 0.11 s instead of 0.16 s.
 - **Thread controls.** The CLI takes `--threads N` or `PELAGIC_THREADS` and
   defaults to the available CPUs. Python adds `case.run(threads=)` and
   `run_many(..., threads=)`, which by default shares the CPUs between workers.
