@@ -1,0 +1,44 @@
+name: Test one complete wheel shard
+description: Test a matching wheel/CLI pair without restoring build caches.
+inputs:
+  platform:
+    required: true
+    description: Artifact platform
+  shard:
+    required: true
+    description: Zero-based shard index
+  count:
+    required: true
+    description: Planned number of complete-collection shards
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+        cache-dependency-path: pyproject.toml
+    - uses: actions/download-artifact@v4
+      with:
+        name: wheel-${{ inputs.platform }}
+        path: dist
+    - uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.platform == 'windows-x64' && 'test-cli-windows-x64' || format('cli-{0}', inputs.platform) }}
+        path: cli
+    - name: Install wheel and test dependencies
+      shell: bash
+      run: |
+        python -c 'import glob,subprocess,sys; subprocess.check_call([sys.executable,"-m","pip","install",glob.glob("dist/*.whl")[0]+"[test]"])'
+        if [ "${{ inputs.platform }}" = linux-x64 ]; then python -m pip install 'arlpy>=1.9,<2'; fi
+    - name: Compare complete curated cases and failure contracts (sharded)
+      shell: bash
+      run: |
+        export PELAGIC_CLI="$PWD/cli/pelagic"
+        if [ "$RUNNER_OS" = Windows ]; then export PELAGIC_CLI="$PELAGIC_CLI.exe"; else chmod +x "$PELAGIC_CLI"; fi
+        python tools/ci/pytest-shard.py --index ${{ inputs.shard }} --count ${{ inputs.count }} --manifest shard.json python/tests -q -rs --durations=15
+    - uses: actions/upload-artifact@v4
+      with:
+        name: shards-${{ inputs.platform }}-${{ inputs.shard }}
+        path: shard.json
+        if-no-files-found: error

@@ -1,42 +1,54 @@
 name: CI
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
-
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
-
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
-  RUSTDOCFLAGS: "-D warnings"
-
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
 jobs:
   build-test:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify documentation-only changes
+        id: changes
+        run: python3 tools/ci/changes.py
+      - name: Validate CI planning and shard invariants
+        run: python3 tools/ci/test-ci.py
       - name: Install repository-pinned Rust toolchain
         run: rustup show
+        if: steps.changes.outputs.full == 'true'
       - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.full == 'true'
+        with:
+          cache-bin: false
       - name: Format
         run: cargo fmt --all -- --check
+        if: steps.changes.outputs.full == 'true'
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+        if: steps.changes.outputs.full == 'true'
       - name: Test (real solvers and committed numerical references)
         run: cargo test --locked --workspace --all-features
+        if: steps.changes.outputs.full == 'true'
       - name: Verify committed references and reference tooling
         run: |
           python3 tools/reference/verify-goldens.py
           python3 tools/reference/test-tools.py
+        if: steps.changes.outputs.full == 'true'
       - name: Documentation links
         run: python3 tools/check-docs.py
       - name: Documentation build
         run: cargo doc --locked --workspace --all-features --no-deps
+        if: steps.changes.outputs.full == 'true'
+'on':
+  push:
+    branches:
+      - main
+  pull_request: null
+  workflow_dispatch: null
