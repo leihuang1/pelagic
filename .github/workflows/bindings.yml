@@ -1,27 +1,25 @@
 name: Language bindings
-on:
-  push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
-  release:
-    types: [published]
-
 permissions:
   contents: read
 concurrency:
-  group: bindings-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'release' }}
-
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   plan:
-    # Intel macOS is by far the slowest wheel, so pull requests skip it. Pushes
-    # to main, manual runs and releases build and test all five platforms.
     runs-on: ubuntu-22.04
     outputs:
       wheels: ${{ steps.plan.outputs.wheels }}
       platforms: ${{ steps.plan.outputs.platforms }}
+      full: ${{ steps.changes.outputs.full }}
+      others: ${{ steps.plan.outputs.others }}
+      tests: ${{ steps.plan.outputs.tests }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify documentation-only changes
+        id: changes
+        run: python3 tools/ci/changes.py
       - id: plan
         env:
           EVENT: ${{ github.event_name }}
@@ -39,122 +37,145 @@ jobs:
               wheels = [wheel for wheel in wheels if wheel["platform"] != "macos-x64"]
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               print("wheels=" + json.dumps({"include": wheels}), file=output)
+              print("others=" + json.dumps({"include": [w for w in wheels if w["platform"] not in ("linux-x64", "windows-x64")]}), file=output)
+              print("tests=" + json.dumps({"include": [dict(w, shard=shard) for w in wheels for shard in (0, 1)]}), file=output)
               print("platforms=" + " ".join(wheel["platform"] for wheel in wheels), file=output)
-
+  linux-wheel:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - run: git config --global core.autocrlf false
+        shell: bash
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: ./.github/actions/build-wheel
+        with:
+          target: x86_64-unknown-linux-gnu
+          platform: linux-x64
+          interpreter: python3.11
+  windows-wheel:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: windows-2022
+    steps:
+      - run: git config --global core.autocrlf false
+        shell: bash
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: ./.github/actions/build-wheel
+        with:
+          target: x86_64-pc-windows-msvc
+          platform: windows-x64
+          interpreter: python
   wheels:
     needs: plan
+    if: needs.plan.outputs.full == 'true'
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.wheels) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.others) }}
     runs-on: ${{ matrix.os }}
     steps:
       - run: git config --global core.autocrlf false
+        shell: bash
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: ./.github/actions/build-wheel
+        with:
+          target: ${{ matrix.target }}
+          platform: ${{ matrix.platform }}
+  wheel-tests:
+    needs:
+      - plan
+      - linux-wheel
+      - windows-wheel
+      - wheels
+    if: needs.plan.outputs.full == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.tests) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - run: git config --global core.autocrlf false
+        shell: bash
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Read pinned toolchain
-        id: toolchain
-        shell: bash
-        run: echo "version=$(python -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')" >> "$GITHUB_OUTPUT"
-      - uses: PyO3/maturin-action@v1
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - uses: actions/download-artifact@v4
         with:
-          maturin-version: v1.15.0
-          rust-toolchain: ${{ steps.toolchain.outputs.version }}
-          target: ${{ matrix.target }}
-          manylinux: '2_28'
-          args: --release --locked --out dist -i ${{ matrix.interpreter || 'python3.11' }}
-      - name: Install the built wheel and test dependencies
+          name: wheel-${{ matrix.platform }}
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.platform == 'windows-x64' && 'test-cli-windows-x64' || format('cli-{0}', matrix.platform) }}
+          path: cli
+      - name: Install wheel and test dependencies
         shell: bash
         run: |
           python -c 'import glob,subprocess,sys; subprocess.check_call([sys.executable,"-m","pip","install",glob.glob("dist/*.whl")[0]+"[test]"])'
-      - uses: Swatinem/rust-cache@v2
-      - name: Build CLI with the wheel's runtime for exact comparison
-        shell: bash
-        env:
-          # The wheel uses the dynamic CRT; static CRT math can differ in its last bits.
-          CMAKE_MSVC_RUNTIME_LIBRARY: MultiThreadedDLL
-          MACOSX_DEPLOYMENT_TARGET: ${{ runner.os == 'macOS' && '11.0' || '' }}
-        run: |
-          rustup show
-          cargo build --locked --release -p cli
-          if cargo tree --locked -p pelagic-python --edges normal | grep -i hdf5; then exit 1; fi
-      - name: Compare complete curated cases and failure contracts
+          if [ "${{ matrix.platform }}" = linux-x64 ]; then python -m pip install 'arlpy>=1.9,<2'; fi
+      - name: Compare complete curated cases and failure contracts (sharded)
         shell: bash
         run: |
-          export PELAGIC_CLI="$PWD/target/release/pelagic"
-          if [ "$RUNNER_OS" = Windows ]; then export PELAGIC_CLI="$PELAGIC_CLI.exe"; fi
-          python -m pytest python/tests -q -rs
-      - name: Optional arlpy bridge (explicit registration, no executable)
-        if: matrix.platform == 'linux-x64'
-        run: |
-          python -m pip install 'arlpy>=1.9,<2'
-          python -m pytest python/tests/test_arlpy.py -q
-          python -m pytest python/tests/test_examples.py -q -k arlpy_backend
-      - name: Verify dependency license snapshots
-        if: matrix.platform == 'linux-x64'
-        shell: bash
-        run: |
-          cargo install --locked cargo-bundle-licenses --version 4.2.0
-          (cd crates/python && cargo bundle-licenses --format json --output /tmp/python-licenses.json --previous ../../python/pelagic/THIRD-PARTY-LICENSES.json --check-previous)
-          (cd crates/cli && cargo bundle-licenses --format json --output /tmp/cli-licenses.json --previous ../../packaging/cli-licenses.json --check-previous)
-      - name: Build standalone Windows CLI with static CRT
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          RUSTFLAGS: '-C target-feature=+crt-static'
-          CMAKE_MSVC_RUNTIME_LIBRARY: MultiThreaded
-        run: cargo build --locked --release -p cli --target ${{ matrix.target }}
-      - name: Stage matching CLI and license notices
-        shell: bash
-        run: |
-          mkdir -p cli
-          binary=target/release/pelagic
-          if [ "$RUNNER_OS" = Windows ]; then binary="target/${{ matrix.target }}/release/pelagic.exe"; fi
-          cp "$binary" cli/
-          cp LICENSE NOTICE cli/
-          cp packaging/cli-licenses.json cli/THIRD-PARTY-LICENSES.json
-          python -c 'import pathlib,hashlib; p=pathlib.Path("cli"); (p/"SHA256SUMS").write_text("".join(hashlib.sha256(f.read_bytes()).hexdigest()+"  "+f.name+"\n" for f in sorted(p.iterdir()) if f.is_file()))'
+          export PELAGIC_CLI="$PWD/cli/pelagic"
+          if [ "$RUNNER_OS" = Windows ]; then export PELAGIC_CLI="$PELAGIC_CLI.exe"; else chmod +x "$PELAGIC_CLI"; fi
+          python tools/ci/pytest-shard.py --index ${{ matrix.shard }} --count 2 --manifest shard.json python/tests -q -rs --durations=15
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.platform }}
-          path: dist/*.whl
-      - uses: actions/upload-artifact@v4
-        with:
-          name: cli-${{ matrix.platform }}
-          path: cli/
-
+          name: shards-${{ matrix.platform }}-${{ matrix.shard }}
+          path: shard.json
+          if-no-files-found: error
   python-compatibility:
-    needs: wheels
+    needs:
+      - plan
+      - linux-wheel
     runs-on: ubuntu-22.04
     strategy:
       matrix:
         include:
-          - {python: '3.9', numpy: 'numpy==1.26.4'}
-          - {python: '3.14', numpy: 'numpy>=2.3'}
+          - python: '3.9'
+            numpy: numpy==1.26.4
+          - python: '3.14'
+            numpy: numpy>=2.3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - uses: actions/download-artifact@v4
-        with: {name: wheel-linux-x64, path: dist}
+        with:
+          name: wheel-linux-x64
+          path: dist
       - uses: actions/download-artifact@v4
-        with: {name: cli-linux-x64, path: cli}
+        with:
+          name: cli-linux-x64
+          path: cli
       - shell: bash
         run: |
           python -m pip install dist/*.whl '${{ matrix.numpy }}' pytest h5py pandas xarray
           chmod +x cli/pelagic
-          PELAGIC_CLI="$PWD/cli/pelagic" python -m pytest python/tests/test_bindings.py -q
-
+        name: Install compatibility dependencies
+      - name: Python compatibility tests
+        shell: bash
+        run: PELAGIC_CLI="$PWD/cli/pelagic" python -m pytest python/tests/test_bindings.py -q
+    if: needs.plan.outputs.full == 'true'
   matlab:
-    needs: [plan, wheels]
-    strategy:
-      fail-fast: false
-      matrix:
-        # Windows is the primary release platform: exercise ProcessBuilder and the bundled .exe there too.
-        os: [ubuntu-22.04, windows-2022]
-    runs-on: ${{ matrix.os }}
+    needs:
+      - plan
+      - linux-wheel
+      - windows-wheel
+      - wheels
+    runs-on: ubuntu-22.04
     steps:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
@@ -169,11 +190,11 @@ jobs:
         if: runner.os == 'Linux'
         run: chmod a-x matlab/bin/linux-x64/pelagic
       - uses: matlab-actions/setup-matlab@v2
-        with: {release: R2025b}
+        with:
+          release: R2025b
       - uses: matlab-actions/run-command@v2
         with:
           command: addpath('matlab/tests'); test_bindings; test_curated; test_examples
-      # The toolbox bundles all five CLIs, which pull requests do not build.
       - name: Package the toolbox once, from the Linux runner
         if: runner.os == 'Linux' && github.event_name != 'pull_request'
         uses: matlab-actions/run-command@v2
@@ -181,17 +202,44 @@ jobs:
           command: addpath('matlab'); build_toolbox
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux' && github.event_name != 'pull_request'
-        with: {name: matlab-toolbox, path: target/pelagic.mltbx}
-
+        with:
+          name: matlab-toolbox
+          path: target/pelagic.mltbx
+    if: needs.plan.outputs.full == 'true'
+  matlab-windows:
+    if: needs.plan.outputs.full == 'true'
+    needs:
+      - plan
+      - windows-wheel
+    runs-on: windows-2022
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cli-windows-x64
+          path: cli-artifacts
+      - name: Verify and stage bundled CLIs
+        run: python tools/stage-matlab.py cli-artifacts matlab/bin --platforms windows-x64
+        shell: bash
+      - uses: matlab-actions/setup-matlab@v2
+        with:
+          release: R2025b
+      - uses: matlab-actions/run-command@v2
+        with:
+          command: addpath('matlab/tests'); test_bindings; test_curated; test_examples
   octave:
-    needs: wheels
-    # jsonencode/jsondecode require Octave 7+; Ubuntu 22.04 ships 6.4, 24.04 ships 8.4.
+    needs:
+      - plan
+      - linux-wheel
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-        with: {name: cli-linux-x64, path: cli}
+        with:
+          name: cli-linux-x64
+          path: cli
       - name: Install Octave and Java
         timeout-minutes: 10
         run: |
@@ -204,7 +252,7 @@ jobs:
         run: |
           chmod +x cli/pelagic
           PELAGIC_CLI="$PWD/cli/pelagic" octave --no-gui --quiet --eval "addpath('matlab/tests'); test_bindings; test_curated"
-
+    if: needs.plan.outputs.full == 'true'
   sdist:
     runs-on: ubuntu-22.04
     steps:
@@ -214,20 +262,94 @@ jobs:
           command: sdist
           args: --out dist
       - uses: actions/upload-artifact@v4
-        with: {name: python-sdist, path: dist/*.tar.gz}
-
+        with:
+          name: python-sdist
+          path: dist/*.tar.gz
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+  licenses:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Install repository-pinned Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+          cache-bin: false
+          shared-key: license-sources
+      - name: Download verified precompiled license tool
+        run: |
+          curl --fail --location --retry 3 https://github.com/sstadick/cargo-bundle-licenses/releases/download/v4.2.0/cargo-bundle-licenses-linux-amd64 -o "$RUNNER_TEMP/cargo-bundle-licenses"
+          echo "4208af8db7a34b427068211e73cdd299b577245601f68c5a1c3af85e4fa4cc7c  $RUNNER_TEMP/cargo-bundle-licenses" | sha256sum --check --strict
+          chmod +x "$RUNNER_TEMP/cargo-bundle-licenses"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Verify dependency license snapshots
+        run: |
+          (cd crates/python && cargo bundle-licenses --format json --output /tmp/python-licenses.json --previous ../../python/pelagic/THIRD-PARTY-LICENSES.json --check-previous)
+          (cd crates/cli && cargo bundle-licenses --format json --output /tmp/cli-licenses.json --previous ../../packaging/cli-licenses.json --check-previous)
+  bindings-check:
+    name: bindings-check
+    if: always()
+    needs:
+      - plan
+      - linux-wheel
+      - windows-wheel
+      - wheels
+      - wheel-tests
+      - python-compatibility
+      - matlab
+      - matlab-windows
+      - octave
+      - sdist
+      - licenses
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Require every applicable validation to succeed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYCODE'
+          import json, os
+          needs = json.loads(os.environ['NEEDS'])
+          assert needs['plan']['result'] == 'success', needs
+          full = needs['plan']['outputs']['full'] == 'true'
+          for name, job in needs.items():
+              assert job['result'] == ('success' if full or name == 'plan' else 'skipped'), (name, job)
+          PYCODE
+      - uses: actions/download-artifact@v4
+        if: needs.plan.outputs.full == 'true'
+        with:
+          pattern: shards-*
+          path: shard-manifests
+      - name: Prove disjoint and complete test shard coverage
+        if: needs.plan.outputs.full == 'true'
+        run: python3 tools/ci/check-shards.py shard-manifests --platforms ${{ needs.plan.outputs.platforms }}
   publish-pypi:
     if: github.event_name == 'release'
-    needs: [wheels, python-compatibility, matlab, octave, sdist]
+    needs:
+      - bindings-check
     runs-on: ubuntu-22.04
     environment: pypi
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
-        with: {pattern: wheel-*, path: dist, merge-multiple: true}
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
       - uses: actions/download-artifact@v4
-        with: {name: python-sdist, path: dist}
+        with:
+          name: python-sdist
+          path: dist
       - name: Require the release tag to match every built wheel
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -244,20 +366,23 @@ jobs:
                   assert metadata['Version'] == os.environ['RELEASE_TAG'].removeprefix('v')
           PY
       - uses: pypa/gh-action-pypi-publish@release/v1
-
   release-assets:
-    # The Windows ZIP is attached by release.yml; this adds the other CLIs and the toolbox.
     if: github.event_name == 'release'
-    needs: [wheels, python-compatibility, matlab, octave, sdist]
+    needs:
+      - bindings-check
     runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-        with: {pattern: cli-*, path: cli-artifacts}
+        with:
+          pattern: cli-*
+          path: cli-artifacts
       - uses: actions/download-artifact@v4
-        with: {name: matlab-toolbox, path: toolbox}
+        with:
+          name: matlab-toolbox
+          path: toolbox
       - name: Package macOS/Linux CLIs and the MATLAB toolbox
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -291,3 +416,12 @@ jobs:
           cd dist
           sha256sum --check *.sha256
           gh release upload "$RELEASE_TAG" * --clobber
+'on':
+  push:
+    branches:
+      - main
+  pull_request: null
+  workflow_dispatch: null
+  release:
+    types:
+      - published

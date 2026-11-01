@@ -1,26 +1,14 @@
 name: Windows release
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
-  release:
-    types: [published]
-
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'release' && 'release' || 'validation' }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'release' }}
-
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
-
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings -C target-feature=+crt-static"
+  RUSTFLAGS: -D warnings -C target-feature=+crt-static
   CMAKE_MSVC_RUNTIME_LIBRARY: MultiThreaded
   TARGET: x86_64-pc-windows-msvc
-
 jobs:
   build:
     runs-on: windows-2022
@@ -35,7 +23,7 @@ jobs:
         run: rustup show
       - uses: Swatinem/rust-cache@v2
         with:
-          cache-on-failure: true
+          cache-bin: false
       - name: Build CLI
         run: cargo build --locked --release -p cli --target $env:TARGET
       - name: Package CLI and license notices
@@ -88,10 +76,13 @@ jobs:
             dist/*.sha256
           if-no-files-found: error
           retention-days: 7
-
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
   publish:
     if: github.event_name == 'release'
-    needs: build
+    needs:
+      - build
+      - windows-check
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -109,3 +100,37 @@ jobs:
           cd dist
           sha256sum --check *.sha256
           gh release upload "$RELEASE_TAG" *.zip *.sha256 --clobber
+  changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      full: ${{ steps.changes.outputs.full }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: changes
+        run: python3 tools/ci/changes.py
+  windows-check:
+    if: always()
+    needs:
+      - changes
+      - build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require Windows packaging validation or an explicit docs-only skip
+        env:
+          PLAN: ${{ needs.changes.result }}
+          FULL: ${{ needs.changes.outputs.full }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          test "$PLAN" = success
+          if [ "$FULL" = true ]; then test "$BUILD" = success; else test "$BUILD" = skipped; fi
+'on':
+  push:
+    branches:
+      - main
+  pull_request: null
+  workflow_dispatch: null
+  release:
+    types:
+      - published
