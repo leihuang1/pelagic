@@ -5,6 +5,8 @@ are on the [releases page](https://github.com/leihuang1/pelagic/releases).
 Changes to public interfaces are listed under **Compatibility**. The rules are
 in the [interface contract](docs/development/interface-contract.md).
 
+## Unreleased
+
 ## 0.6.0 — 2026-10-29
 
 - **Multi-threaded solves with unchanged results.** BELLHOP shares the rays of
