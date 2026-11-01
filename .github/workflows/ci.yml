@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, ci-benchmark/baseline-20261101]
   pull_request:
   workflow_dispatch:
 
