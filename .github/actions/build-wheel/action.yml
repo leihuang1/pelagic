@@ -26,7 +26,7 @@ runs:
       run: rustup show
     - uses: Swatinem/rust-cache@v2
       with:
-        shared-key: wheel-${{ inputs.platform }}
+        shared-key: wheel-${{ inputs.platform }}${{ runner.os == 'Windows' && '-static-warnings-v2' || '' }}
         cache-bin: false
     - uses: PyO3/maturin-action@v1
       with:
@@ -36,6 +36,10 @@ runs:
         rust-toolchain: ${{ steps.toolchain.outputs.version }}
         target: ${{ inputs.target }}
         sccache: ${{ runner.os == 'Linux' }}
+    - name: Clear the container-only compiler wrapper
+      if: runner.os == 'Linux'
+      shell: bash
+      run: echo 'RUSTC_WRAPPER=' >> "$GITHUB_ENV"
     - env:
         CMAKE_MSVC_RUNTIME_LIBRARY: MultiThreadedDLL
         MACOSX_DEPLOYMENT_TARGET: ${{ runner.os == 'macOS' && '11.0' || '' }}
@@ -58,7 +62,7 @@ runs:
         compression-level: 0
     - env:
         CMAKE_MSVC_RUNTIME_LIBRARY: MultiThreaded
-        RUSTFLAGS: -C target-feature=+crt-static
+        RUSTFLAGS: -D warnings -C target-feature=+crt-static
         CARGO_TARGET_DIR: target/static
       if: runner.os == 'Windows'
       name: Build standalone Windows CLI with static CRT
@@ -84,3 +88,56 @@ runs:
         name: cli-${{ inputs.platform }}
         path: cli/
         compression-level: 0
+    - name: Package CLI and license notices
+      shell: pwsh
+      env:
+        RELEASE_TAG: ${{ github.event.release.tag_name }}
+        TARGET: ${{ inputs.target }}
+      run: |
+        $metadata = & cargo metadata --locked --format-version 1 --filter-platform $env:TARGET | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed' }
+        $version = ($metadata.packages | Where-Object name -eq 'cli').version
+        if ($env:RELEASE_TAG -and $env:RELEASE_TAG -ne "v$version") { throw 'Release tag must match the Cargo version (vX.Y.Z)' }
+        $name = "pelagic-v$version-windows-x64"
+        $stage = Join-Path $env:RUNNER_TEMP $name
+        New-Item -ItemType Directory -Path $stage, dist -Force | Out-Null
+        Copy-Item "target\static\$env:TARGET\release\pelagic.exe", LICENSE, NOTICE, Cargo.lock -Destination $stage
+        $sources = @(
+          "Pelagic v$version ($env:TARGET)",
+          "Commit: $env:GITHUB_SHA",
+          "Source: https://github.com/$env:GITHUB_REPOSITORY/archive/$env:GITHUB_SHA.zip",
+          "Build: CARGO_TARGET_DIR=target/static cargo build --locked --release -p cli --target $env:TARGET",
+          'RUSTFLAGS=-D warnings -C target-feature=+crt-static',
+          'CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded',
+          (& rustc --version),
+          '',
+          'Locked build/workspace dependency sources and license notices:'
+        )
+        foreach ($package in $metadata.packages | Where-Object source) {
+          $source = Split-Path $package.manifest_path
+          $destination = Join-Path $stage "licenses\$($package.name)-$($package.version)"
+          foreach ($file in Get-ChildItem -LiteralPath $source -Recurse -File | Where-Object Name -Match '^(LICENSE|LICENCE|COPYING|COPYRIGHT|NOTICE)([.-]|$)') {
+            $target = Join-Path $destination ([IO.Path]::GetRelativePath($source, $file.FullName))
+            New-Item -ItemType Directory -Path (Split-Path $target) -Force | Out-Null
+            Copy-Item -LiteralPath $file.FullName -Destination $target
+          }
+          $sources += "$($package.name) $($package.version): https://crates.io/api/v1/crates/$($package.name)/$($package.version)/download"
+        }
+        $sysroot = & rustc --print sysroot
+        Copy-Item "$sysroot\share\doc\rust\licenses" -Destination "$stage\licenses\rust" -Recurse
+        Copy-Item "$sysroot\share\doc\rust\COPYRIGHT-library.html" -Destination "$stage\licenses\rust"
+        $sources | Set-Content "$stage\BUILD-INFO.txt" -Encoding utf8
+        Compress-Archive -Path "$stage\*" -DestinationPath "dist\$name.zip"
+        $hash = (Get-FileHash "dist\$name.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+        $checksum = Join-Path (Get-Location).Path "dist\$name.zip.sha256"
+        [IO.File]::WriteAllText($checksum, "$hash  $name.zip`n")
+      if: runner.os == 'Windows'
+    - uses: actions/upload-artifact@v4
+      with:
+        name: windows-x64
+        path: |
+          dist/*.zip
+          dist/*.sha256
+        if-no-files-found: error
+        retention-days: 7
+      if: runner.os == 'Windows'

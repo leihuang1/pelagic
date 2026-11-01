@@ -20,9 +20,24 @@ def module(name):
 changes = module("changes")
 shards = module("pytest-shard")
 coverage = module("check-shards")
+results = module("check-results")
 
 
 class PlanningTests(unittest.TestCase):
+    def test_aggregate_accepts_only_explicit_documentation_skips(self):
+        needs = {"plan": {"result": "success", "outputs": {"full": "false"}},
+                 "windows-check": {"result": "success"}, "wheel-tests": {"result": "skipped"}}
+        results.check(needs)
+        needs["plan"]["outputs"]["full"] = "true"
+        with self.assertRaises(AssertionError):
+            results.check(needs)
+        needs["wheel-tests"]["result"] = "success"
+        results.check(needs)
+        for state in ("failure", "cancelled", "skipped"):
+            needs["windows-check"]["result"] = state
+            with self.assertRaises(AssertionError):
+                results.check(needs)
+
     def test_prose_only(self):
         self.assertFalse(changes.needs_full_validation(["README.md", "docs/guide.md", "docs/images/schema.svg"]))
 

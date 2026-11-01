@@ -70,6 +70,7 @@ jobs:
           target: x86_64-pc-windows-msvc
           platform: windows-x64
           interpreter: python
+    timeout-minutes: 30
   wheels:
     needs: plan
     if: needs.plan.outputs.full == 'true'
@@ -270,7 +271,7 @@ jobs:
   licenses:
     needs: plan
     if: needs.plan.outputs.full == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -307,6 +308,7 @@ jobs:
       - octave
       - sdist
       - licenses
+      - windows-check
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -315,15 +317,7 @@ jobs:
       - name: Require every applicable validation to succeed
         env:
           NEEDS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PYCODE'
-          import json, os
-          needs = json.loads(os.environ['NEEDS'])
-          assert needs['plan']['result'] == 'success', needs
-          full = needs['plan']['outputs']['full'] == 'true'
-          for name, job in needs.items():
-              assert job['result'] == ('success' if full or name == 'plan' else 'skipped'), (name, job)
-          PYCODE
+        run: python3 tools/ci/check-results.py
       - uses: actions/download-artifact@v4
         if: needs.plan.outputs.full == 'true'
         with:
@@ -416,6 +410,41 @@ jobs:
           cd dist
           sha256sum --check *.sha256
           gh release upload "$RELEASE_TAG" * --clobber
+  windows-check:
+    if: always()
+    needs:
+      - plan
+      - windows-wheel
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require Windows packaging validation or an explicit docs-only skip
+        env:
+          PLAN: ${{ needs.plan.result }}
+          FULL: ${{ needs.plan.outputs.full }}
+          BUILD: ${{ needs.windows-wheel.result }}
+        run: |
+          test "$PLAN" = success
+          if [ "$FULL" = true ]; then test "$BUILD" = success; else test "$BUILD" = skipped; fi
+  publish-windows:
+    if: github.event_name == 'release'
+    needs: bindings-check
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: dist
+      - name: Verify and attach to this Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          cd dist
+          sha256sum --check *.sha256
+          gh release upload "$RELEASE_TAG" *.zip *.sha256 --clobber
 'on':
   push:
     branches:

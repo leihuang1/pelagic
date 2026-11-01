@@ -7,14 +7,16 @@ of `main`. Publishing the GitHub release triggers everything else.
 
 | Artifact | Built by | Destination |
 | --- | --- | --- |
-| `pelagic-vX.Y.Z-windows-x64.zip` | `.github/workflows/release.yml` | GitHub release |
+| `pelagic-vX.Y.Z-windows-x64.zip` | `bindings.yml` (`windows-wheel`, `publish-windows`) | GitHub release |
 | `pelagic-vX.Y.Z-{linux-x64,linux-arm64,macos-arm64,macos-x64}.tar.gz` | `.github/workflows/bindings.yml` (`release-assets`) | GitHub release |
 | `pelagic-vX.Y.Z.mltbx` (all five CLIs inside) | `bindings.yml` (`matlab`, `release-assets`) | GitHub release |
 | A `.sha256` for each of the above | Same jobs | GitHub release |
-| Five abi3 wheels and the sdist | `bindings.yml` (`wheels`, `sdist`, `publish-pypi`) | PyPI |
+| Five abi3 wheels and the sdist | `bindings.yml` (`linux-wheel`, `windows-wheel`, `wheels`, `sdist`, `publish-pypi`) | PyPI |
 
-Both workflows refuse to publish unless the tag equals `v` + `matlab/VERSION`.
-`publish-pypi` and `release-assets` run only after every test job passes.
+Release publishing refuses mismatched versions: Windows packaging checks the
+tag against Cargo, PyPI checks every wheel version, and the other assets check
+`matlab/VERSION`. `publish-pypi`, `publish-windows`, and `release-assets` run only
+after the complete `bindings-check` gate succeeds.
 
 ## One-time setup
 
@@ -61,8 +63,9 @@ python3 tools/check-docs.py
   --previous ../../packaging/cli-licenses.json --check-previous)
 ```
 
-Open a PR titled `release: Pelagic X.Y.Z`. Merge it only when all three
-workflows (CI, Language bindings, Windows release) are green. Note the merge
+Open a PR titled `release: Pelagic X.Y.Z`. Merge it only when both
+workflows (CI and Language bindings), including `windows-check` and
+`bindings-check`, are green. Note the merge
 commit SHA. Pull requests skip the Intel macOS wheel and the toolbox package,
 so also wait for the `Language bindings` run that the merge starts on `main`
 to be green before publishing.
@@ -115,8 +118,8 @@ gh release create vX.Y.Z --target <merge-sha> --title "Pelagic vX.Y.Z" \
   --notes-file notes.md
 ```
 
-Publishing starts the `Language bindings` and `Windows release` workflows for
-the release. Follow them with `gh run list --event release` and
+Publishing starts the `Language bindings` workflow, including all three
+publishing jobs. Follow it with `gh run list --event release` and
 `gh run watch <id>`.
 
 If a job fails for an infrastructure reason (runner setup, network, a

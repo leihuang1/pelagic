@@ -1,6 +1,6 @@
 # Continuous integration
 
-The three workflows retain separate responsibilities:
+The two workflows retain separate responsibilities:
 
 - **CI**: formatting, Clippy, the complete Rust workspace test suite (including
   committed numerical references and doctests), reference-tool guards, links,
@@ -8,8 +8,10 @@ The three workflows retain separate responsibilities:
 - **Language bindings**: wheels and matching CLIs, complete Python tests on every
   selected platform, Python 3.9/3.14 compatibility, MATLAB on Linux and Windows,
   Octave, license snapshots, source distribution, and release packaging.
-- **Windows release**: static-CRT CLI distribution, dependency and Rust license
-  notices, provenance, ZIP/checksum validation, and release attachment.
+  The same Windows producer also builds the static-CRT CLI distribution,
+  dependency and Rust license notices, provenance, and ZIP/checksum. The
+  release-only `publish-windows` job attaches that already validated artifact.
+  There is no second standalone Windows compilation workflow.
 
 ## Cancellation and documentation changes
 
