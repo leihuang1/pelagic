@@ -17,6 +17,10 @@ in the [interface contract](docs/development/interface-contract.md).
   10% faster on one thread and 2.1 to 2.7 times faster on 14. Results are
   bit-for-bit unchanged. More threads hold more shape scratch: up to 64 MiB in
   all, then about 60 bytes per mesh row per thread.
+- **Faster range-independent KRAKEN FIELD.** Modal sums for eight ranges now
+  share a loop, which the compiler packs into vector instructions. A 962,000-point
+  Munk field is about 14% faster on one thread. Each range still adds its modes in
+  the same order, so results are bit-for-bit unchanged.
 
 ## 0.6.0 — 2026-10-29
 

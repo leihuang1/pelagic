@@ -116,8 +116,10 @@ thread:
   workers; otherwise, and for elastic media, a worker holds one mode at a time.
   Range-independent FIELD tabulates each mode's amplitude, receiver offset and
   range phase once, then computes rows of receivers in parallel with the same
-  operations per modal term. The phase and amplitude tables hold about a
-  million modal terms at most, in blocks of ranges and sources.
+  operations per modal term. Eight ranges share each modal loop, with one running
+  total per range, which the compiler packs without changing any sum. The phase
+  and amplitude tables hold about a million modal terms at most, in blocks of
+  ranges and sources.
   Range-dependent FIELD reuses each profile's receiver-depth brackets.
   Frequency blocks and profiles run in order, because each carries the previous
   mode count forward.

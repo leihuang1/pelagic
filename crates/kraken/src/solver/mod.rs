@@ -30,6 +30,19 @@ use std::path::Path;
 pub(crate) const MAX_FIELD_WORK: usize = 550_000_000;
 // Range phases are tabulated for blocks of ranges with at most this many modal terms.
 const PHASE_TABLE_VALUES: usize = 1 << 20;
+// Ranges whose modal sums share a loop, one running total per range, so the
+// compiler can pack them. Each range still adds its modes in order.
+const FIELD_RANGE_LANES: usize = 8;
+
+struct RangePhaseLanes {
+    re: [f32; FIELD_RANGE_LANES],
+    im: [f32; FIELD_RANGE_LANES],
+}
+
+enum FieldPhases {
+    Scalar(Vec<Vec<Complex32>>),
+    RangeLanes(Vec<Vec<RangePhaseLanes>>),
+}
 
 pub(super) fn solve_with_limit(
     case: &Case,
@@ -132,20 +145,55 @@ fn tabulate_field(
     };
     let receiver_count = case.receiver_depths_m.len();
     let range_count = case.receiver_ranges_m.len();
-    let block_len = (table_values / mode_count.max(1)).clamp(1, range_count.max(1));
-    let source_batch = (table_values / mode_count.max(1)).max(1);
+    let range_capacity = table_values / mode_count.max(1);
+    // Fewer than eight ranges would mostly sum padding.
+    let range_lanes = range_count >= FIELD_RANGE_LANES && range_capacity >= FIELD_RANGE_LANES;
+    // Round capacity, not the range count, so padding never exceeds the table budget.
+    let block_len = if range_lanes {
+        range_capacity / FIELD_RANGE_LANES * FIELD_RANGE_LANES
+    } else {
+        range_capacity
+    }
+    .clamp(1, range_count.max(1));
+    let source_batch = range_capacity.max(1);
     let mut pressure = vec![Complex64::new(0.0, 0.0); sample_count];
     for (block_index, ranges) in case.receiver_ranges_m.chunks(block_len).enumerate() {
-        let phases: Vec<Vec<Complex32>> = crate::parallelism::map(
-            ranges.len(),
-            ranges.len().saturating_mul(mode_count),
-            |index| {
-                wavenumbers
-                    .iter()
-                    .map(|&(_, ik)| single((ik * ranges[index]).exp()))
-                    .collect()
-            },
-        );
+        let phases = if range_lanes && ranges.len() >= FIELD_RANGE_LANES {
+            FieldPhases::RangeLanes(crate::parallelism::map(
+                ranges.len().div_ceil(FIELD_RANGE_LANES),
+                ranges.len().saturating_mul(mode_count),
+                |index| {
+                    let first = index * FIELD_RANGE_LANES;
+                    let lane_ranges = &ranges[first..ranges.len().min(first + FIELD_RANGE_LANES)];
+                    wavenumbers
+                        .iter()
+                        .map(|&(_, ik)| {
+                            let mut phases = RangePhaseLanes {
+                                re: [0.0; FIELD_RANGE_LANES],
+                                im: [0.0; FIELD_RANGE_LANES],
+                            };
+                            for (lane, &range) in lane_ranges.iter().enumerate() {
+                                let phase = single((ik * range).exp());
+                                phases.re[lane] = phase.re;
+                                phases.im[lane] = phase.im;
+                            }
+                            phases
+                        })
+                        .collect()
+                },
+            ))
+        } else {
+            FieldPhases::Scalar(crate::parallelism::map(
+                ranges.len(),
+                ranges.len().saturating_mul(mode_count),
+                |index| {
+                    wavenumbers
+                        .iter()
+                        .map(|&(_, ik)| single((ik * ranges[index]).exp()))
+                        .collect()
+                },
+            ))
+        };
         let start = block_index * block_len;
         for (batch_index, sources) in case.source_depths_m.chunks(source_batch).enumerate() {
             let first_source = batch_index * source_batch;
@@ -179,39 +227,70 @@ fn tabulate_field(
                         )
                     })
                     .collect();
-                ranges
-                    .iter()
-                    .zip(&phases)
-                    .map(|(&range, phases)| {
-                        let mut value = Complex32::new(0.0, 0.0);
-                        for (offset_shape, phase) in offset_shapes.iter().zip(phases) {
-                            let contribution = offset_shape * phase;
-                            value += if incoherent {
-                                contribution * contribution
-                            } else {
-                                contribution
-                            };
+                let finish = |mut value: Complex32, range: f64| {
+                    if incoherent {
+                        value = value.sqrt();
+                    }
+                    if case.source_geometry == SourceGeometry::Point
+                        && range + receiver_offset > 0.0
+                    {
+                        #[allow(clippy::cast_possible_truncation)]
+                        let spreading = (range + receiver_offset).sqrt() as f32;
+                        value /= spreading;
+                    }
+                    if !value.re.is_finite() || !value.im.is_finite() {
+                        return Err(error(
+                            "KR0302",
+                            "field pressure is not finite",
+                            "field_grid",
+                        ));
+                    }
+                    Ok(double(value))
+                };
+                match &phases {
+                    FieldPhases::Scalar(phases) => ranges
+                        .iter()
+                        .zip(phases)
+                        .map(|(&range, phases)| {
+                            let mut value = Complex32::new(0.0, 0.0);
+                            for (offset_shape, phase) in offset_shapes.iter().zip(phases) {
+                                let contribution = offset_shape * phase;
+                                value += if incoherent {
+                                    contribution * contribution
+                                } else {
+                                    contribution
+                                };
+                            }
+                            finish(value, range)
+                        })
+                        .collect::<Result<Vec<_>, _>>(),
+                    FieldPhases::RangeLanes(phases) => {
+                        let mut values = Vec::with_capacity(ranges.len());
+                        for (lane_ranges, phases) in ranges.chunks(FIELD_RANGE_LANES).zip(phases) {
+                            let mut re = [0.0; FIELD_RANGE_LANES];
+                            let mut im = [0.0; FIELD_RANGE_LANES];
+                            for (offset_shape, phase) in offset_shapes.iter().zip(phases) {
+                                // Padded lanes are discarded; live lanes keep their modal order.
+                                #[allow(clippy::needless_range_loop)]
+                                for lane in 0..FIELD_RANGE_LANES {
+                                    let contribution = offset_shape
+                                        * Complex32::new(phase.re[lane], phase.im[lane]);
+                                    let contribution = if incoherent {
+                                        contribution * contribution
+                                    } else {
+                                        contribution
+                                    };
+                                    re[lane] += contribution.re;
+                                    im[lane] += contribution.im;
+                                }
+                            }
+                            for (lane, &range) in lane_ranges.iter().enumerate() {
+                                values.push(finish(Complex32::new(re[lane], im[lane]), range)?);
+                            }
                         }
-                        if incoherent {
-                            value = value.sqrt();
-                        }
-                        if case.source_geometry == SourceGeometry::Point
-                            && range + receiver_offset > 0.0
-                        {
-                            #[allow(clippy::cast_possible_truncation)]
-                            let spreading = (range + receiver_offset).sqrt() as f32;
-                            value /= spreading;
-                        }
-                        if !value.re.is_finite() || !value.im.is_finite() {
-                            return Err(error(
-                                "KR0302",
-                                "field pressure is not finite",
-                                "field_grid",
-                            ));
-                        }
-                        Ok(double(value))
-                    })
-                    .collect::<Result<Vec<_>, _>>()
+                        Ok(values)
+                    }
+                }
             });
             let first_row = first_source * receiver_count;
             for (row, values) in rows.into_iter().enumerate() {
@@ -405,4 +484,139 @@ pub fn solve_complex_modes(case: &Case) -> Result<ModeSet, DiagnosticReport> {
         )));
     }
     complex_modes::solve(case)
+}
+
+#[cfg(test)]
+mod field_range_lane_tests {
+    use super::*;
+
+    fn field_case(range_count: i32) -> (Case, ModeSet) {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/FieldPattern");
+        let mut input = crate::legacy::load_field_cases(
+            root.with_extension("env"),
+            root.with_extension("flp"),
+            ModeSolver::Krakenc,
+        )
+        .unwrap()
+        .remove(0)
+        .profiles
+        .remove(0)
+        .into_definition();
+        assert_ne!(input.source_pattern, []);
+        input.source_depths_m = vec![75.0, 30.0, 75.0, 10.0, 20.0, 40.0, 50.0, 60.0, 75.0];
+        input.receiver_depths_m = vec![0.0, 35.0, 100.0];
+        input.receiver_offsets_m = vec![-25.0, 0.0, 40.0];
+        input.receiver_ranges_m = (0..range_count)
+            .map(|i| 25.0 + 125.0 * f64::from(i))
+            .collect();
+        input.mode_sample_depths_m = vec![1.0, 50.0, 99.0];
+        let case = Case::from_definition(input).unwrap();
+        let modes = ModeSet {
+            frequency_hz: case.frequency_hz,
+            sampled_depths_m: case.mode_sample_depths_m.clone(),
+            modes: (0..11)
+                .map(|i| {
+                    let i = f64::from(i);
+                    crate::NormalMode {
+                        horizontal_wavenumber_rad_per_m: Complex64::new(
+                            0.04 + 0.007 * i,
+                            -0.000_01 * (i + 1.0),
+                        ),
+                        phase_speed_mps: 1500.0,
+                        group_speed_mps: 1500.0,
+                        attenuation_nepers_per_m: 0.000_01 * (i + 1.0),
+                        eigenfunction: vec![
+                            Complex64::new(-0.12 * (i + 1.0), 0.07),
+                            Complex64::new(0.09, 0.014 * i),
+                            Complex64::new(-0.022 * (i + 1.0), -0.031),
+                        ],
+                    }
+                })
+                .collect(),
+        };
+        (case, modes)
+    }
+
+    fn pressure_bytes(field: &PressureField) -> Vec<u8> {
+        field
+            .pressure
+            .iter()
+            .flat_map(|value| {
+                value
+                    .re
+                    .to_le_bytes()
+                    .into_iter()
+                    .chain(value.im.to_le_bytes())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn tabulate_field_range_lanes_match_scalar_bytes() {
+        for range_count in [1, 3, 7, 8, 9, 15, 16, 17, 33, 129] {
+            let (base, modes) = field_case(range_count);
+            for geometry in [
+                SourceGeometry::Line,
+                SourceGeometry::Point,
+                SourceGeometry::ScaledCylindrical,
+            ] {
+                for addition in [ModeAddition::Coherent, ModeAddition::Incoherent] {
+                    let mut input = base.clone().into_definition();
+                    input.source_geometry = geometry;
+                    input.mode_addition = addition;
+                    let case = Case::from_definition(input).unwrap();
+                    // A one-value budget forces the unchanged scalar modal sum.
+                    let expected = tabulate_field(&case, &modes, 1).unwrap();
+                    let mode_count = modes.modes.len();
+                    for table_values in [
+                        0,
+                        2,
+                        mode_count,
+                        7 * mode_count + 1,
+                        8 * mode_count,
+                        9 * mode_count + 1,
+                        16 * mode_count + 1,
+                        PHASE_TABLE_VALUES,
+                    ] {
+                        let actual = tabulate_field(&case, &modes, table_values).unwrap();
+                        assert_eq!(
+                            pressure_bytes(&actual),
+                            pressure_bytes(&expected),
+                            "{range_count} ranges, {geometry:?}, {addition:?}, {table_values} values"
+                        );
+                    }
+                    if range_count == 129 {
+                        let actual = crate::parallelism::with_threads(
+                            std::num::NonZeroUsize::new(3).unwrap(),
+                            || tabulate_field(&case, &modes, PHASE_TABLE_VALUES).unwrap(),
+                        );
+                        assert_eq!(pressure_bytes(&actual), pressure_bytes(&expected));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tabulate_field_range_lanes_preserve_errors_and_cancellation() {
+        let (case, mut modes) = field_case(17);
+        let token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        for table_values in [1, PHASE_TABLE_VALUES] {
+            let report = crate::cancellation::with_token(token.clone(), || {
+                crate::parallelism::with_threads(std::num::NonZeroUsize::new(3).unwrap(), || {
+                    tabulate_field(&case, &modes, table_values).unwrap_err()
+                })
+            });
+            assert_eq!(report.diagnostics()[0].code, "KR0304");
+        }
+        modes.modes[0].eigenfunction[0].re = f64::NAN;
+        for table_values in [1, PHASE_TABLE_VALUES] {
+            let report = tabulate_field(&case, &modes, table_values).unwrap_err();
+            assert_eq!(report.diagnostics()[0].code, "KR0302");
+            assert_eq!(
+                report.diagnostics()[0].message,
+                "field pressure is not finite"
+            );
+        }
+    }
 }
