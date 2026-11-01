@@ -91,7 +91,9 @@ class PlanningTests(unittest.TestCase):
             manifests = [{"index": i, "count": count, "all": nodes,
                           "selected": [n for n in nodes if shards.shard_for(n, count) == i]}
                          for i in range(count)]
-            self.assertEqual(coverage.check(manifests), len(nodes))
+            self.assertEqual(coverage.check(manifests, count), len(nodes))
+            with self.assertRaises(AssertionError):
+                coverage.check(manifests, count + 1)
             if count > 1:
                 with self.assertRaises(AssertionError):
                     coverage.check(manifests[:-1])
