@@ -99,8 +99,13 @@ processes at once, for example from a job array, `xargs -P` or MATLAB `parfor`,
 give each one a share of the CPUs so that they do not compete.
 
 BELLHOP shares the rays of each source between threads. KRAKEN shares the mode
-search, the mode shapes and the FIELD receivers. KRAKEN frequencies and range-dependent profiles
-still run one after another, because each one continues from the last.
+search, the mode shapes and the FIELD receivers. On eight or more threads, KRAKEN
+frequencies and range-dependent profiles also solve side by side after the first,
+and their results still arrive in order, so about 128 MiB of finished results can
+wait in memory. Fewer solve together if their results are large. If a frequency
+fails, any later ones already solved are discarded. Real KRAKEN with
+finite elastic layers or an elastic surface half-space solves them one after
+another, because each one continues from the last.
 
 ## Many cases
 
@@ -139,6 +144,20 @@ pelagic kraken run-many --list cases.txt --output results --shard 3/50 --resume
   stderr, each text line starts with the case path, and with
   `--diagnostics json` each line is `{"case": …, "diagnostics": […]}`.
 - KRAKEN's `--max-output-bytes` applies to each case's directory.
+
+### One case or many
+
+KRAKEN receivers do not need a case each. When only the receivers change, put
+every range, depth and offset in one case: it solves the modes once and computes
+all of its receivers from them, which is much faster than solving the same modes
+again for each case. The grid is every combination of source depth, receiver
+depth and range, so a large union costs more FIELD work and counts towards the
+field limit.
+
+A change of frequency, medium, boundary, phase-speed limits, mesh or `max_range`
+changes the modes, so it needs its own case. Choose `max_range` for the farthest
+receiver in the case. If you set `mode_depths` yourself, they must reach every
+receiver depth.
 
 ### Shards
 

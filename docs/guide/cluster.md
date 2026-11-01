@@ -95,7 +95,9 @@ much per CPU (`--mem-per-cpu`) plus some margin. If that is more than the nodes
 have, use fewer workers with more threads each, for example
 `--workers 2 --threads 2` on 4 CPUs. BELLHOP's ray records grow with threads,
 by up to 32 MiB per thread. KRAKEN's mode-shape scratch also grows with threads:
-up to 64 MiB in all, then about 60 bytes per mesh row per thread.
+up to 64 MiB in all, then about 60 bytes per mesh row per thread. On eight or more
+threads, KRAKEN frequencies and profiles that run side by side can also hold about
+128 MiB of finished results.
 
 ## When a task stops early
 

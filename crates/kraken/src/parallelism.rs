@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Workers per call at most, whatever the thread count; no machine gains from
 /// more, and the cap bounds thread creation for absurd counts.
-const MAX_WORKERS: usize = 1024;
+pub(crate) const MAX_WORKERS: usize = 1024;
 
 /// A map whose items total no more work than this stays on the calling thread,
 /// where starting threads would cost more than they save. The unit is one mesh

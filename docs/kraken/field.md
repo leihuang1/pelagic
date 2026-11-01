@@ -71,7 +71,7 @@ acceptance stages beyond the initial target's representative paths.
 Input copies across profiles/frequencies and retained modal-shape samples are
 bounded by 5,000,000 entries. The existing 550,000,000 FIELD work ceiling also
 charges interface tabulation, projection and half-space tails. Numerical errors
-identify the failing profile. CLI frequencies remain sequential; profile
+identify the failing profile. CLI frequencies are written in order; profile
 metadata/modes are charged to the same output quota and flushed/checked per
 profile. Any failure preserves the previous output and removes reserved scratch.
 

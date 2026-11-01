@@ -21,6 +21,15 @@ in the [interface contract](docs/development/interface-contract.md).
   share a loop, which the compiler packs into vector instructions. A 962,000-point
   Munk field is about 14% faster on one thread. Each range still adds its modes in
   the same order, so results are bit-for-bit unchanged.
+- **KRAKEN frequencies and range-dependent profiles run side by side on eight
+  or more threads, where they are independent.** After the first, they share the
+  threads, and results still arrive in order. On 14 threads, the 101-frequency
+  broadband example is about 7.7 times faster than in 0.6.0, and the Gulf example
+  goes from 2.2 to 3.2 times faster. Real KRAKEN with finite elastic layers or an
+  elastic surface half-space stays one at a time, because each solve continues
+  from the last. Results and diagnostics are bit-for-bit unchanged. In exchange,
+  about 128 MiB of finished results can wait their turn: streaming 64 mid-size
+  frequencies on 14 threads now peaks at 175 MiB rather than 19 MiB.
 
 ## 0.6.0 — 2026-10-29
 

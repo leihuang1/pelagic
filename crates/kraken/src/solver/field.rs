@@ -6,11 +6,70 @@ use crate::{
     ProfileSimulationResult, SourceGeometry,
 };
 use num_complex::{Complex32, Complex64};
+use std::num::NonZeroUsize;
 
 // Range factors, mode amplitudes and finished rows are held for blocks of at
 // most this many values (1 MiB of complex doubles), so memory stays near a
 // direct march; larger tables gain little.
 const TABLE_VALUES: usize = 1 << 16;
+
+// Below this many threads, one solve's own parallelism beats solving side by side,
+// where the slowest solve holds up its whole window. Measured, not fundamental.
+const SOLVE_WINDOW_THREADS: usize = 8;
+// Solves per thread in one window: a surplus lets faster cores take more of them.
+const SOLVES_PER_THREAD: usize = 4;
+// Finished results one window may hold, judging each by twice the largest so far.
+// A later result can be larger, so this limits speculation, not memory.
+const SOLVE_AHEAD_BYTES: usize = 128 * 1024 * 1024;
+
+fn mode_set_bytes(set: &ModeSet) -> usize {
+    size_of::<ModeSet>()
+        + set.sampled_depths_m.len() * size_of::<f64>()
+        + set.modes.len()
+            * (size_of::<crate::NormalMode>() + set.sampled_depths_m.len() * size_of::<Complex64>())
+}
+
+fn field_result_bytes(result: &ProfileSimulationResult) -> usize {
+    result.modes.iter().map(mode_set_bytes).sum::<usize>()
+        + result.field.pressure.len() * size_of::<Complex64>()
+}
+
+// Only real KRAKEN's elastic searches read the mode count carried from the last solve.
+fn independent_profiles(case: &FieldCase) -> bool {
+    case.profiles.iter().all(|profile| {
+        profile.mode_solver == crate::ModeSolver::Krakenc
+            || (!crate::solver::elastic::has_layers(profile)
+                && !matches!(
+                    profile.surface_boundary,
+                    crate::SurfaceBoundary::ElasticHalfSpace { .. }
+                ))
+    })
+}
+
+// With nothing solved yet, one solve gets every thread: its size is unknown, and
+// the first result then arrives as soon as it can.
+fn solve_window_len(remaining: usize, independent: bool, largest: Option<usize>) -> usize {
+    let threads = crate::parallelism::threads().min(crate::parallelism::MAX_WORKERS);
+    let admitted = match largest {
+        Some(bytes) if independent && threads >= SOLVE_WINDOW_THREADS => (threads
+            * SOLVES_PER_THREAD)
+            .min((SOLVE_AHEAD_BYTES / bytes.saturating_mul(2).max(1)).max(1)),
+        _ => 1,
+    };
+    remaining.min(admitted)
+}
+
+/// Divide this scope's thread budget between `count` solves, in order. With more
+/// solves than threads, each has one thread and the workers take them as they free up.
+fn solve_window<T: Send>(count: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
+    let threads = crate::parallelism::threads().min(crate::parallelism::MAX_WORKERS);
+    // Whole solves are never tiny, and each one gets its share even alone.
+    crate::parallelism::map(count, usize::MAX, |index| {
+        let share = threads / count + usize::from(index < threads % count);
+        let share = NonZeroUsize::new(share).unwrap_or(NonZeroUsize::MIN);
+        crate::parallelism::with_threads(share, || work(index))
+    })
+}
 
 /// Compute every profile's modes and synthesize one range-dependent field.
 /// # Errors
@@ -22,29 +81,62 @@ pub fn solve_field(case: &FieldCase) -> Result<ProfileSimulationResult, Diagnost
 
 /// Solve ordered frequency blocks, stopping after the first failed block.
 /// Blocks must share one mode solver; a mismatch yields `KR0201` without solving it.
-/// Real finite-elastic KRAKEN retains Solve2's search bound across meshes and
-/// frequencies; separate calls to `solve_field` start separate reference runs.
+/// With enough threads, independent blocks after the first solve together on demand,
+/// sharing the budget, so a failure or cancellation can discard later blocks already
+/// solved.
+/// Real finite-elastic and elastic-top KRAKEN stays sequential, retaining Solve2's
+/// search bound; separate calls to `solve_field` start separate reference runs.
+#[allow(clippy::missing_panics_doc)] // FieldCase construction guarantees a nonempty sequence
 pub fn solve_frequencies(
     cases: &[FieldCase],
 ) -> impl Iterator<Item = Result<ProfileSimulationResult, DiagnosticReport>> + '_ {
-    cases
-        .iter()
-        .scan(Some(crate::MAX_MODE_LIMIT), |limit, case| {
-            let root_limit = limit.as_mut()?;
-            let result = if case.profiles[0].mode_solver == cases[0].profiles[0].mode_solver {
-                solve_field_with_limit(case, root_limit)
-            } else {
-                Err(error(
-                    "KR0201",
-                    "frequency blocks must share the same mode solver",
-                    "mode_solver",
-                ))
-            };
-            if result.is_err() {
-                *limit = None;
-            }
-            Some(result)
-        })
+    let independent = cases.iter().all(independent_profiles);
+    let mut root_limit = crate::MAX_MODE_LIMIT;
+    let mut largest_bytes = None;
+    let mut next = 0;
+    let mut pending = Vec::new().into_iter();
+    let mut stopped = false;
+    std::iter::from_fn(move || {
+        if stopped || next == cases.len() {
+            return None;
+        }
+        if cases[next].profiles[0].mode_solver == cases[0].profiles[0].mode_solver
+            && let Err(report) = crate::cancellation::check()
+        {
+            stopped = true;
+            pending = Vec::new().into_iter();
+            return Some(Err(report));
+        }
+        if pending.len() == 0 {
+            let count = solve_window_len(cases.len() - next, independent, largest_bytes);
+            pending = solve_window(count, |offset| {
+                let case = &cases[next + offset];
+                if case.profiles[0].mode_solver != cases[0].profiles[0].mode_solver {
+                    return Err(error(
+                        "KR0201",
+                        "frequency blocks must share the same mode solver",
+                        "mode_solver",
+                    ));
+                }
+                let mut limit = root_limit;
+                solve_field_with_limit(case, &mut limit)
+            })
+            .into_iter();
+        }
+        next += 1;
+        let result = pending.next()?.and_then(|result| {
+            // Cancellation can also arrive while the window was solving.
+            crate::cancellation::check()?;
+            root_limit = result.modes.last().unwrap().modes.len();
+            largest_bytes = largest_bytes.max(Some(field_result_bytes(&result)));
+            Ok(result)
+        });
+        if result.is_err() {
+            stopped = true;
+            pending = Vec::new().into_iter();
+        }
+        Some(result)
+    })
 }
 
 #[allow(clippy::too_many_lines)] // FieldCase construction guarantees a nonempty sequence
@@ -61,25 +153,36 @@ fn solve_field_with_limit(
             field: result.field,
         });
     }
+    let independent = independent_profiles(case);
     let mut modes = Vec::with_capacity(case.profiles.len());
     let mut shapes = 0;
-    for (index, profile) in case.profiles.iter().enumerate() {
-        let set = crate::solver::solve_modes(profile, *root_limit).map_err(|mut report| {
-            for d in &mut report.diagnostics {
-                d.field = format!("profiles[{index}].{}", d.field);
+    let mut largest_bytes = None;
+    while modes.len() < case.profiles.len() {
+        let start = modes.len();
+        let window = solve_window_len(case.profiles.len() - start, independent, largest_bytes);
+        let sets = solve_window(window, |offset| {
+            crate::solver::solve_modes(&case.profiles[start + offset], *root_limit)
+        });
+        for (offset, set) in sets.into_iter().enumerate() {
+            let set = set.map_err(|mut report| {
+                let index = start + offset;
+                for d in &mut report.diagnostics {
+                    d.field = format!("profiles[{index}].{}", d.field);
+                }
+                report
+            })?;
+            *root_limit = set.modes.len();
+            shapes += set.modes.len() * set.sampled_depths_m.len();
+            if shapes > MAX_SEQUENCE_VALUES {
+                return Err(error(
+                    "KR0302",
+                    "profile mode shapes exceed the cumulative storage limit",
+                    "profiles",
+                ));
             }
-            report
-        })?;
-        *root_limit = set.modes.len();
-        shapes += set.modes.len() * set.sampled_depths_m.len();
-        if shapes > MAX_SEQUENCE_VALUES {
-            return Err(error(
-                "KR0302",
-                "profile mode shapes exceed the cumulative storage limit",
-                "profiles",
-            ));
+            largest_bytes = largest_bytes.max(Some(mode_set_bytes(&set)));
+            modes.push(set);
         }
-        modes.push(set);
     }
     let first = &case.profiles[0];
     let samples =
@@ -792,6 +895,165 @@ fn table_size_never_changes_the_range_dependent_field() {
                 format!("{:?}", Ok::<_, DiagnosticReport>(&expected.field.pressure)),
                 "{stem} {addition:?} {geometry:?} with {table_values}-value tables"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod solve_window_tests {
+    use super::*;
+    use std::sync::{Arc, atomic::AtomicBool};
+
+    const SMALL: Option<usize> = Some(1);
+
+    #[test]
+    fn windows_scale_with_threads_and_few_threads_solve_one_at_a_time() {
+        for (budget, expected) in [(1, 1), (2, 1), (7, 1), (8, 32), (14, 56), (32, 128)] {
+            crate::parallelism::with_threads(NonZeroUsize::new(budget).unwrap(), || {
+                assert_eq!(solve_window_len(0, true, SMALL), 0);
+                assert_eq!(solve_window_len(1000, true, SMALL), expected);
+                assert_eq!(solve_window_len(1000, false, SMALL), 1);
+                assert_eq!(solve_window_len(3, true, SMALL), expected.min(3));
+            });
+        }
+        crate::parallelism::with_threads(NonZeroUsize::MAX, || {
+            assert_eq!(
+                solve_window_len(usize::MAX, true, SMALL),
+                crate::parallelism::MAX_WORKERS * SOLVES_PER_THREAD
+            );
+        });
+    }
+
+    #[test]
+    fn nested_solves_inherit_only_their_share() {
+        for budget in [3, 5, 14, 32] {
+            crate::parallelism::with_threads(NonZeroUsize::new(budget).unwrap(), || {
+                let token = Arc::new(AtomicBool::new(true));
+                let shares = crate::cancellation::with_token(token, || {
+                    solve_window(3, |index| {
+                        let share = crate::parallelism::threads();
+                        assert_eq!(share, budget / 3 + usize::from(index < budget % 3));
+                        assert!(crate::cancellation::cancelled());
+                        let nested = solve_window(share.min(2), |_| {
+                            assert!(crate::cancellation::cancelled());
+                            let profile_share = crate::parallelism::threads();
+                            crate::solver::refinement::shape_map(3, usize::MAX, |_| {
+                                assert!(crate::cancellation::cancelled());
+                                assert_eq!(crate::parallelism::threads(), 1);
+                                let caller = std::thread::current().id();
+                                let lanes = crate::parallelism::map(2, usize::MAX, |_| {
+                                    assert_eq!(std::thread::current().id(), caller);
+                                    assert_eq!(crate::parallelism::threads(), 1);
+                                    crate::cancellation::cancelled()
+                                });
+                                assert_eq!(lanes, [true, true]);
+                                Ok(())
+                            })
+                            .unwrap();
+                            assert_eq!(crate::parallelism::threads(), profile_share);
+                            profile_share
+                        });
+                        assert_eq!(nested.iter().sum::<usize>(), share);
+                        assert_eq!(crate::parallelism::threads(), share);
+                        share
+                    })
+                });
+                assert_eq!(shares.iter().sum::<usize>(), budget);
+                assert_eq!(crate::parallelism::threads(), budget);
+            });
+            assert_eq!(crate::parallelism::threads(), 1);
+            assert!(!crate::cancellation::cancelled());
+        }
+    }
+
+    #[test]
+    fn more_solves_than_threads_each_get_one_thread_and_keep_their_order() {
+        crate::parallelism::with_threads(NonZeroUsize::new(3).unwrap(), || {
+            let solves = solve_window(10, |index| (index, crate::parallelism::threads()));
+            assert_eq!(solves, (0..10).map(|index| (index, 1)).collect::<Vec<_>>());
+            assert_eq!(crate::parallelism::threads(), 3);
+        });
+    }
+
+    #[test]
+    fn a_first_solve_gets_every_thread_because_its_size_is_unknown() {
+        crate::parallelism::with_threads(NonZeroUsize::new(14).unwrap(), || {
+            assert_eq!(solve_window_len(100, true, None), 1);
+            assert_eq!(solve_window(1, |_| crate::parallelism::threads()), [14]);
+        });
+    }
+
+    #[test]
+    fn excessive_thread_requests_are_capped_before_subdivision() {
+        crate::parallelism::with_threads(NonZeroUsize::MAX, || {
+            let shares = solve_window(8, |_| crate::parallelism::threads());
+            assert_eq!(
+                shares.iter().sum::<usize>(),
+                crate::parallelism::MAX_WORKERS
+            );
+            assert_eq!(crate::parallelism::threads(), usize::MAX);
+        });
+    }
+
+    #[test]
+    fn large_results_reduce_how_many_solve_together() {
+        crate::parallelism::with_threads(NonZeroUsize::new(14).unwrap(), || {
+            for (bytes, expected) in [
+                (SOLVE_AHEAD_BYTES / 16, 8),
+                (SOLVE_AHEAD_BYTES / 16 + 1, 7),
+                (SOLVE_AHEAD_BYTES / 4, 2),
+                (SOLVE_AHEAD_BYTES / 2, 1),
+                (usize::MAX, 1),
+            ] {
+                assert_eq!(solve_window_len(100, true, Some(bytes)), expected);
+                assert_eq!(solve_window_len(100, false, Some(bytes)), 1);
+                assert_eq!(solve_window_len(0, true, Some(bytes)), 0);
+            }
+        });
+    }
+
+    #[test]
+    fn result_sizes_count_every_mode_above_the_field_cap() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Pekeris");
+        let mut input =
+            crate::legacy::load_case(root.with_extension("env"), root.with_extension("flp"))
+                .unwrap()
+                .into_definition();
+        input.mode_limit = 1;
+        let case = Case::from_definition(input).unwrap();
+        let set = crate::solver::solve_modes(&case, crate::MAX_MODE_LIMIT).unwrap();
+        assert!(set.modes.len() > case.mode_limit);
+        let shapes = set
+            .modes
+            .iter()
+            .map(|mode| mode.eigenfunction.len())
+            .sum::<usize>();
+        assert!(mode_set_bytes(&set) >= shapes * size_of::<Complex64>());
+    }
+
+    #[test]
+    fn only_real_elastic_layers_or_top_require_sequential_windows() {
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        for (stem, real_independent) in [
+            ("Pekeris", true),
+            ("ElasticHalfBottomN", true),
+            ("FiniteElasticPower", false),
+            ("ElasticHalfTopBroadband", false),
+        ] {
+            for solver in [crate::ModeSolver::Kraken, crate::ModeSolver::Krakenc] {
+                let root = fixtures.join(stem);
+                let cases = crate::legacy::load_field_cases(
+                    root.with_extension("env"),
+                    root.with_extension("flp"),
+                    solver,
+                )
+                .unwrap();
+                assert_eq!(
+                    cases.iter().all(independent_profiles),
+                    real_independent || solver == crate::ModeSolver::Krakenc,
+                    "{stem} {solver:?}"
+                );
+            }
         }
     }
 }

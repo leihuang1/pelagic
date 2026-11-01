@@ -121,8 +121,16 @@ thread:
   and amplitude tables hold about a million modal terms at most, in blocks of
   ranges and sources.
   Range-dependent FIELD reuses each profile's receiver-depth brackets.
-  Frequency blocks and profiles run in order, because each carries the previous
-  mode count forward.
+- **KRAKEN frequency blocks and profiles** carry the previous mode count forward,
+  but only real elastic searches read it: finite elastic layers and an elastic
+  surface half-space. Those sequences run in order, and so does any sequence
+  below eight threads, where one solve's own parallelism beats solving side by
+  side. Otherwise the first item solves alone, with every thread, and then up to
+  four items per thread together. Results are consumed in order, so diagnostics,
+  cumulative limits and cancellation are decided as with one thread; a window can
+  only do work that a failure then discards. Twice the largest result so far
+  decides how many fit in 128 MiB. That limits speculation, not memory: a later
+  result can be larger, and solver scratch is separate.
 
 `tests/parallelism.rs` in both crates compares every fixture and example, and
 BELLHOP resource-limit failures, across thread counts. Independent cases may
