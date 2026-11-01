@@ -7,6 +7,9 @@ inputs:
   shard:
     required: true
     description: Zero-based shard index
+  count:
+    required: true
+    description: Planned number of complete-collection shards
 runs:
   using: composite
   steps:
@@ -33,7 +36,7 @@ runs:
       run: |
         export PELAGIC_CLI="$PWD/cli/pelagic"
         if [ "$RUNNER_OS" = Windows ]; then export PELAGIC_CLI="$PELAGIC_CLI.exe"; else chmod +x "$PELAGIC_CLI"; fi
-        python tools/ci/pytest-shard.py --index ${{ inputs.shard }} --count 2 --manifest shard.json python/tests -q -rs --durations=15
+        python tools/ci/pytest-shard.py --index ${{ inputs.shard }} --count ${{ inputs.count }} --manifest shard.json python/tests -q -rs --durations=15
     - uses: actions/upload-artifact@v4
       with:
         name: shards-${{ inputs.platform }}-${{ inputs.shard }}

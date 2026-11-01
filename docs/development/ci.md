@@ -55,16 +55,18 @@ attempt cannot satisfy the current producer. Waiting is bounded to 30 minutes;
 producer failures fail immediately. This trades some idle runner time (and
 wasted installation if a build fails) for a shorter critical path.
 
-Python tests are collected in full on two runners per platform, then assigned
-by a deterministic node-ID hash. No test filters or assertions were removed.
-The final gate checks that each platform's two manifests contain the same full
-collection and that their selections form an exact, disjoint union. Optional
-arlpy dependencies are installed on both Linux x64 shards so those tests run
+Python tests are collected in full. The longer Windows and Intel macOS suites
+use two runners with deterministic node-ID hashing; Linux and Apple Silicon
+use one runner to avoid duplicate setup on noncritical paths. No test filters
+or assertions were removed. The final gate requires the exact planned shard
+count and indices for each platform, identical full collections across shards,
+and selections forming an exact, disjoint union. Optional
+arlpy dependencies are installed on the Linux x64 runner so those tests run
 once with the rest of the suite rather than repeating a second invocation.
 
 Platform coverage is unchanged: PRs build Linux x64/ARM64, macOS ARM64, and
 Windows x64; main/manual/release runs also build Intel macOS. There are no
-macOS formatting/lint/audit jobs. The test phase uses at most four macOS jobs
+macOS formatting/lint/audit jobs. The test phase uses at most three macOS jobs
 per workflow; account-wide runner limits still apply across workflows and PRs.
 
 ## Cache budget and tools

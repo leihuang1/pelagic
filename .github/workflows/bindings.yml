@@ -13,6 +13,7 @@ jobs:
       full: ${{ steps.changes.outputs.full }}
       others: ${{ steps.plan.outputs.others }}
       tests: ${{ steps.plan.outputs.tests }}
+      shards: ${{ steps.plan.outputs.shards }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,10 +36,12 @@ jobs:
           ]
           if os.environ["EVENT"] == "pull_request":
               wheels = [wheel for wheel in wheels if wheel["platform"] != "macos-x64"]
+          shards = {w["platform"]: (2 if w["platform"] in ("windows-x64", "macos-x64") else 1) for w in wheels}
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print("shards=" + json.dumps(shards), file=output)
               print("wheels=" + json.dumps({"include": wheels}), file=output)
               print("others=" + json.dumps({"include": [w for w in wheels if w["platform"] not in ("linux-x64", "windows-x64")]}), file=output)
-              print("tests=" + json.dumps({"include": [dict(w, shard=shard) for w in wheels if w["platform"] not in ("linux-x64", "windows-x64") for shard in (0, 1)]}), file=output)
+              print("tests=" + json.dumps({"include": [dict(w, shard=shard, count=shards[w["platform"]]) for w in wheels if w["platform"] not in ("linux-x64", "windows-x64") for shard in range(shards[w["platform"]])]}), file=output)
               print("platforms=" + " ".join(wheel["platform"] for wheel in wheels), file=output)
   linux-wheel:
     needs: plan
@@ -105,6 +108,7 @@ jobs:
         with:
           platform: ${{ matrix.platform }}
           shard: ${{ matrix.shard }}
+          count: ${{ matrix.count }}
   python-compatibility:
     needs:
       - plan
@@ -316,7 +320,7 @@ jobs:
           path: shard-manifests
       - name: Prove disjoint and complete test shard coverage
         if: needs.plan.outputs.full == 'true'
-        run: python3 tools/ci/check-shards.py shard-manifests --platforms ${{ needs.plan.outputs.platforms }}
+        run: python3 tools/ci/check-shards.py shard-manifests --planned '${{ needs.plan.outputs.shards }}'
   publish-pypi:
     if: github.event_name == 'release'
     needs:
@@ -446,7 +450,6 @@ jobs:
       matrix:
         shard:
           - 0
-          - 1
     runs-on: ubuntu-22.04
     steps:
       - run: git config --global core.autocrlf false
@@ -456,6 +459,7 @@ jobs:
         with:
           platform: linux-x64
           shard: ${{ matrix.shard }}
+          count: 1
   windows-tests:
     needs:
       - plan
@@ -476,6 +480,7 @@ jobs:
         with:
           platform: windows-x64
           shard: ${{ matrix.shard }}
+          count: 2
 'on':
   push:
     branches:
