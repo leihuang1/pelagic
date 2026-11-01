@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Small standard-library tests for fail-closed CI planning and complete shards."""
 import importlib.util
+import copy
 import json
 import os
 from pathlib import Path
@@ -21,9 +22,46 @@ changes = module("changes")
 shards = module("pytest-shard")
 coverage = module("check-shards")
 results = module("check-results")
+artifacts = module("wait-artifacts")
 
 
 class PlanningTests(unittest.TestCase):
+    def test_artifacts_are_pinned_to_latest_successful_producer(self):
+        sha = "a" * 40
+        job = {"name": "windows-wheel", "run_id": 123, "head_sha": sha,
+               "status": "completed", "conclusion": "success", "run_attempt": 1,
+               "started_at": "2026-01-01T10:00:00Z", "completed_at": "2026-01-01T10:02:00Z"}
+        artifact = {"name": "cli-windows-x64", "id": 456, "expired": False,
+                    "workflow_run": {"id": 123, "head_sha": sha},
+                    "created_at": "2026-01-01T10:01:00Z", "digest": "sha256:" + "b" * 64}
+        def select(a=artifact, j=job):
+            return artifacts.select([a], [j], ["windows-x64"], 123, sha, 1)
+        self.assertEqual(select()[0][0]["id"], 456)
+        # Previous attempts are never accepted, including transient API responses.
+        with self.assertRaises(ValueError):
+            artifacts.select([artifact], [job], ["windows-x64"], 123, sha, 2)
+        newer = {**job, "run_attempt": 2, "started_at": "2026-01-01T11:00:00Z",
+                 "completed_at": "2026-01-01T11:02:00Z"}
+        with self.assertRaises(ValueError):
+            select(j=newer)
+        self.assertIsNone(artifacts.select([artifact], [newer], ["windows-x64"], 123, sha, 2))
+        self.assertIsNone(select(j={**job, "status": "in_progress", "conclusion": None}))
+        for replacement in ({"expired": True}, {"digest": None}, {"name": "cli-linux-x64"},
+                            {"workflow_run": {"id": 999, "head_sha": sha}},
+                            {"workflow_run": {"id": 123, "head_sha": "c" * 40}}):
+            self.assertIsNone(select(a={**artifact, **replacement}))
+        # A missing earlier platform must not hide a known later failure.
+        with self.assertRaises(ValueError):
+            artifacts.select([], [{**job, "conclusion": "failure"}],
+                             ["linux-x64", "windows-x64"], 123, sha, 1)
+        for state in ("failure", "cancelled", "timed_out", "skipped"):
+            with self.assertRaises(ValueError):
+                select(j={**job, "conclusion": state})
+        with self.assertRaises(ValueError):
+            artifacts.select([artifact, copy.deepcopy(artifact)], [job], ["windows-x64"], 123, sha, 1)
+        self.assertTrue(artifacts.producer_name({"name": "wheels (macos-15, aarch64-apple-darwin, macos-arm64)"}, "macos-arm64"))
+        self.assertFalse(artifacts.producer_name({"name": "wheel-tests (macos-15, aarch64-apple-darwin, macos-arm64)"}, "macos-arm64"))
+
     def test_aggregate_accepts_only_explicit_documentation_skips(self):
         needs = {"plan": {"result": "success", "outputs": {"full": "false"}},
                  "windows-check": {"result": "success"}, "wheel-tests": {"result": "skipped"}}

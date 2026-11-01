@@ -44,10 +44,16 @@ explicit Rust target to avoid separate target trees. Windows static-CRT output
 has a separate target directory and is never substituted for the exact
 Python-versus-CLI numerical comparisons.
 
-Linux-only consumers no longer wait for unrelated macOS/Windows wheel jobs.
-Windows MATLAB depends only on its matching Windows producer. Linux MATLAB
-still verifies all platform artifacts before the all-platform toolbox is
-packaged; removing that dependency would drop a packaging guarantee.
+Linux-x64 consumers no longer wait for unrelated macOS/Windows wheel jobs.
+MATLAB installation overlaps producer builds. A bounded, read-only same-run
+artifact wait requires successful producers from the exact current attempt:
+Windows checks its matching producer; Linux checks every selected platform
+before all-platform toolbox packaging. Downloads are pinned by artifact ID,
+fail on archive digest mismatch, and retain the existing CLI checksum checks.
+Use **Re-run all jobs** for these jobs, not a partial failed-job rerun: an older
+attempt cannot satisfy the current producer. Waiting is bounded to 30 minutes;
+producer failures fail immediately. This trades some idle runner time (and
+wasted installation if a build fails) for a shorter critical path.
 
 Python tests are collected in full on two runners per platform, then assigned
 by a deterministic node-ID hash. No test filters or assertions were removed.
