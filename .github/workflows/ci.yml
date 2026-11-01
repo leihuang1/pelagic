@@ -50,5 +50,6 @@ jobs:
   push:
     branches:
       - main
+      - ci-benchmark/optimized-20261101
   pull_request: null
   workflow_dispatch: null
