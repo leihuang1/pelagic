@@ -30,6 +30,12 @@ in the [interface contract](docs/development/interface-contract.md).
   from the last. Results and diagnostics are bit-for-bit unchanged. In exchange,
   about 128 MiB of finished results can wait their turn: streaming 64 mid-size
   frequencies on 14 threads now peaks at 175 MiB rather than 19 MiB.
+- **Faster KRAKEN mode search.** The interior of each Sturm count now uses packed
+  divides, with no CPU-specific build or unsafe code. On one thread of the same
+  machine, the surface-duct, broadband and Gulf examples are 1.3 to 1.5 times
+  faster. x86-64 builds get the same packed divides, but have not been timed. Each
+  lane performs the same IEEE operations in the same order, so results are
+  bit-for-bit unchanged.
 
 ## 0.6.0 — 2026-10-29
 

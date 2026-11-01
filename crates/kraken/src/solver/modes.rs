@@ -548,7 +548,9 @@ impl<'a> Mesh<'a> {
     // `count` at K points in one mesh pass. Each lane repeats the scalar
     // recurrence exactly; interleaving K independent division chains keeps
     // the divider busy where one chain would wait on each quotient.
-    #[allow(clippy::needless_range_loop)] // Lane k mirrors the scalar recurrence.
+    // One lane keeps the plain loop, the oracle for the lane tests. More lanes peel the
+    // boundary rows so that the interior rows can be packed.
+    #[allow(clippy::needless_range_loop, clippy::too_many_lines)]
     fn count_lanes<const K: usize>(&self, x: [f64; K]) -> [usize; K] {
         if crate::solver::elastic::has_half_space(self.case) {
             return self.elastic_count_lanes(x);
@@ -568,6 +570,46 @@ impl<'a> Mesh<'a> {
                     );
                 let e = 1.0 / (layer.h * layer.density);
                 let (h2, hd) = (layer.h * layer.h, layer.h * layer.density);
+                if K > 1 && !crate::solver::elastic::has_layers(self.case) {
+                    for k in 0..K {
+                        let diagonal = self.layer_diagonal(x[k], medium, start);
+                        pivot[k] = if first {
+                            diagonal
+                        } else {
+                            diagonal - e * e / pivot[k]
+                        };
+                        if pivot[k].abs() < 1e-30 {
+                            pivot[k] = -1e-30;
+                        }
+                        if pivot[k] > 0.0 {
+                            count[k] += 1;
+                        }
+                    }
+                    first = false;
+                    (pivot, count) = count_layered_fluid_interior(
+                        &self.b1[layer.coefficient_start + start + 1
+                            ..layer.coefficient_start + layer.intervals],
+                        x,
+                        h2,
+                        hd,
+                        e,
+                        pivot,
+                        count,
+                    );
+                    if end > layer.intervals {
+                        for k in 0..K {
+                            let diagonal = self.layer_diagonal(x[k], medium, layer.intervals);
+                            pivot[k] = diagonal - e * e / pivot[k];
+                            if pivot[k].abs() < 1e-30 {
+                                pivot[k] = -1e-30;
+                            }
+                            if pivot[k] > 0.0 {
+                                count[k] += 1;
+                            }
+                        }
+                    }
+                    continue;
+                }
                 for i in start..end {
                     // Interior rows inline `layer_diagonal`'s plain branch.
                     let interior = (medium > 0 || i > 0) && i < layer.intervals;
@@ -598,6 +640,41 @@ impl<'a> Mesh<'a> {
         let shift = x.map(|x| h2 * x);
         let first = usize::from(self.case.surface_boundary == SurfaceBoundary::Vacuum);
         let end = self.b1.len() - usize::from(self.case.bottom_boundary == BottomBoundary::Vacuum);
+        if K > 1 && !crate::solver::elastic::has_layers(self.case) {
+            // Mesh validation guarantees at least ten intervals, even with vacuum ends.
+            for k in 0..K {
+                pivot[k] = if first == 0 {
+                    self.surface_diagonal(x[k])
+                } else {
+                    self.b1[first] - shift[k]
+                };
+                if pivot[k].abs() < 1e-30 {
+                    pivot[k] = -1e-30;
+                }
+                if pivot[k] > 0.0 {
+                    count[k] += 1;
+                }
+            }
+            (pivot, count) = count_single_fluid_interior(
+                &self.b1[first + 1..self.b1.len() - 1],
+                shift,
+                pivot,
+                count,
+            );
+            if end == self.b1.len() {
+                for k in 0..K {
+                    let d = self.bottom_diagonal(x[k]);
+                    pivot[k] = d - 1.0 / pivot[k];
+                    if pivot[k].abs() < 1e-30 {
+                        pivot[k] = -1e-30;
+                    }
+                    if pivot[k] > 0.0 {
+                        count[k] += 1;
+                    }
+                }
+            }
+            return count;
+        }
         for i in first..end {
             for k in 0..K {
                 let d = if i == 0 {
@@ -1258,6 +1335,86 @@ impl<'a> Mesh<'a> {
     }
 }
 
+// Interior rows of K Sturm counts, away from boundary control flow. One operation
+// per loop and a clamp without a branch let the compiler pack the lanes into vector
+// divides; each lane still performs the scalar recurrence's operations, in order.
+#[inline(never)]
+#[allow(clippy::needless_range_loop)]
+fn count_single_fluid_interior<const K: usize>(
+    b1: &[f64],
+    shift: [f64; K],
+    mut pivot: [f64; K],
+    mut count: [usize; K],
+) -> ([f64; K], [usize; K]) {
+    for &coefficient in b1 {
+        let mut next = [0.0; K];
+        for k in 0..K {
+            next[k] = coefficient - shift[k];
+        }
+        let mut quotient = [0.0; K];
+        for k in 0..K {
+            quotient[k] = 1.0 / pivot[k];
+        }
+        for k in 0..K {
+            next[k] -= quotient[k];
+        }
+        for k in 0..K {
+            pivot[k] = if next[k].abs() < 1e-30 {
+                -1e-30
+            } else {
+                next[k]
+            };
+        }
+        for k in 0..K {
+            count[k] += usize::from(pivot[k] > 0.0);
+        }
+    }
+    (pivot, count)
+}
+
+// The same for a layer of a stack, whose diagonal has its own divide.
+#[inline(never)]
+#[allow(clippy::needless_range_loop)]
+fn count_layered_fluid_interior<const K: usize>(
+    b1: &[f64],
+    x: [f64; K],
+    h2: f64,
+    hd: f64,
+    e: f64,
+    mut pivot: [f64; K],
+    mut count: [usize; K],
+) -> ([f64; K], [usize; K]) {
+    let shift = x.map(|x| h2 * x);
+    let e2 = e * e;
+    for &coefficient in b1 {
+        let mut next = [0.0; K];
+        for k in 0..K {
+            next[k] = coefficient - shift[k];
+        }
+        for k in 0..K {
+            next[k] /= hd;
+        }
+        let mut quotient = [0.0; K];
+        for k in 0..K {
+            quotient[k] = e2 / pivot[k];
+        }
+        for k in 0..K {
+            next[k] -= quotient[k];
+        }
+        for k in 0..K {
+            pivot[k] = if next[k].abs() < 1e-30 {
+                -1e-30
+            } else {
+                next[k]
+            };
+        }
+        for k in 0..K {
+            count[k] += usize::from(pivot[k] > 0.0);
+        }
+    }
+    (pivot, count)
+}
+
 // RootFinderBrent.f90::ZBRENTX, including sequential assignments and its
 // extended decimal exponent arithmetic. None is the pinned same-sign warning.
 #[allow(clippy::float_cmp, clippy::many_single_char_names)]
@@ -1561,6 +1718,15 @@ mod tests {
         case: &'a Case,
         profiles: &[Profile<'_>],
     ) -> Result<Mesh<'a>, DiagnosticReport> {
+        fixture_mesh(case, profiles, 1)
+    }
+
+    // One refinement's mesh, built as `solve` builds it.
+    fn fixture_mesh<'a>(
+        case: &'a Case,
+        profiles: &[Profile<'_>],
+        multiplier: usize,
+    ) -> Result<Mesh<'a>, DiagnosticReport> {
         let omega = 2.0 * PI * case.frequency_hz;
         let (bottom_k2, bottom_complex_k2) = if case.bottom_boundary.is_half_space() {
             let c = elastic::complex_speed(
@@ -1574,10 +1740,10 @@ mod tests {
         } else {
             (0.0, 0.0.into())
         };
-        let layers = layers::mesh_layers(case, 1)?;
+        let layers = layers::mesh_layers(case, multiplier)?;
         let mut mesh = Mesh::new(case, profiles, layers, omega, bottom_k2, bottom_complex_k2)?;
-        mesh.top_solids = elastic::SolidMesh::build(case, 1, true, true)?;
-        mesh.bottom_solids = elastic::SolidMesh::build(case, 1, false, true)?;
+        mesh.top_solids = elastic::SolidMesh::build(case, multiplier, true, true)?;
+        mesh.bottom_solids = elastic::SolidMesh::build(case, multiplier, false, true)?;
         Ok(mesh)
     }
 
@@ -1909,6 +2075,85 @@ mod tests {
             meshes += 1;
         }
         assert!(meshes > 100, "only {meshes} fixture meshes built");
+    }
+
+    #[test]
+    fn count_lanes_matches_scalar_across_refinements_and_boundaries() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        for name in [
+            "Pekeris",
+            "FluidBoundaryAA",
+            "FluidBoundaryAR",
+            "FluidBoundaryAV",
+            "FluidBoundaryRA",
+            "FluidBoundaryRR",
+            "FluidBoundaryRV",
+            "FluidBoundaryVA",
+            "FluidBoundaryVR",
+            "FluidBoundaryVV",
+            "LayeredBoundaryAA",
+            "LayeredBoundaryAR",
+            "LayeredBoundaryAV",
+            "LayeredBoundaryRA",
+            "LayeredBoundaryRR",
+            "LayeredBoundaryRV",
+            "LayeredBoundaryVR",
+            "LayeredBoundaryVV",
+            "LayeredFluidThree",
+        ] {
+            let root = fixtures.join(name);
+            let case = load_case(root.with_extension("env"), root.with_extension("flp"))
+                .unwrap_or_else(|report| panic!("{name}: {report:?}"));
+            let profiles = layers::iter(&case)
+                .map(|layer| Profile::new_layer(&case, layer).unwrap())
+                .collect::<Vec<_>>();
+            for multiplier in crate::solver::refinement::MULTIPLIERS {
+                let mesh = fixture_mesh(&case, &profiles, multiplier)
+                    .unwrap_or_else(|report| panic!("{name} mesh {multiplier}: {report:?}"));
+                let top = (mesh.omega / mesh.min_speed).powi(2);
+                let mut x: Vec<_> = (0..=24).map(|i| top * f64::from(i) / 20.0).collect();
+                x.extend([mesh.bottom_k2, mesh.surface_k2]);
+                for layer in &mesh.layers {
+                    for i in [0, 1, layer.intervals / 2, layer.intervals] {
+                        x.push(mesh.b1[layer.coefficient_start + i] / (layer.h * layer.h));
+                    }
+                }
+                for i in 0..x.len() {
+                    x.extend([x[i].next_down(), x[i].next_up()]);
+                }
+                // K=1 retains the baseline recurrence, including boundary and clamp order.
+                let scalar: Vec<_> = x.iter().map(|&x| mesh.count(x)).collect();
+                let label = format!("{name} mesh {multiplier}");
+                assert_lanes::<2>(&mesh, &x, &scalar, &label);
+                assert_lanes::<4>(&mesh, &x, &scalar, &label);
+                assert_lanes::<8>(&mesh, &x, &scalar, &label);
+            }
+        }
+    }
+
+    #[test]
+    fn count_lanes_clamps_before_counting_positive_pivots() {
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        for name in ["FluidBoundaryVV", "LayeredBoundaryVV"] {
+            let root = fixtures.join(name);
+            let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
+            let profiles = layers::iter(&case)
+                .map(|layer| Profile::new_layer(&case, layer).unwrap())
+                .collect::<Vec<_>>();
+            let mut mesh = fixture_mesh(&case, &profiles, 1).unwrap();
+            mesh.b1.fill(-2.0);
+            // Force a small positive first pivot; counting its sign before clamping adds one.
+            let layer = &mesh.layers[0];
+            mesh.b1[1] = if mesh.layers.len() == 1 {
+                5e-31
+            } else {
+                5e-31 * (layer.h * layer.density)
+            };
+            assert_eq!(mesh.count(0.0), 1, "{name}");
+            assert_eq!(mesh.count_lanes([0.0; 2]), [1; 2], "{name}");
+            assert_eq!(mesh.count_lanes([0.0; 4]), [1; 4], "{name}");
+            assert_eq!(mesh.count_lanes([0.0; 8]), [1; 8], "{name}");
+        }
     }
 
     #[test]

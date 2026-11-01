@@ -109,7 +109,9 @@ thread:
   freshly grown buffer per ray.
 - **KRAKEN** bisects every mode over the whole interval on its own, so modes
   run in parallel. Up to eight modes share each pass over the mesh, which
-  evaluates all of their Sturm counts with each count's own operations.
+  evaluates all of their Sturm counts with each count's own operations. The
+  interior rows are written so that the compiler packs those operations into
+  vector divides; packed IEEE operations round each lane as scalar ones do.
   First-mesh mode shapes run in parallel too, also in root order. Real fluid
   modes share each pass in fours, each with its own pivots, stopping point and
   failure, as long as those batches' scratch stays within 64 MiB across all
