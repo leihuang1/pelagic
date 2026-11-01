@@ -1,0 +1,14 @@
+[
+  {"key":"pekeris","model":"kraken","path":"examples/cases/kraken/pekeris/pekeris.json"},
+  {"key":"munk-lossless","model":"kraken","path":"crates/kraken/tests/fixtures/MunkLossless.env"},
+  {"key":"sduct-trapped","model":"kraken","path":"crates/kraken/tests/fixtures/SductTrapped.env"},
+  {"key":"surface-duct","model":"kraken","path":"examples/cases/kraken/surface-duct/surface-duct.json"},
+  {"key":"kr-munk-big","model":"kraken","path":"tools/perf/bench/kr-munk-big.json"},
+  {"key":"gulf-adiabatic","model":"kraken","path":"examples/cases/kraken/gulf/gulf.json"},
+  {"key":"gulf-coupled","model":"kraken","path":"examples/cases/kraken/gulf/gulf-coupled.json"},
+  {"key":"broadband","model":"kraken","path":"examples/cases/kraken/broadband/broadband.json"},
+  {"key":"layered-seabed","model":"kraken","path":"examples/cases/kraken/layered-seabed/layered-seabed.json"},
+  {"key":"elastic-sediment","model":"kraken","path":"examples/cases/kraken/elastic-sediment/elastic-sediment.json"},
+  {"key":"krakenc-pekeris-rigid-loss","model":"kraken","path":"crates/kraken/tests/fixtures/PekerisRigidLoss.env","engine":"krakenc"},
+  {"key":"bellhop-munk-tl","model":"bellhop","path":"examples/cases/bellhop/munk-tl/munk-tl.json"}
+]

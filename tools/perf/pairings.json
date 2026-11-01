@@ -1,0 +1,362 @@
+{
+  "schema_version": 1,
+  "coverage": "Each listed pair is expanded to both kraken/modal APIs and kraken/krakenc engines. Evidence establishes the pairing, not success of every expanded API/engine. The same-stem inventory keys stay independent rows.",
+  "pairs": [
+    {
+      "path": "crates/kraken/tests/fixtures/PekerisComplex.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/differential_reference.rs",
+          "location": "complex_fluid_modes_match_pinned_fortran:80-101; compare_complex:434-436"
+        }
+      ],
+      "note": "Test uses this exact ENV with shared Pekeris FIELD geometry for KRAKENC modes. Full FIELD comparison here is supplementary, not a new Fortran golden; same-stem inventory entry is retained even when missing or different."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/PekerisComplexBlank.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/differential_reference.rs",
+          "location": "complex_fluid_modes_match_pinned_fortran:80-101; compare_complex:434-436"
+        }
+      ],
+      "note": "Test uses this exact ENV with shared Pekeris FIELD geometry for KRAKENC modes. Full FIELD comparison here is supplementary, not a new Fortran golden; same-stem inventory entry is retained even when missing or different."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/PekerisComplexSlow.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/differential_reference.rs",
+          "location": "complex_fluid_modes_match_pinned_fortran:80-101; compare_complex:434-436"
+        }
+      ],
+      "note": "Test uses this exact ENV with shared Pekeris FIELD geometry for KRAKENC modes. Full FIELD comparison here is supplementary, not a new Fortran golden; same-stem inventory entry is retained even when missing or different."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/PekerisComplexCLow.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/differential_reference.rs",
+          "location": "complex_fluid_modes_match_pinned_fortran:80-101; compare_complex:434-436"
+        }
+      ],
+      "note": "Test uses this exact ENV with shared Pekeris FIELD geometry for KRAKENC modes. Full FIELD comparison here is supplementary, not a new Fortran golden; same-stem inventory entry is retained even when missing or different."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/PekerisComplexRefined.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/differential_reference.rs",
+          "location": "complex_fluid_modes_match_pinned_fortran:80-101; compare_complex:434-436"
+        }
+      ],
+      "note": "Test uses this exact ENV with shared Pekeris FIELD geometry for KRAKENC modes. Full FIELD comparison here is supplementary, not a new Fortran golden; same-stem inventory entry is retained even when missing or different."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/PekerisComplexGradient.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/differential_reference.rs",
+          "location": "complex_fluid_modes_match_pinned_fortran:80-101; compare_complex:434-436"
+        }
+      ],
+      "note": "Test uses this exact ENV with shared Pekeris FIELD geometry for KRAKENC modes. Full FIELD comparison here is supplementary, not a new Fortran golden; same-stem inventory entry is retained even when missing or different."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/PekerisComplexReverseGradient.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/differential_reference.rs",
+          "location": "complex_fluid_modes_match_pinned_fortran:80-101; compare_complex:434-436"
+        }
+      ],
+      "note": "Test uses this exact ENV with shared Pekeris FIELD geometry for KRAKENC modes. Full FIELD comparison here is supplementary, not a new Fortran golden; same-stem inventory entry is retained even when missing or different."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/MunkLeakyPartial.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/differential_reference.rs",
+          "location": "complex_fluid_modes_match_pinned_fortran:80-101; compare_complex:434-436"
+        }
+      ],
+      "note": "Test uses this exact ENV with shared Pekeris FIELD geometry for KRAKENC modes. Full FIELD comparison here is supplementary, not a new Fortran golden; same-stem inventory entry is retained even when missing or different."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/MunkLeakyPartialLoss.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/differential_reference.rs",
+          "location": "complex_fluid_modes_match_pinned_fortran:80-101; compare_complex:434-436"
+        }
+      ],
+      "note": "Test uses this exact ENV with shared Pekeris FIELD geometry for KRAKENC modes. Full FIELD comparison here is supplementary, not a new Fortran golden; same-stem inventory entry is retained even when missing or different."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/MunkLeakyPartialC.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/differential_reference.rs",
+          "location": "complex_fluid_modes_match_pinned_fortran:80-101; compare_complex:434-436"
+        }
+      ],
+      "note": "Test uses this exact ENV with shared Pekeris FIELD geometry for KRAKENC modes. Full FIELD comparison here is supplementary, not a new Fortran golden; same-stem inventory entry is retained even when missing or different."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/FluidBoundaryAV.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/fluid_media.rs",
+          "location": "cases:5-13; caller:17"
+        }
+      ],
+      "note": "Unmodified source fixtures paired by the cases helper with Pekeris.flp under KRAKENC; temporary water.env/water.flp diagnostic aliases are not substituted for original paths."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/FluidBoundaryAA.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/fluid_media.rs",
+          "location": "cases:5-13; caller:27"
+        }
+      ],
+      "note": "Unmodified source fixtures paired by the cases helper with Pekeris.flp under KRAKENC; temporary water.env/water.flp diagnostic aliases are not substituted for original paths."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/WaterLossBio.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/fluid_media.rs",
+          "location": "cases:5-13; caller:89"
+        }
+      ],
+      "note": "Unmodified source fixtures paired by the cases helper with Pekeris.flp under KRAKENC; temporary water.env/water.flp diagnostic aliases are not substituted for original paths."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/WaterLossPower.env",
+      "flp": "crates/kraken/tests/fixtures/Pekeris.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/fluid_media.rs",
+          "location": "cases:5-13; caller:114"
+        }
+      ],
+      "note": "Unmodified source fixtures paired by the cases helper with Pekeris.flp under KRAKENC; temporary water.env/water.flp diagnostic aliases are not substituted for original paths."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/ProfilesAd.env",
+      "flp": "crates/kraken/tests/fixtures/ProfilesAdIncoherent.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/differential_reference.rs",
+          "location": "profile_fields_match_pinned_goldens:455-468"
+        },
+        {
+          "path": "tools/reference/full-acceptance.sh",
+          "location": "175-185"
+        },
+        {
+          "path": "tools/reference/kraken-business.py",
+          "location": "165"
+        }
+      ],
+      "note": "Derived fixture geometry already supplied by the project; not an upstream original or a renamed ProfilesAd same-stem run."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/original/Gulf/gulf_rd.env",
+      "flp": "crates/kraken/tests/fixtures/original/Gulf/gulf_ad.flp",
+      "evidence": [
+        {
+          "path": "tools/reference/full-acceptance.sh",
+          "location": "167-185"
+        },
+        {
+          "path": "tools/reference/kraken-business.py",
+          "location": "official_cases:50-51"
+        }
+      ],
+      "note": "Unmodified original Gulf pair. Reference script copies to GulfAd/GulfCm aliases; this inventory preserves the original ENV and FLP paths."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/original/Gulf/gulf_rd.env",
+      "flp": "crates/kraken/tests/fixtures/original/Gulf/gulf_cm.flp",
+      "evidence": [
+        {
+          "path": "tools/reference/full-acceptance.sh",
+          "location": "167-185"
+        },
+        {
+          "path": "tools/reference/kraken-business.py",
+          "location": "official_cases:50-51"
+        }
+      ],
+      "note": "Unmodified original Gulf pair. Reference script copies to GulfAd/GulfCm aliases; this inventory preserves the original ENV and FLP paths."
+    },
+    {
+      "path": "examples/cases/kraken/gulf/gulf.env",
+      "flp": "examples/cases/kraken/gulf/gulf.flp",
+      "evidence": [
+        {
+          "path": "examples/python/range_dependent.py",
+          "location": "23"
+        }
+      ],
+      "note": "Source-backed legacy example invocation; original inventory covers example JSON only, so this is a distinct supplementary legacy input identity."
+    },
+    {
+      "path": "examples/cases/kraken/gulf/gulf.env",
+      "flp": "examples/cases/kraken/gulf/gulf-coupled.flp",
+      "evidence": [
+        {
+          "path": "examples/cli/run-all.sh",
+          "location": "23-24"
+        },
+        {
+          "path": "examples/python/range_dependent.py",
+          "location": "24"
+        }
+      ],
+      "note": "Source-backed legacy example invocation; original inventory covers example JSON only, so this is a distinct supplementary legacy input identity."
+    },
+    {
+      "path": "examples/cases/kraken/leaky-modes/leaky-modes.env",
+      "flp": "examples/cases/kraken/leaky-modes/leaky-modes.flp",
+      "evidence": [
+        {
+          "path": "examples/cli/run-all.sh",
+          "location": "25-26"
+        }
+      ],
+      "note": "Source-backed legacy example invocation; original inventory covers example JSON only, so this is a distinct supplementary legacy input identity."
+    },
+    {
+      "path": "examples/cases/kraken/munk-modes/munk-modes.env",
+      "flp": "examples/cases/kraken/munk-modes/munk-modes.flp",
+      "evidence": [
+        {
+          "path": "examples/python/modes.py",
+          "location": "18"
+        }
+      ],
+      "note": "Source-backed legacy example invocation; original inventory covers example JSON only, so this is a distinct supplementary legacy input identity."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/LayeredFluidThreeWide.env",
+      "flp": "crates/kraken/tests/fixtures/LayeredFluidN.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/layered.rs",
+          "location": "cases:4-12; wide_three_layer_refinement_keeps_the_pinned_mode_count:83-86"
+        }
+      ],
+      "note": "Unmodified input sources paired by the test helper; retain both original paths even where shared FIELD bytes equal a same-stem fixture. Runtime mutations after loading remain separate test coverage."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/LayeredFluidPower.env",
+      "flp": "crates/kraken/tests/fixtures/LayeredFluidN.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/layered.rs",
+          "location": "cases:4-12; loss_is_converted_per_layer_and_frequency_without_reordering:303-306"
+        }
+      ],
+      "note": "Unmodified input sources paired by the test helper; retain both original paths even where shared FIELD bytes equal a same-stem fixture. Runtime mutations after loading remain separate test coverage."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/ElasticHalfTopN.env",
+      "flp": "crates/kraken/tests/fixtures/ElasticHalfBottomN.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/elastic.rs",
+          "location": "cases:5-13; elastic_top_and_unvalidated_combinations_are_explicit:69-71; real_elastic_top_keeps_pinned_compressional_but_not_shear_loss:143-147"
+        }
+      ],
+      "note": "Unmodified input sources paired by the test helper; retain both original paths even where shared FIELD bytes equal a same-stem fixture. Runtime mutations after loading remain separate test coverage."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/ElasticHalfPower.env",
+      "flp": "crates/kraken/tests/fixtures/ElasticHalfBottomN.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/elastic.rs",
+          "location": "cases:5-13; shear_power_loss_is_converted_per_frequency_and_keeps_duplicates:178-181"
+        }
+      ],
+      "note": "Unmodified input sources paired by the test helper; retain both original paths even where shared FIELD bytes equal a same-stem fixture. Runtime mutations after loading remain separate test coverage."
+    },
+    {
+      "path": "crates/kraken/tests/fixtures/ElasticHalfShearOnly.env",
+      "flp": "crates/kraken/tests/fixtures/ElasticHalfBottomN.flp",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/elastic.rs",
+          "location": "cases:5-13; kraken_keeps_the_reference_shear_cutoff_and_ignores_elastic_shear_loss:220-224,246-250"
+        }
+      ],
+      "note": "Unmodified input sources paired by the test helper; retain both original paths even where shared FIELD bytes equal a same-stem fixture. Runtime mutations after loading remain separate test coverage."
+    }
+  ],
+  "unavailable_or_ambiguous": [
+    {
+      "inputs": "upstream tests/TLslices/{pekeris,double,scholte,flused,elsed,atten,normal,ice,kupert,kuperb,kuperm}.env + tests/TLslices/fieldbat.flp",
+      "evidence": [
+        {
+          "path": "tools/reference/kraken-business.py",
+          "location": "official_cases:42-45"
+        },
+        {
+          "path": "tools/reference/full-acceptance.sh",
+          "location": "250-299"
+        }
+      ],
+      "reason": "Upstream paths/fieldbat.flp are not vendored here. Named OriginalLayeredDouble/OriginalElasticScholte/OriginalElasticNormal/OriginalElasticFlused/OriginalElasticSediment/OriginalElasticIce fixture copies already have same-stem entries; do not pretend these copies or another geometry are the unavailable upstream path identities."
+    },
+    {
+      "inputs": "upstream tests/Munk/{MunkS,MunkAnalytic}.env + crates/kraken/tests/fixtures/MunkAnalytic.flp",
+      "evidence": [
+        {
+          "path": "tools/reference/full-acceptance.sh",
+          "location": "111,146-149,386-401"
+        }
+      ],
+      "reason": "ENV originals are copied from the pinned image at reference runtime and are not available at those paths in this checkout. Script explicitly labels this FIELD input DERIVED and original three-line FLPs incompatible. Local MunkAnalytic same-stem fixture is already inventoried, not silently relabelled as an upstream path."
+    },
+    {
+      "inputs": "upstream runtests*.m discovery and Noise/KupermanIngenito/{Iso,DownwdRef,Sduct}{,_C} same-stem pairs",
+      "evidence": [
+        {
+          "path": "tools/reference/kraken-business.py",
+          "location": "official_cases:34-49"
+        }
+      ],
+      "reason": "Upstream reference corpus and scripts are not vendored; dynamic discovery cannot be exhaustively enumerated without the pinned image corpus. No fabricated pair or acceptance claim."
+    },
+    {
+      "inputs": "runtime-generated/modified ENV, FLP and auxiliary snapshots in tests",
+      "evidence": [
+        {
+          "path": "crates/kraken/tests/input.rs",
+          "location": "single_environment_loading_keeps_resource_and_parse_error_order; retained_snapshots_match_parsing_and_ignore_later_file_changes"
+        },
+        {
+          "path": "tools/reference/probe-layered-refinement.py",
+          "location": "case generation"
+        }
+      ],
+      "reason": "Modified/concatenated input bytes do not identify an additional pair of existing files. These tests are not converted into unmodified-fixture passes; their generated inputs and validation/error assertions remain separate test coverage."
+    }
+  ]
+}
