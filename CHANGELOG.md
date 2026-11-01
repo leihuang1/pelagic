@@ -11,6 +11,12 @@ in the [interface contract](docs/development/interface-contract.md).
   mode shapes and FIELD stay on the calling thread when the work is too small to
   repay starting workers. The Pekeris example is about 10% faster on 4 and 14
   threads. Results are bit-for-bit unchanged.
+- **Faster KRAKEN mode shapes.** Real KRAKEN and KRAKENC compute first-mesh mode
+  shapes in parallel, and real KRAKEN fluid modes share each pass over the mesh
+  in fours. On a 14-CPU Apple M4 Pro, the surface-duct and Gulf examples are about
+  10% faster on one thread and 2.1 to 2.7 times faster on 14. Results are
+  bit-for-bit unchanged. More threads hold more shape scratch: up to 64 MiB in
+  all, then about 60 bytes per mesh row per thread.
 
 ## 0.6.0 — 2026-10-29
 

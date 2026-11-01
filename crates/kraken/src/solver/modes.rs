@@ -20,6 +20,13 @@ const MAX_WORK: usize = 2_500_000_000;
 const ROOT_STEPS: usize = 64;
 // Modes bisected together; one mesh pass serves all of their Sturm counts.
 const ROOT_LANES: usize = 8;
+// Modes whose inverse iterations share a pass over the mesh, for the same reason.
+const SHAPE_LANES: usize = 4;
+// Scratch per mesh row, per lane: two matrix diagonals, four factor rows, the
+// iterate and a pivot flag.
+const SHAPE_ROW_BYTES: usize = 7 * size_of::<f64>() + size_of::<bool>();
+// All workers' lane scratch together; beyond it, a worker holds one mode at a time.
+const SHAPE_LANE_BYTES: usize = 64 * 1024 * 1024;
 
 pub(super) fn solve(case: &Case, mut root_limit: usize) -> Result<ModeSet, DiagnosticReport> {
     let omega = 2.0 * PI * case.frequency_hz;
@@ -82,7 +89,7 @@ pub(super) fn solve(case: &Case, mut root_limit: usize) -> Result<ModeSet, Diagn
                 .first()
                 .map_or(mesh.h, crate::solver::elastic::SolidMesh::spacing)
         });
-        if let Some(result) = refinement.accept(roots, seed_h, case, |x| mesh.mode(x))? {
+        if let Some(result) = refinement.accept(roots, seed_h, case, |roots| mesh.modes(roots))? {
             return Ok(result);
         }
     }
@@ -973,14 +980,84 @@ impl<'a> Mesh<'a> {
         Ok(roots)
     }
 
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::many_single_char_names,
-        clippy::too_many_lines
-    )]
-    fn mode(&self, x: f64) -> Result<(NormalMode, Complex64), DiagnosticReport> {
+    // Shapes at this mesh's roots, in root order. Lane batches run where their
+    // scratch fits; a failing root hides nothing before it, as in a serial run.
+    fn modes(&self, roots: &[f64]) -> Result<Vec<(NormalMode, Complex64)>, DiagnosticReport> {
         crate::cancellation::check()?;
+        let samples = self.sample_brackets();
+        let rows = self.b1.len();
+        let estimated_work = roots
+            .len()
+            .saturating_mul(rows.saturating_add(samples.len()));
+        let lane_bytes = crate::parallelism::threads()
+            .saturating_mul(SHAPE_LANES)
+            .saturating_mul(rows)
+            .saturating_mul(SHAPE_ROW_BYTES);
+        if roots.len() < SHAPE_LANES
+            || lane_bytes > SHAPE_LANE_BYTES
+            || crate::solver::elastic::has_layers(self.case)
+            || crate::solver::elastic::has_half_space(self.case)
+        {
+            return crate::solver::refinement::shape_map(roots.len(), estimated_work, |index| {
+                self.mode(roots[index], &samples)
+            });
+        }
+        let batches = crate::solver::refinement::shape_map(
+            roots.len().div_ceil(SHAPE_LANES),
+            estimated_work,
+            |index| {
+                let start = index * SHAPE_LANES;
+                self.mode_batch(
+                    &roots[start..roots.len().min(start + SHAPE_LANES)],
+                    &samples,
+                )
+            },
+        )?;
+        Ok(batches.into_iter().flatten().collect())
+    }
+
+    fn mode_batch(
+        &self,
+        roots: &[f64],
+        samples: &[(usize, f32)],
+    ) -> Result<Vec<(NormalMode, Complex64)>, DiagnosticReport> {
+        if roots.len() < SHAPE_LANES {
+            return roots.iter().map(|&x| self.mode(x, samples)).collect();
+        }
+        crate::cancellation::check()?;
+        let matrices = std::array::from_fn(|lane| self.mode_matrix(roots[lane]));
+        let shapes = inverse_iteration_lanes::<SHAPE_LANES>(&matrices);
+        let mut modes = Vec::with_capacity(roots.len());
+        self.append_modes(roots, shapes, samples, &mut modes)?;
+        Ok(modes)
+    }
+
+    fn append_modes(
+        &self,
+        roots: &[f64],
+        shapes: impl IntoIterator<Item = Result<Vec<f64>, DiagnosticReport>>,
+        samples: &[(usize, f32)],
+        modes: &mut Vec<(NormalMode, Complex64)>,
+    ) -> Result<(), DiagnosticReport> {
+        for (&x, phi) in roots.iter().zip(shapes) {
+            crate::cancellation::check()?;
+            modes.push(self.finish_mode(x, phi?, samples)?);
+        }
+        Ok(())
+    }
+
+    fn mode(
+        &self,
+        x: f64,
+        samples: &[(usize, f32)],
+    ) -> Result<(NormalMode, Complex64), DiagnosticReport> {
+        crate::cancellation::check()?;
+        let (d, e) = self.mode_matrix(x);
+        self.finish_mode(x, inverse_iteration(&d, &e)?, samples)
+    }
+
+    #[allow(clippy::many_single_char_names)]
+    fn mode_matrix(&self, x: f64) -> (Vec<f64>, Vec<f64>) {
         let last = self.layers.last().unwrap();
         let n = last.node_start + last.intervals + 1;
         let h_rho = self.h * self.case.water_density_g_cm3;
@@ -1012,7 +1089,36 @@ impl<'a> Mesh<'a> {
         } else if self.layers.len() == 1 {
             d[n - 1] = self.bottom_diagonal(x) / h_rho;
         }
-        let mut phi = inverse_iteration(&d, &e)?;
+        (d, e)
+    }
+
+    // Vector.f90 brackets samples on a single-precision depth grid.
+    #[allow(clippy::cast_possible_truncation)]
+    fn sample_brackets(&self) -> Vec<(usize, f32)> {
+        let grid_depths = crate::solver::layers::grid(&self.layers, self.case.fluid_top_depth_m());
+        self.case
+            .mode_sample_depths_m
+            .iter()
+            .map(|&depth| {
+                let depth = depth as f32;
+                let upper = grid_depths
+                    .partition_point(|&sample| sample < depth)
+                    .clamp(1, grid_depths.len() - 1);
+                let weight = (depth - grid_depths[upper - 1])
+                    / (grid_depths[upper] - grid_depths[upper - 1]);
+                (upper, weight)
+            })
+            .collect()
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
+    fn finish_mode(
+        &self,
+        x: f64,
+        mut phi: Vec<f64>,
+        samples: &[(usize, f32)],
+    ) -> Result<(NormalMode, Complex64), DiagnosticReport> {
+        let n = phi.len();
         let mut norm = 0.0;
         let mut slow = 0.0;
         let mut volume_loss = 0.0;
@@ -1100,19 +1206,10 @@ impl<'a> Mesh<'a> {
         for value in &mut phi {
             *value *= scale;
         }
-        // Vector.f90 stores a single-precision mesh and interpolates into complex32 .mod samples.
-        let grid_depths = crate::solver::layers::grid(&self.layers, self.case.fluid_top_depth_m());
-        let eigenfunction = self
-            .case
-            .mode_sample_depths_m
+        // Vector.f90 interpolates into complex32 .mod samples.
+        let eigenfunction = samples
             .iter()
-            .map(|&depth| {
-                let depth = depth as f32;
-                let upper = grid_depths
-                    .partition_point(|&sample| sample < depth)
-                    .clamp(1, n - 1);
-                let weight = (depth - grid_depths[upper - 1])
-                    / (grid_depths[upper] - grid_depths[upper - 1]);
+            .map(|&(upper, weight)| {
                 let value = phi[upper - 1] as f32 + weight * (phi[upper] - phi[upper - 1]) as f32;
                 Complex64::new(f64::from(value), 0.0)
             })
@@ -1325,12 +1422,135 @@ fn inverse_iteration(d: &[f64], e: &[f64]) -> Result<Vec<f64>, DiagnosticReport>
     ))
 }
 
+// Row-major scratch interleaves independent scalar recurrences, never modal sums.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names,
+    clippy::needless_range_loop,
+    clippy::too_many_lines
+)]
+fn inverse_iteration_lanes<const K: usize>(
+    matrices: &[(Vec<f64>, Vec<f64>); K],
+) -> [Result<Vec<f64>, DiagnosticReport>; K] {
+    let n = matrices[0].0.len();
+    debug_assert!(
+        matrices
+            .iter()
+            .all(|(d, e)| d.len() == n && e.len() == n + 1)
+    );
+    let eps3: [f64; K] = std::array::from_fn(|k| {
+        let (d, e) = &matrices[k];
+        100.0
+            * f64::EPSILON
+            * (d.iter().map(|v| v.abs()).sum::<f64>()
+                + e[1..n].iter().map(|v| v.abs()).sum::<f64>())
+    });
+    let eps4 = eps3.map(|eps3| n as f64 * eps3);
+    let mut a = vec![[0.0; K]; n];
+    let mut b = vec![[0.0; K]; n];
+    let mut c = vec![[0.0; K]; n];
+    let mut multipliers = vec![[0.0; K]; n];
+    let mut swapped = vec![[false; K]; n];
+    let mut u: [f64; K] = std::array::from_fn(|k| matrices[k].0[0]);
+    let mut v: [f64; K] = std::array::from_fn(|k| matrices[k].1[1]);
+    for i in 1..n {
+        for k in 0..K {
+            let (d, e) = &matrices[k];
+            if e[i].abs() >= u[k].abs() {
+                let ratio = u[k] / e[i];
+                multipliers[i][k] = ratio;
+                swapped[i][k] = true;
+                a[i - 1][k] = e[i];
+                b[i - 1][k] = d[i];
+                c[i - 1][k] = e[i + 1];
+                u[k] = v[k] - ratio * d[i];
+                v[k] = -ratio * e[i + 1];
+            } else {
+                let ratio = e[i] / u[k];
+                multipliers[i][k] = ratio;
+                a[i - 1][k] = u[k];
+                b[i - 1][k] = v[k];
+                u[k] = d[i] - ratio * v[k];
+                v[k] = e[i + 1];
+            }
+        }
+    }
+    for k in 0..K {
+        a[n - 1][k] = if u[k] == 0.0 { eps3[k] } else { u[k] };
+        c[n - 2][k] = 0.0;
+    }
+    let mut phi = vec![eps4.map(|eps4| eps4 / (n as f64).sqrt()); n];
+    let mut active = [true; K];
+    let mut converged = [false; K];
+    for _ in 0..3 {
+        let mut next = [0.0; K];
+        let mut next2 = [0.0; K];
+        for i in (0..n).rev() {
+            for k in 0..K {
+                if active[k] {
+                    phi[i][k] = (phi[i][k] - b[i][k] * next[k] - c[i][k] * next2[k]) / a[i][k];
+                    next2[k] = next[k];
+                    next[k] = phi[i][k];
+                }
+            }
+        }
+        let mut norm = [0.0; K];
+        for k in 0..K {
+            if active[k] {
+                norm[k] = phi.iter().map(|row| row[k].abs()).sum();
+                if !norm[k].is_finite() || norm[k] == 0.0 {
+                    active[k] = false;
+                } else if norm[k] >= 1.0 {
+                    converged[k] = true;
+                    active[k] = false;
+                }
+            }
+        }
+        if !active.contains(&true) {
+            break;
+        }
+        for row in &mut phi {
+            for k in 0..K {
+                if active[k] {
+                    row[k] *= eps4[k] / norm[k];
+                }
+            }
+        }
+        for i in 1..n {
+            for k in 0..K {
+                if active[k] {
+                    if swapped[i][k] {
+                        let (before, after) = phi.split_at_mut(i);
+                        std::mem::swap(&mut after[0][k], &mut before[i - 1][k]);
+                    }
+                    phi[i][k] -= multipliers[i][k] * phi[i - 1][k];
+                }
+            }
+        }
+    }
+    std::array::from_fn(|k| {
+        if converged[k] {
+            Ok(phi.iter().map(|row| row[k]).collect())
+        } else {
+            Err(error(
+                "KR0303",
+                "inverse iteration failed to converge",
+                "modes",
+            ))
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{MAX_MODE_LIMIT, MAX_WORK, Mesh, brent, solve};
+    use super::{
+        MAX_MODE_LIMIT, MAX_WORK, Mesh, SHAPE_LANES, brent, inverse_iteration,
+        inverse_iteration_lanes, solve,
+    };
     use crate::solver::{elastic, layers, pekeris};
     use crate::{
-        Case, DiagnosticReport, Interpolation, legacy::load_case, solver::profile::Profile,
+        Case, DiagnosticReport, Interpolation, NormalMode, legacy::load_case,
+        solver::profile::Profile,
     };
     use num_complex::Complex64;
     use std::f64::consts::PI;
@@ -1359,6 +1579,280 @@ mod tests {
         mesh.top_solids = elastic::SolidMesh::build(case, 1, true, true)?;
         mesh.bottom_solids = elastic::SolidMesh::build(case, 1, false, true)?;
         Ok(mesh)
+    }
+
+    fn assert_inverse_result(
+        actual: Result<Vec<f64>, DiagnosticReport>,
+        expected: Result<Vec<f64>, DiagnosticReport>,
+    ) {
+        match (actual, expected) {
+            (Ok(actual), Ok(expected)) => assert_eq!(
+                actual.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                expected.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+            ),
+            (Err(actual), Err(expected)) => {
+                assert_eq!(actual.diagnostics(), expected.diagnostics());
+            }
+            (actual, expected) => panic!("batch {actual:?}, scalar {expected:?}"),
+        }
+    }
+
+    #[test]
+    fn inverse_iteration_lanes_keep_independent_stops_and_failures() {
+        let matrices = [
+            (vec![2e-14, 1.0], vec![0.0; 3]),
+            (vec![4e-14, 1.0], vec![0.0; 3]),
+            (vec![1.0, 1.0], vec![0.0; 3]),
+            (vec![0.0, 0.0], vec![0.0; 3]),
+        ];
+        // Diagonal systems: lane 0 stops after one back solve, lane 1 after two;
+        // lane 2 exhausts three iterations, lane 3 stops at its first NaN norm.
+        for (lane, (d, e)) in matrices.iter().enumerate().take(2) {
+            let eps3 = 100.0 * f64::EPSILON * (d[0] + d[1]);
+            let eps4 = 2.0 * eps3;
+            let initial = eps4 / 2.0_f64.sqrt();
+            let mut expected = vec![initial / d[0], initial / d[1]];
+            let norm: f64 = expected.iter().sum();
+            if lane == 0 {
+                assert!(norm >= 1.0);
+            } else {
+                assert!(norm < 1.0);
+                for (value, diagonal) in expected.iter_mut().zip(d) {
+                    *value *= eps4 / norm;
+                    *value /= diagonal;
+                }
+                assert!(expected.iter().sum::<f64>() >= 1.0);
+            }
+            assert_inverse_result(inverse_iteration(d, e), Ok(expected));
+        }
+        assert!(inverse_iteration(&matrices[2].0, &matrices[2].1).is_err());
+        assert!(inverse_iteration(&matrices[3].0, &matrices[3].1).is_err());
+        for start in 0..SHAPE_LANES {
+            let rotated: [_; SHAPE_LANES] =
+                std::array::from_fn(|k| matrices[(start + k) % SHAPE_LANES].clone());
+            for (actual, (d, e)) in inverse_iteration_lanes(&rotated).into_iter().zip(&rotated) {
+                assert_inverse_result(actual, inverse_iteration(d, e));
+            }
+        }
+    }
+
+    #[test]
+    fn inverse_iteration_lanes_match_scalar_pivot_swaps_and_zero_pivots() {
+        for matrices in [
+            [
+                (vec![1.0, 1.0], vec![0.0, 1.0, 1.0]),
+                (vec![1.0, 1.0 + 1e-14], vec![0.0, 1.0, 1.0]),
+                (vec![0.0, 1.0], vec![0.0, 1.0, 1.0]),
+                (vec![f64::INFINITY, 1.0], vec![0.0, 1.0, 1.0]),
+            ],
+            [
+                (vec![0.0, 2.0, 2.0, 2.0], vec![0.0, 1.0, 1.0, 1.0, 1.0]),
+                (vec![2.0, 0.0, 2.0, 2.0], vec![0.0, 1.0, 1.0, 1.0, 1.0]),
+                (vec![1.0, 2.0, 2.0, 1.0], vec![0.0, 1.0, 1.0, 1.0, 1.0]),
+                // eps3 underflows to zero, so the first back solve has zero norm.
+                (vec![f64::from_bits(1); 4], vec![0.0; 5]),
+            ],
+        ] {
+            for (actual, (d, e)) in inverse_iteration_lanes(&matrices)
+                .into_iter()
+                .zip(&matrices)
+            {
+                assert_inverse_result(actual, inverse_iteration(d, e));
+            }
+        }
+    }
+
+    fn mode_bits((mode, perturbation): &(NormalMode, Complex64)) -> Vec<u64> {
+        [
+            mode.horizontal_wavenumber_rad_per_m.re,
+            mode.horizontal_wavenumber_rad_per_m.im,
+            mode.phase_speed_mps,
+            mode.group_speed_mps,
+            mode.attenuation_nepers_per_m,
+            perturbation.re,
+            perturbation.im,
+        ]
+        .into_iter()
+        .chain(mode.eigenfunction.iter().flat_map(|v| [v.re, v.im]))
+        .map(f64::to_bits)
+        .collect()
+    }
+
+    #[test]
+    fn batched_modes_match_scalar_bits_including_tiny_and_remainder_groups() {
+        let mut batched = 0;
+        for name in [
+            "Pekeris",
+            "SductTrapped",
+            "FluidBoundaryRR",
+            "FluidBoundaryAA",
+            "LayeredBoundaryVV",
+            "LayeredFluidN",
+            "LayeredFluidFractional",
+            "RoughInterface",
+            "ElasticHalfBottomN",
+        ] {
+            let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name);
+            let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
+            let profiles = layers::iter(&case)
+                .map(|layer| Profile::new_layer(&case, layer).unwrap())
+                .collect::<Vec<_>>();
+            let mesh = first_mesh(&case, &profiles).unwrap();
+            let roots = mesh.roots(&mut 0).unwrap();
+            let samples = mesh.sample_brackets();
+            let expected = roots
+                .iter()
+                .take(2 * SHAPE_LANES + 1)
+                .map(|&x| mesh.mode(x, &samples).unwrap())
+                .collect::<Vec<_>>();
+            // The largest budget exceeds SHAPE_LANE_BYTES, so it takes the scalar path.
+            for threads in [1, 2, 5, usize::MAX] {
+                crate::parallelism::with_threads(
+                    std::num::NonZeroUsize::new(threads).unwrap(),
+                    || {
+                        for count in 0..=expected.len() {
+                            let actual = mesh.modes(&roots[..count]).unwrap();
+                            assert_eq!(
+                                actual.iter().map(mode_bits).collect::<Vec<_>>(),
+                                expected[..count].iter().map(mode_bits).collect::<Vec<_>>(),
+                                "{name}, {count} modes, {threads} threads"
+                            );
+                        }
+                        assert_eq!(crate::parallelism::threads(), threads);
+                    },
+                );
+            }
+            batched +=
+                usize::from(expected.len() >= SHAPE_LANES && !elastic::has_half_space(&case));
+            // A failure at any position, including a later batch, keeps root order.
+            for failed in 0..2 * SHAPE_LANES {
+                let mut invalid = vec![roots[0]; 2 * SHAPE_LANES];
+                invalid[failed] = f64::NAN;
+                let expected = invalid
+                    .iter()
+                    .map(|&x| mesh.mode(x, &samples))
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap_err();
+                for threads in [1, 2, 5] {
+                    let actual = crate::parallelism::with_threads(
+                        std::num::NonZeroUsize::new(threads).unwrap(),
+                        || mesh.modes(&invalid).unwrap_err(),
+                    );
+                    assert_eq!(
+                        actual.diagnostics(),
+                        expected.diagnostics(),
+                        "{name}, failed lane {failed}, {threads} threads"
+                    );
+                }
+            }
+        }
+        assert!(batched >= 3, "only {batched} batched fixture meshes");
+    }
+
+    #[test]
+    fn batched_modes_report_first_root_error_before_later_lane_failure() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Pekeris");
+        let mut input = load_case(root.with_extension("env"), root.with_extension("flp"))
+            .unwrap()
+            .into_definition();
+        // Multiple batches exceed the inline cutoff even with very few roots.
+        input.mesh_points = 8192;
+        let case = Case::from_definition(input).unwrap();
+        let profiles = layers::iter(&case)
+            .map(|layer| Profile::new_layer(&case, layer).unwrap())
+            .collect::<Vec<_>>();
+        let mut mesh = first_mesh(&case, &profiles).unwrap();
+        let x = mesh.roots(&mut 0).unwrap()[0];
+        // Only post-processing reads omega on this fluid mesh: force its distinct
+        // normalization error while leaving a successful inverse iteration intact.
+        mesh.omega = f64::NAN;
+        let samples = mesh.sample_brackets();
+        let normalization = mesh.mode(x, &samples).unwrap_err();
+        let iteration = mesh.mode(f64::NAN, &samples).unwrap_err();
+        assert_ne!(normalization, iteration);
+        for threads in [1, 2, 5] {
+            crate::parallelism::with_threads(std::num::NonZeroUsize::new(threads).unwrap(), || {
+                assert_eq!(mesh.modes(&[x, f64::NAN, x, x]).unwrap_err(), normalization);
+                assert_eq!(mesh.modes(&[f64::NAN, x, x, x]).unwrap_err(), iteration);
+                let mut roots = [x; 2 * SHAPE_LANES + 1];
+                roots[SHAPE_LANES] = f64::NAN;
+                assert_eq!(mesh.modes(&roots).unwrap_err(), normalization);
+                roots[0] = f64::NAN;
+                assert_eq!(mesh.modes(&roots).unwrap_err(), iteration);
+            });
+        }
+    }
+
+    #[test]
+    fn batched_consumption_observes_cancellation_before_a_later_numerical_error() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Pekeris");
+        let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
+        let profiles = layers::iter(&case)
+            .map(|layer| Profile::new_layer(&case, layer).unwrap())
+            .collect::<Vec<_>>();
+        let mesh = first_mesh(&case, &profiles).unwrap();
+        let x = mesh.roots(&mut 0).unwrap()[0];
+        let (d, e) = mesh.mode_matrix(x);
+        let phi = inverse_iteration(&d, &e).unwrap();
+        let samples = mesh.sample_brackets();
+        let later_error = mesh.mode(f64::NAN, &samples).unwrap_err();
+        let token = Arc::new(AtomicBool::new(false));
+        let mut consumed = 0;
+        let shapes = [Ok(phi), Err(later_error)].into_iter().inspect(|_| {
+            consumed += 1;
+            if consumed == 2 {
+                token.store(true, Ordering::Relaxed);
+            }
+        });
+        let mut modes = Vec::new();
+        let error = crate::cancellation::with_token(token.clone(), || {
+            mesh.append_modes(&[x, x], shapes, &samples, &mut modes)
+        })
+        .unwrap_err();
+        assert_eq!(error.diagnostics()[0].code, "KR0304");
+        assert_eq!(consumed, 2);
+        assert_eq!(modes.len(), 1);
+        assert!(!crate::cancellation::cancelled());
+        assert_eq!(
+            mode_bits(&modes[0]),
+            mode_bits(&mesh.mode(x, &samples).unwrap())
+        );
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn shared_sample_brackets_preserve_original_f32_grid_arithmetic() {
+        for name in ["LayeredFluidFractional", "FiniteElasticTopN"] {
+            let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name);
+            let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
+            let profiles = layers::iter(&case)
+                .map(|layer| Profile::new_layer(&case, layer).unwrap())
+                .collect::<Vec<_>>();
+            let mesh = first_mesh(&case, &profiles).unwrap();
+            let grid = layers::grid(&mesh.layers, case.fluid_top_depth_m());
+            let last = mesh.layers.last().unwrap();
+            let n = last.node_start + last.intervals + 1;
+            assert_eq!(grid.len(), n);
+            for (&depth, (actual_upper, actual_weight)) in
+                case.mode_sample_depths_m.iter().zip(mesh.sample_brackets())
+            {
+                let depth = depth as f32;
+                let upper = grid
+                    .partition_point(|&sample| sample < depth)
+                    .clamp(1, n - 1);
+                let weight = (depth - grid[upper - 1]) / (grid[upper] - grid[upper - 1]);
+                assert_eq!(actual_upper, upper);
+                assert_eq!(actual_weight.to_bits(), weight.to_bits());
+            }
+        }
     }
 
     // Every window of K consecutive points, wrapping, so each point meets every lane.

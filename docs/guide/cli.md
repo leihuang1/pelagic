@@ -99,7 +99,7 @@ processes at once, for example from a job array, `xargs -P` or MATLAB `parfor`,
 give each one a share of the CPUs so that they do not compete.
 
 BELLHOP shares the rays of each source between threads. KRAKEN shares the mode
-search and the FIELD receivers. KRAKEN frequencies and range-dependent profiles
+search, the mode shapes and the FIELD receivers. KRAKEN frequencies and range-dependent profiles
 still run one after another, because each one continues from the last.
 
 ## Many cases

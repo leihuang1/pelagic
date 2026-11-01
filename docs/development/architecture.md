@@ -110,6 +110,10 @@ thread:
 - **KRAKEN** bisects every mode over the whole interval on its own, so modes
   run in parallel. Up to eight modes share each pass over the mesh, which
   evaluates all of their Sturm counts with each count's own operations.
+  First-mesh mode shapes run in parallel too, also in root order. Real fluid
+  modes share each pass in fours, each with its own pivots, stopping point and
+  failure, as long as those batches' scratch stays within 64 MiB across all
+  workers; otherwise, and for elastic media, a worker holds one mode at a time.
   Range-independent FIELD tabulates each mode's amplitude, receiver offset and
   range phase once, then computes rows of receivers in parallel with the same
   operations per modal term. The phase and amplitude tables hold about a
