@@ -815,8 +815,14 @@ impl<'a> Mesh<'a> {
         let size = count
             .div_ceil(crate::parallelism::threads())
             .min(ROOT_LANES);
+        let groups = count.div_ceil(size);
+        // Padded lanes and every bisection step count, even for few groups.
+        let estimated_work = groups
+            .saturating_mul(size.next_power_of_two())
+            .saturating_mul(self.b1.len())
+            .saturating_mul(ROOT_STEPS);
         let mut roots = Vec::with_capacity(count);
-        for group in crate::parallelism::map(count.div_ceil(size), |group| {
+        for group in crate::parallelism::map(groups, estimated_work, |group| {
             let modes = group * size..count.min(group * size + size);
             match modes.len() {
                 1 => self.bisect::<1>(low, high, above, modes),

@@ -224,14 +224,21 @@ fn fill_rows(
     range_count: usize,
     (start, len): (usize, usize),
     table_values: usize,
+    mode_count: usize,
     row: impl Fn(f64) -> Vec<Complex64> + Sync,
 ) -> Result<(), DiagnosticReport> {
     let batch = (table_values / len).max(1);
+    // Two profile samples and one modal sum at every range.
+    let row_work = len.saturating_mul(mode_count.max(1)).saturating_mul(3);
     for (batch_index, depths) in depths.chunks(batch).enumerate() {
-        let rows = crate::parallelism::map(depths.len(), |index| {
-            crate::cancellation::check()?;
-            Ok(row(depths[index]))
-        });
+        let rows = crate::parallelism::map(
+            depths.len(),
+            depths.len().saturating_mul(row_work),
+            |index| {
+                crate::cancellation::check()?;
+                Ok(row(depths[index]))
+            },
+        );
         for (offset, values) in rows.into_iter().enumerate() {
             let iz = batch_index * batch + offset;
             pressure[iz * range_count + start..][..len].copy_from_slice(&values?);
@@ -340,6 +347,7 @@ fn adiabatic(
     let first = &case.profiles[0];
     let incoherent = first.mode_addition == ModeAddition::Incoherent;
     let mut count = excitation.len().min(modes[1].modes.len());
+    let largest = modes.iter().map(|m| m.modes.len()).max().unwrap_or(0);
     let constants: Vec<_> = excitation.iter().map(|s| double(factor() * s)).collect();
     let mut integral = vec![Complex64::new(0.0, 0.0); excitation.len()];
     let mut segment = 0;
@@ -391,9 +399,11 @@ fn adiabatic(
             });
             previous = range;
         }
-        let steps = crate::parallelism::map(steps.len(), |index| {
-            steps[index].with_factors(first, modes, &constants)
-        });
+        let steps = crate::parallelism::map(
+            steps.len(),
+            steps.len().saturating_mul(excitation.len()),
+            |index| steps[index].with_factors(first, modes, &constants),
+        );
         let block = (block_index * block_len, ranges.len());
         fill_rows(
             pressure,
@@ -401,6 +411,7 @@ fn adiabatic(
             range_count,
             block,
             table_values,
+            largest,
             |depth| adiabatic_row(&steps, modes, depth, incoherent),
         )?;
     }
@@ -499,6 +510,7 @@ fn coupled(
             range_count,
             block,
             table_values,
+            largest,
             |depth| {
                 let mut profile = None;
                 let mut shapes = Vec::new();

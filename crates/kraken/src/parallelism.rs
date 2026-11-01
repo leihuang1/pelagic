@@ -11,6 +11,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// more, and the cap bounds thread creation for absurd counts.
 const MAX_WORKERS: usize = 1024;
 
+/// A map whose items total no more work than this stays on the calling thread,
+/// where starting threads would cost more than they save. The unit is one mesh
+/// row per lane or one modal term, so this is a scale, not a duration.
+const INLINE_WORK: usize = 1 << 15;
+
 thread_local! {
     static THREADS: Cell<usize> = const { Cell::new(1) };
 }
@@ -35,12 +40,25 @@ pub fn threads() -> usize {
     THREADS.with(Cell::get)
 }
 
+fn worker_count(count: usize, estimated_work: usize) -> usize {
+    if estimated_work.max(count) <= INLINE_WORK {
+        1
+    } else {
+        threads().min(count).min(MAX_WORKERS)
+    }
+}
+
 /// Evaluate `work(0..count)` on up to [`threads`] threads, in item order.
-/// Workers inherit the caller's cancellation token.
-pub(crate) fn map<T: Send>(count: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
-    let workers = threads().min(count).min(MAX_WORKERS);
+/// `estimated_work` is the saturating total across all items. Items report one
+/// thread even on the calling thread, and workers inherit its cancellation token.
+pub(crate) fn map<T: Send>(
+    count: usize,
+    estimated_work: usize,
+    work: impl Fn(usize) -> T + Sync,
+) -> Vec<T> {
+    let workers = worker_count(count, estimated_work);
     if workers <= 1 {
-        return (0..count).map(work).collect();
+        return with_threads(NonZeroUsize::MIN, || (0..count).map(work).collect());
     }
     let token = crate::cancellation::current();
     let next = AtomicUsize::new(0);
@@ -95,25 +113,113 @@ mod tests {
     #[test]
     fn map_keeps_item_order_and_restores_the_scope() {
         let four = NonZeroUsize::new(4).unwrap();
-        let squares = with_threads(four, || {
-            assert_eq!(threads(), 4);
-            map(1000, |i| {
-                assert_eq!(threads(), 1, "workers never fan out again");
-                i * i
-            })
-        });
-        assert_eq!(squares, (0..1000).map(|i| i * i).collect::<Vec<_>>());
+        for estimated_work in [INLINE_WORK, INLINE_WORK + 1] {
+            let squares = with_threads(four, || {
+                assert_eq!(threads(), 4);
+                let squares = map(1000, estimated_work, |i| {
+                    assert_eq!(threads(), 1, "workers never fan out again");
+                    i * i
+                });
+                assert_eq!(threads(), 4);
+                squares
+            });
+            assert_eq!(squares, (0..1000).map(|i| i * i).collect::<Vec<_>>());
+        }
         assert_eq!(threads(), 1);
+    }
+
+    #[test]
+    fn dispatch_uses_work_not_just_item_count() {
+        with_threads(NonZeroUsize::new(4).unwrap(), || {
+            assert_eq!(worker_count(2, INLINE_WORK), 1);
+            assert_eq!(worker_count(2, INLINE_WORK + 1), 2);
+            assert_eq!(worker_count(2, usize::MAX), 2);
+            assert_eq!(worker_count(INLINE_WORK + 1, 0), 4);
+            assert_eq!(worker_count(1, usize::MAX), 1);
+            assert_eq!(map::<()>(0, 0, |_| panic!("empty map")), [] as [(); 0]);
+        });
+        with_threads(NonZeroUsize::MAX, || {
+            assert_eq!(worker_count(usize::MAX, usize::MAX), MAX_WORKERS);
+        });
+    }
+
+    #[test]
+    fn inline_work_and_heavy_nested_work_stay_on_the_caller() {
+        let caller = std::thread::current().id();
+        with_threads(NonZeroUsize::new(4).unwrap(), || {
+            for (count, estimated_work) in [(3, INLINE_WORK), (1, usize::MAX)] {
+                let rows = map(count, estimated_work, |index| {
+                    assert_eq!(threads(), 1);
+                    assert_eq!(std::thread::current().id(), caller);
+                    map(2, usize::MAX, |nested| {
+                        assert_eq!(threads(), 1);
+                        assert_eq!(std::thread::current().id(), caller);
+                        (index, nested)
+                    })
+                });
+                assert_eq!(rows.len(), count);
+                assert_eq!(threads(), 4);
+            }
+        });
+        assert_eq!(threads(), 1);
+    }
+
+    #[test]
+    fn inline_panic_restores_threads_and_cancellation_scope() {
+        let token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        crate::cancellation::with_token(token.clone(), || {
+            with_threads(NonZeroUsize::new(4).unwrap(), || {
+                let panic = std::panic::catch_unwind(|| {
+                    map(2, INLINE_WORK, |_| {
+                        assert_eq!(threads(), 1);
+                        panic!("inline work failed");
+                    })
+                });
+                assert!(panic.is_err());
+                assert_eq!(threads(), 4);
+                assert!(std::sync::Arc::ptr_eq(
+                    &crate::cancellation::current().unwrap(),
+                    &token,
+                ));
+            });
+        });
+        assert_eq!(threads(), 1);
+        assert!(crate::cancellation::current().is_none());
+    }
+
+    #[test]
+    fn map_preserves_first_error_in_item_order() {
+        with_threads(NonZeroUsize::new(4).unwrap(), || {
+            for estimated_work in [INLINE_WORK, INLINE_WORK + 1] {
+                let results = map(8, estimated_work, |index| {
+                    if index == 2 || index == 5 {
+                        Err(index)
+                    } else {
+                        Ok(index)
+                    }
+                });
+                assert_eq!(results.into_iter().collect::<Result<Vec<_>, _>>(), Err(2));
+            }
+        });
     }
 
     #[test]
     fn workers_inherit_cancellation() {
         let token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-        let seen = crate::cancellation::with_token(token, || {
-            with_threads(NonZeroUsize::new(3).unwrap(), || {
-                map(64, |_| crate::cancellation::cancelled())
-            })
-        });
-        assert!(seen.into_iter().all(|cancelled| cancelled));
+        for estimated_work in [INLINE_WORK, INLINE_WORK + 1] {
+            let seen = crate::cancellation::with_token(token.clone(), || {
+                with_threads(NonZeroUsize::new(3).unwrap(), || {
+                    map(64, estimated_work, |_| {
+                        assert!(std::sync::Arc::ptr_eq(
+                            &crate::cancellation::current().unwrap(),
+                            &token,
+                        ));
+                        crate::cancellation::cancelled()
+                    })
+                })
+            });
+            assert!(seen.into_iter().all(|cancelled| cancelled));
+        }
+        assert!(crate::cancellation::current().is_none());
     }
 }

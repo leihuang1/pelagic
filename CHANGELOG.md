@@ -7,6 +7,11 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Small KRAKEN solves no longer start threads they cannot use.** Mode search,
+  mode shapes and FIELD stay on the calling thread when the work is too small to
+  repay starting workers. The Pekeris example is about 10% faster on 4 and 14
+  threads. Results are bit-for-bit unchanged.
+
 ## 0.6.0 — 2026-10-29
 
 - **Multi-threaded solves with unchanged results.** BELLHOP shares the rays of

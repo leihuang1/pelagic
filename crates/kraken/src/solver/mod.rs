@@ -136,12 +136,16 @@ fn tabulate_field(
     let source_batch = (table_values / mode_count.max(1)).max(1);
     let mut pressure = vec![Complex64::new(0.0, 0.0); sample_count];
     for (block_index, ranges) in case.receiver_ranges_m.chunks(block_len).enumerate() {
-        let phases: Vec<Vec<Complex32>> = crate::parallelism::map(ranges.len(), |index| {
-            wavenumbers
-                .iter()
-                .map(|&(_, ik)| single((ik * ranges[index]).exp()))
-                .collect()
-        });
+        let phases: Vec<Vec<Complex32>> = crate::parallelism::map(
+            ranges.len(),
+            ranges.len().saturating_mul(mode_count),
+            |index| {
+                wavenumbers
+                    .iter()
+                    .map(|&(_, ik)| single((ik * ranges[index]).exp()))
+                    .collect()
+            },
+        );
         let start = block_index * block_len;
         for (batch_index, sources) in case.source_depths_m.chunks(source_batch).enumerate() {
             let first_source = batch_index * source_batch;
@@ -150,7 +154,11 @@ fn tabulate_field(
                 .enumerate()
                 .map(|(offset, &source_depth)| amplitudes_at(first_source + offset, source_depth))
                 .collect();
-            let rows = crate::parallelism::map(sources.len() * receiver_count, |row| {
+            let row_count = sources.len() * receiver_count;
+            let estimated_work = row_count
+                .saturating_mul(mode_count.max(1))
+                .saturating_mul(ranges.len() + 1);
+            let rows = crate::parallelism::map(row_count, estimated_work, |row| {
                 crate::cancellation::check()?;
                 let receiver_index = row % receiver_count;
                 let receiver_depth = case.receiver_depths_m[receiver_index];

@@ -90,7 +90,9 @@ Python default to the available CPUs and the server to one thread per request.
 Each crate's `parallelism::map` evaluates independent items on scoped threads
 and returns them in item order. Workers inherit the caller's cancellation token,
 and an item never fans out again. A call starts at most 1024 workers, and a
-thread the system refuses leaves its share to the others. Order-dependent work stays on the calling
+thread the system refuses leaves its share to the others. KRAKEN's map also takes
+an estimate of its total work and stays on the calling thread when that is too
+small to repay starting workers. Order-dependent work stays on the calling
 thread:
 
 - **BELLHOP** traces a batch of rays in parallel. Each ray's influence is
