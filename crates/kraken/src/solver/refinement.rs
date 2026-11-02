@@ -2,11 +2,28 @@
 // Copyright (C) 2009 Michael B. Porter. GPL-3.0-or-later; see LICENSE.
 //! Mesh-history ownership, not a shared root solver. Raw Neville seeds remain
 //! separate from the Richardson table; shapes/loss come only from mesh one.
-use crate::{Case, DiagnosticReport, ModeSet, ModeSolver, NormalMode, solver::error};
+use crate::{Case, DiagnosticReport, ModeSet, ModeSolver, NormalMode, parallelism, solver::error};
 use num_complex::Complex64;
 use std::ops::{Div, Sub};
 
 pub(crate) const MULTIPLIERS: [usize; 5] = [1, 2, 4, 8, 16];
+
+// One item is a scalar shape or a full fluid batch, never a lane within a batch.
+pub(super) fn shape_map<T: Send>(
+    count: usize,
+    estimated_work: usize,
+    shape: impl Fn(usize) -> Result<T, DiagnosticReport> + Sync,
+) -> Result<Vec<T>, DiagnosticReport> {
+    if parallelism::threads() <= 1 || count <= 1 {
+        // Retain scalar short-circuiting and the single-item calling scope.
+        (0..count).map(shape).collect()
+    } else {
+        // Ordered collection reports the earliest numerical error, not the fastest one.
+        parallelism::map(count, estimated_work, shape)
+            .into_iter()
+            .collect()
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct Refinement<T> {
@@ -66,13 +83,13 @@ impl Refinement<f64> {
         roots: Vec<f64>,
         seed_h: Option<f64>,
         case: &Case,
-        mode: impl FnMut(f64) -> Result<(NormalMode, Complex64), DiagnosticReport>,
+        modes: impl FnOnce(&[f64]) -> Result<Vec<(NormalMode, Complex64)>, DiagnosticReport>,
     ) -> Result<Option<ModeSet>, DiagnosticReport> {
         if let Some(h) = seed_h {
             self.seeds
                 .push((h, roots.iter().map(|&x| Complex64::new(x, 0.0)).collect()));
         }
-        self.advance(roots, case, mode, f64::abs, |x, perturbation| {
+        self.advance(roots, case, modes, f64::abs, |x, perturbation| {
             (x + perturbation).sqrt()
         })
     }
@@ -84,7 +101,8 @@ impl Refinement<Complex64> {
         roots: Vec<Complex64>,
         seed_h: f64,
         case: &Case,
-        mode: impl FnMut(Complex64) -> Result<(NormalMode, Complex64), DiagnosticReport>,
+        estimated_shape_work: usize,
+        mode: impl Fn(Complex64) -> Result<(NormalMode, Complex64), DiagnosticReport> + Sync,
     ) -> Result<Option<ModeSet>, DiagnosticReport> {
         self.seeds.push((seed_h, roots.clone()));
         let high_k2 = (2.0 * std::f64::consts::PI * case.frequency_hz / case.c_low_mps).powi(2);
@@ -115,9 +133,17 @@ impl Refinement<Complex64> {
                 "mode_sample_depths_m",
             ));
         }
-        self.advance(selected, case, mode, Complex64::norm, |x, perturbation| {
-            (x + perturbation).sqrt()
-        })
+        self.advance(
+            selected,
+            case,
+            |roots| {
+                shape_map(roots.len(), estimated_shape_work, |index| {
+                    mode(roots[index])
+                })
+            },
+            Complex64::norm,
+            |x, perturbation| (x + perturbation).sqrt(),
+        )
     }
 }
 
@@ -127,7 +153,7 @@ impl<T: Copy + Sub<Output = T> + Div<f64, Output = T>> Refinement<T> {
         &mut self,
         roots: Vec<T>,
         case: &Case,
-        mode: impl FnMut(T) -> Result<(NormalMode, Complex64), DiagnosticReport>,
+        modes: impl FnOnce(&[T]) -> Result<Vec<(NormalMode, Complex64)>, DiagnosticReport>,
         magnitude: impl FnOnce(T) -> f64,
         wavenumber: impl Fn(T, Complex64) -> Complex64,
     ) -> Result<Option<ModeSet>, DiagnosticReport> {
@@ -143,13 +169,7 @@ impl<T: Copy + Sub<Output = T> + Div<f64, Output = T>> Refinement<T> {
             }
         }
         if set == 0 {
-            (self.modes, self.perturbations) = roots
-                .iter()
-                .copied()
-                .map(mode)
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .unzip();
+            (self.modes, self.perturbations) = modes(&roots)?.into_iter().unzip();
         } else if roots.len() != self.modes.len() {
             return Err(error(
                 "KR0303",
@@ -250,4 +270,193 @@ fn neville_seeds_start_on_the_third_mesh_and_use_raw_roots() {
     assert_eq!(value.re.to_bits(), 6.25_f64.to_bits());
     assert_eq!(value.im.to_bits(), (-1.0625_f64).to_bits());
     assert_eq!(refinement.seed(1, 0.25), None);
+}
+
+#[cfg(test)]
+mod shape_tests {
+    use super::*;
+    use std::num::NonZeroUsize;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+
+    const ROOTS: [f64; 4] = [0.0004, 0.0003, 0.0002, 0.0001];
+
+    fn first_mesh(
+        solver: ModeSolver,
+        roots: &[f64],
+        mode: impl Fn(f64) -> Result<(NormalMode, Complex64), DiagnosticReport> + Sync,
+    ) -> Result<(Vec<NormalMode>, Vec<Complex64>), DiagnosticReport> {
+        let cases = crate::legacy::load_frequency_cases_from_sources(
+            include_str!("../../tests/fixtures/Pekeris.env"),
+            include_str!("../../tests/fixtures/Pekeris.flp"),
+            std::path::Path::new("Pekeris.env"),
+            std::path::Path::new("Pekeris.flp"),
+            solver,
+        )
+        .unwrap();
+        let case = &cases[0];
+        match solver {
+            ModeSolver::Kraken => {
+                let mut refinement = Refinement::<f64>::default();
+                assert!(
+                    refinement
+                        .accept(roots.to_vec(), None, case, |roots| {
+                            shape_map(roots.len(), usize::MAX, |index| mode(roots[index]))
+                        })?
+                        .is_none()
+                );
+                let shapes = (refinement.modes.clone(), refinement.perturbations.clone());
+                assert!(
+                    refinement
+                        .accept(roots.to_vec(), None, case, |_| panic!("shapes recomputed"))?
+                        .is_some()
+                );
+                Ok(shapes)
+            }
+            ModeSolver::Krakenc => {
+                let roots: Vec<_> = roots
+                    .iter()
+                    .map(|&x| Complex64::new(x, -x / 10.0))
+                    .collect();
+                let mut refinement = Refinement::<Complex64>::default();
+                assert!(
+                    refinement
+                        .accept(roots.clone(), 1.0, case, usize::MAX, |x| mode(x.re))?
+                        .is_none()
+                );
+                let shapes = (refinement.modes.clone(), refinement.perturbations.clone());
+                assert!(
+                    refinement
+                        .accept(roots, 0.5, case, usize::MAX, |_| panic!(
+                            "shapes recomputed"
+                        ))?
+                        .is_some()
+                );
+                Ok(shapes)
+            }
+        }
+    }
+
+    fn shape(root: f64) -> (NormalMode, Complex64) {
+        (
+            NormalMode {
+                horizontal_wavenumber_rad_per_m: Complex64::new(root, -root),
+                phase_speed_mps: root,
+                group_speed_mps: root,
+                attenuation_nepers_per_m: root,
+                eigenfunction: vec![Complex64::new(-root, root)],
+            },
+            Complex64::new(root / 2.0, -root / 4.0),
+        )
+    }
+
+    #[test]
+    fn first_mesh_shapes_and_perturbations_keep_root_order_for_both_solvers() {
+        let expected: (Vec<_>, Vec<_>) = ROOTS.into_iter().map(shape).unzip();
+        for solver in [ModeSolver::Kraken, ModeSolver::Krakenc] {
+            for threads in [1, 2, 5] {
+                let actual = parallelism::with_threads(NonZeroUsize::new(threads).unwrap(), || {
+                    first_mesh(solver, &ROOTS, |root| {
+                        assert_eq!(parallelism::threads(), 1);
+                        Ok(shape(root))
+                    })
+                    .unwrap()
+                });
+                assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
+            }
+        }
+    }
+
+    #[test]
+    fn first_root_error_wins_and_scalar_evaluation_short_circuits() {
+        for solver in [ModeSolver::Kraken, ModeSolver::Krakenc] {
+            for threads in [1, 3] {
+                let calls = AtomicUsize::new(0);
+                let report = parallelism::with_threads(NonZeroUsize::new(threads).unwrap(), || {
+                    first_mesh(solver, &ROOTS, |root| {
+                        calls.fetch_add(1, Ordering::Relaxed);
+                        if root.to_bits() == ROOTS[1].to_bits() {
+                            Err(error("KR0302", "first root error", "modes"))
+                        } else if root.to_bits() == ROOTS[3].to_bits() {
+                            Err(error("KR0303", "later root error", "modes"))
+                        } else {
+                            Ok(shape(root))
+                        }
+                    })
+                    .unwrap_err()
+                });
+                assert_eq!(report.diagnostics()[0].code, "KR0302");
+                assert_eq!(
+                    calls.load(Ordering::Relaxed),
+                    if threads == 1 { 2 } else { 4 }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shape_workers_inherit_cancellation_and_do_not_fan_out() {
+        for solver in [ModeSolver::Kraken, ModeSolver::Krakenc] {
+            let token = Arc::new(AtomicBool::new(true));
+            let calls = AtomicUsize::new(0);
+            let report = crate::cancellation::with_token(token, || {
+                parallelism::with_threads(NonZeroUsize::new(3).unwrap(), || {
+                    let result = first_mesh(solver, &ROOTS, |root| {
+                        calls.fetch_add(1, Ordering::Relaxed);
+                        assert_eq!(parallelism::threads(), 1);
+                        assert!(
+                            parallelism::map(2, usize::MAX, |_| crate::cancellation::cancelled())
+                                .into_iter()
+                                .all(|cancelled| cancelled)
+                        );
+                        crate::cancellation::check()?;
+                        Ok(shape(root))
+                    });
+                    assert_eq!(parallelism::threads(), 3);
+                    result.unwrap_err()
+                })
+            });
+            assert_eq!(report.diagnostics()[0].code, "KR0304");
+            assert_eq!(calls.load(Ordering::Relaxed), ROOTS.len());
+            assert!(!crate::cancellation::cancelled());
+        }
+    }
+
+    #[test]
+    fn tiny_shape_maps_inline_without_leaking_the_nested_budget() {
+        parallelism::with_threads(NonZeroUsize::new(5).unwrap(), || {
+            let caller = std::thread::current().id();
+            let shapes = shape_map(ROOTS.len(), 0, |index| {
+                assert_eq!(std::thread::current().id(), caller);
+                assert_eq!(parallelism::threads(), 1);
+                let nested = shape_map(2, usize::MAX, |lane| {
+                    assert_eq!(std::thread::current().id(), caller);
+                    assert_eq!(parallelism::threads(), 1);
+                    Ok(lane)
+                })?;
+                assert_eq!(nested, [0, 1]);
+                Ok(shape(ROOTS[index]))
+            })
+            .unwrap();
+            assert_eq!(parallelism::threads(), 5);
+            assert_eq!(format!("{shapes:?}"), format!("{:?}", ROOTS.map(shape)));
+        });
+    }
+
+    #[test]
+    fn single_root_stays_on_the_calling_thread() {
+        for solver in [ModeSolver::Kraken, ModeSolver::Krakenc] {
+            parallelism::with_threads(NonZeroUsize::new(5).unwrap(), || {
+                let caller = std::thread::current().id();
+                first_mesh(solver, &ROOTS[..1], |root| {
+                    assert_eq!(std::thread::current().id(), caller);
+                    assert_eq!(parallelism::threads(), 5);
+                    Ok(shape(root))
+                })
+                .unwrap();
+            });
+        }
+    }
 }

@@ -90,7 +90,9 @@ Python default to the available CPUs and the server to one thread per request.
 Each crate's `parallelism::map` evaluates independent items on scoped threads
 and returns them in item order. Workers inherit the caller's cancellation token,
 and an item never fans out again. A call starts at most 1024 workers, and a
-thread the system refuses leaves its share to the others. Order-dependent work stays on the calling
+thread the system refuses leaves its share to the others. KRAKEN's map also takes
+an estimate of its total work and stays on the calling thread when that is too
+small to repay starting workers. Order-dependent work stays on the calling
 thread:
 
 - **BELLHOP** traces a batch of rays in parallel. Each ray's influence is
@@ -107,14 +109,30 @@ thread:
   freshly grown buffer per ray.
 - **KRAKEN** bisects every mode over the whole interval on its own, so modes
   run in parallel. Up to eight modes share each pass over the mesh, which
-  evaluates all of their Sturm counts with each count's own operations.
+  evaluates all of their Sturm counts with each count's own operations. The
+  interior rows are written so that the compiler packs those operations into
+  vector divides; packed IEEE operations round each lane as scalar ones do.
+  First-mesh mode shapes run in parallel too, also in root order. Real fluid
+  modes share each pass in fours, each with its own pivots, stopping point and
+  failure, as long as those batches' scratch stays within 64 MiB across all
+  workers; otherwise, and for elastic media, a worker holds one mode at a time.
   Range-independent FIELD tabulates each mode's amplitude, receiver offset and
   range phase once, then computes rows of receivers in parallel with the same
-  operations per modal term. The phase and amplitude tables hold about a
-  million modal terms at most, in blocks of ranges and sources.
+  operations per modal term. Eight ranges share each modal loop, with one running
+  total per range, which the compiler packs without changing any sum. The phase
+  and amplitude tables hold about a million modal terms at most, in blocks of
+  ranges and sources.
   Range-dependent FIELD reuses each profile's receiver-depth brackets.
-  Frequency blocks and profiles run in order, because each carries the previous
-  mode count forward.
+- **KRAKEN frequency blocks and profiles** carry the previous mode count forward,
+  but only real elastic searches read it: finite elastic layers and an elastic
+  surface half-space. Those sequences run in order, and so does any sequence
+  below eight threads, where one solve's own parallelism beats solving side by
+  side. Otherwise the first item solves alone, with every thread, and then up to
+  four items per thread together. Results are consumed in order, so diagnostics,
+  cumulative limits and cancellation are decided as with one thread; a window can
+  only do work that a failure then discards. Twice the largest result so far
+  decides how many fit in 128 MiB. That limits speculation, not memory: a later
+  result can be larger, and solver scratch is separate.
 
 `tests/parallelism.rs` in both crates compares every fixture and example, and
 BELLHOP resource-limit failures, across thread counts. Independent cases may

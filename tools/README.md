@@ -2,6 +2,8 @@
 
 - `check-docs.py`: every relative Markdown link and `#anchor` resolves (run in CI).
 - `stage-matlab.py`: verify CLI checksums and stage them for the MATLAB toolbox.
+- [`perf/`](perf/README.md): solver timing, peak memory and byte-identity checks
+  against an earlier Pelagic build (run in CI as a self-test only).
 
 Numerical reference helpers live in `tools/reference/`:
 

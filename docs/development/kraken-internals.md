@@ -83,7 +83,8 @@ growth (at least two passes, within the existing three-pass ceiling).
   Standard arithmetic bounds share bookkeeping, not a new numerical trait or plugin Interface.
 
 `solve_frequencies` keeps real Solve2's run-local bound across ordered blocks,
-without retaining all results; the first error ends the iterator. Like JSON,
+without retaining all results; the first error ends the iterator. Blocks that
+cannot read that bound [can solve together](architecture.md). Like JSON,
 all blocks must share one backend; a mismatched block returns `KR0201` before
 numerical work, including for multi-profile blocks. Independent
 `solve`/`solve_field` calls reset the bound. HDF5 legacy/JSON execution and API

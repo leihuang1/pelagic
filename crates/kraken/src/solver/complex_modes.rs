@@ -227,7 +227,10 @@ pub(super) fn solve(case: &Case) -> Result<ModeSet, DiagnosticReport> {
                 "phase_speed_limits",
             ));
         }
-        if let Some(result) = refinement.accept(roots, seed_h, case, |root| {
+        let shape_work = roots
+            .len()
+            .saturating_mul(b.len().saturating_add(case.mode_sample_depths_m.len()));
+        if let Some(result) = refinement.accept(roots, seed_h, case, shape_work, |root| {
             mode(case, &b, &layers, omega, bottom_c, &bottom, root)
         })? {
             return Ok(result);

@@ -13,6 +13,7 @@ from whether a process finishes successfully.
 | Configured full acceptance | Fresh pinned references and complete configured API/CLI workflows | `tools/reference/full-acceptance.sh` |
 | Broad business diagnostic | Inventory original workflows and additional combinations, retaining exceptions | `bellhop-business.py` / `kraken-business.py` |
 | Focused diagnosis | Reproduce one failure or independent control | [Reference workflows](reference-workflows.md) |
+| Performance work | Timing, peak memory and byte identity against an earlier Pelagic build | [`tools/perf`](../../tools/perf/README.md) |
 
 A broad diagnostic or focused retry does not replace full acceptance. Conversely,
 a successful configured run does not establish support for every path in the

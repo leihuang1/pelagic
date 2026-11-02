@@ -164,7 +164,8 @@ with pg.bellhop.run_many(cases) as results:
         print(case.to_dict()["frequency"], loss.round(1))
 ```
 
-`pg.kraken.run_many` works the same way.
+`pg.kraken.run_many` works the same way. If only KRAKEN's receivers change, use
+[one case](cli.md#one-case-or-many) rather than many.
 
 - By default there is one worker per case, up to one per available CPU, and
   each case solves on the CPUs left per worker. On a 16-CPU machine, 4 cases
