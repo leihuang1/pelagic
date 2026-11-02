@@ -1,0 +1,48 @@
+name: Prepared modes canonical acceptance
+on:
+  push:
+    branches:
+      - validation/kraken-prepared-modes-bae51a5
+    paths:
+      - .github/workflows/prepared-modes-acceptance.yml
+permissions:
+  contents: read
+concurrency:
+  group: prepared-modes-acceptance-bae51a5
+  cancel-in-progress: false
+jobs:
+  full-acceptance:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: bae51a587f8b8f1e5073bea5491186b6cf71eb8b
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact reviewed source and host tools
+        run: |
+          test "$(git rev-parse HEAD)" = bae51a587f8b8f1e5073bea5491186b6cf71eb8b
+          test "$(git rev-parse HEAD^{tree})" = 38078a4c241d0060a960c4e02af3b1f636eec8b7
+          test -z "$(git status --porcelain)"
+          rustup show
+          cmake --version
+          docker version
+          mkdir -p target
+          printf 'Feature SHA: %s\nFeature tree: %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD^{tree})" > target/validation-metadata.txt
+      - name: Unmodified canonical full acceptance
+        run: timeout --signal=TERM --kill-after=60s 170m tools/reference/full-acceptance.sh
+      - name: Retain canonical reports and fresh reference products
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prepared-modes-full-acceptance-bae51a5
+          path: |
+            target/acceptance/
+            target/validation-metadata.txt
+          if-no-files-found: warn
+          retention-days: 14
