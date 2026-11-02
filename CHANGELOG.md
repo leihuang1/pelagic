@@ -7,6 +7,12 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Explicit real-KRAKEN mode reuse in Rust.** Prepare an immutable modal
+  solution once, then synthesize range-independent fields at new receiver
+  ranges and horizontal offsets without repeating the modal solve. All other
+  inputs remain frozen; queries use the existing arithmetic and limits. See
+  [mode reuse](docs/kraken/prepared-modes.md). Existing solve APIs are unchanged.
+
 ## 0.6.1 — 2026-11-02
 
 - **Small KRAKEN solves no longer start threads they cannot use.** Mode search,

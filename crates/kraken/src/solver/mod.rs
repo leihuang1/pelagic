@@ -3,6 +3,8 @@ pub(crate) mod elastic;
 mod field;
 pub(crate) mod layers;
 mod modes;
+mod prepared;
+pub use prepared::{PreparedModes, prepare_modes};
 #[cfg(test)]
 pub(crate) mod pekeris;
 pub(crate) mod profile;
@@ -73,6 +75,37 @@ fn tabulate_field(
     mode_set: &ModeSet,
     table_values: usize,
 ) -> Result<PressureField, DiagnosticReport> {
+    tabulate_field_query(
+        FieldQuery {
+            case,
+            receiver_ranges_m: &case.receiver_ranges_m,
+            receiver_offsets_m: &case.receiver_offsets_m,
+        },
+        mode_set,
+        table_values,
+    )
+}
+
+#[derive(Clone, Copy)]
+struct FieldQuery<'a> {
+    case: &'a Case,
+    receiver_ranges_m: &'a [f64],
+    receiver_offsets_m: &'a [f64],
+}
+
+impl std::ops::Deref for FieldQuery<'_> {
+    type Target = Case;
+    fn deref(&self) -> &Case {
+        self.case
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn tabulate_field_query(
+    case: FieldQuery<'_>,
+    mode_set: &ModeSet,
+    table_values: usize,
+) -> Result<PressureField, DiagnosticReport> {
     let mode_count = mode_set.modes.len().min(case.mode_limit);
     let sample_count = case
         .source_depths_m
@@ -128,7 +161,7 @@ fn tabulate_field(
                     double(
                         single(shape)
                             * source_pattern_scale(
-                                case,
+                                &case,
                                 single(mode.horizontal_wavenumber_rad_per_m),
                             ),
                     )
@@ -302,8 +335,8 @@ fn tabulate_field(
     Ok(PressureField {
         source_depths_m: case.source_depths_m.clone(),
         receiver_depths_m: case.receiver_depths_m.clone(),
-        receiver_ranges_m: case.receiver_ranges_m.clone(),
-        receiver_offsets_m: case.receiver_offsets_m.clone(),
+        receiver_ranges_m: case.receiver_ranges_m.to_vec(),
+        receiver_offsets_m: case.receiver_offsets_m.to_vec(),
         pressure,
     })
 }

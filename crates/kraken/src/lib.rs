@@ -14,7 +14,9 @@ pub use diagnostic::{Diagnostic, DiagnosticReport};
 pub use input::{json, legacy};
 pub use model::*;
 pub use result::{ModeSet, NormalMode, PressureField, ProfileSimulationResult, SimulationResult};
-pub use solver::{solve, solve_complex_modes, solve_field, solve_frequencies};
+pub use solver::{
+    PreparedModes, prepare_modes, solve, solve_complex_modes, solve_field, solve_frequencies,
+};
 
 pub(crate) use case::{
     MAX_FIELD_SAMPLES, MAX_MESH_POINTS, MAX_MODE_LIMIT, MAX_VECTOR_LENGTH, error,
