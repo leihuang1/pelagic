@@ -34,6 +34,7 @@ On a branch `release/X.Y.Z` from up-to-date `main`, change exactly these:
 | --- | --- |
 | `Cargo.toml` | `[workspace.package] version = "X.Y.Z"` |
 | `Cargo.lock` | `cargo update --workspace` (changes only the workspace crates) |
+| `tools/perf/Cargo.lock` | `cargo update -p bellhop -p kraken --manifest-path tools/perf/Cargo.toml` (changes only those two) |
 | `matlab/VERSION` | `X.Y.Z` |
 | `CITATION.cff` | `version: "X.Y.Z"` and `date-released: "YYYY-MM-DD"` (planned release date) |
 | `python/pelagic/THIRD-PARTY-LICENSES.json` | `package_version` of the `bellhop`, `kraken` and `native-output` entries |
