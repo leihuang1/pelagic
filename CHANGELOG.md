@@ -7,6 +7,8 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+## 0.6.1 — 2026-11-02
+
 - **Small KRAKEN solves no longer start threads they cannot use.** Mode search,
   mode shapes and FIELD stay on the calling thread when the work is too small to
   repay starting workers. The Pekeris example is about 10% faster on 4 and 14
@@ -33,9 +35,12 @@ in the [interface contract](docs/development/interface-contract.md).
 - **Faster KRAKEN mode search.** The interior of each Sturm count now uses packed
   divides, with no CPU-specific build or unsafe code. On one thread of the same
   machine, the surface-duct, broadband and Gulf examples are 1.3 to 1.5 times
-  faster. x86-64 builds get the same packed divides, but have not been timed. Each
-  lane performs the same IEEE operations in the same order, so results are
-  bit-for-bit unchanged.
+  faster. Each lane performs the same IEEE operations in the same order, so results
+  are bit-for-bit unchanged.
+- **KRAKEN on x86-64.** On a 9-CPU AMD EPYC 9V74 cloud VM, this release's KRAKEN
+  changes together make heavy cases 1.76 to 2.32 times faster on one thread and
+  2.41 to 3.88 times faster on 9, and the broadband example 8.02 times faster on 9.
+  Results are bit-for-bit unchanged there too.
 
 ## 0.6.0 — 2026-10-29
 

@@ -175,7 +175,7 @@ Each case appends one JSON line to `DIR/status.ndjson`, or to
 is killed still leaves every finished case recorded:
 
 ```json
-{"status_version":1,"case":"cases/a.json","stem":"a","version":"0.6.0","format":"legacy","options":{"max_output_bytes":268435456,"solver":null},"input_sha256":"5d0c…","outcome":"ok","exit_code":0,"seconds":0.03,"manifest_sha256":"4a3b…","diagnostics":[]}
+{"status_version":1,"case":"cases/a.json","stem":"a","version":"0.6.1","format":"legacy","options":{"max_output_bytes":268435456,"solver":null},"input_sha256":"5d0c…","outcome":"ok","exit_code":0,"seconds":0.03,"manifest_sha256":"4a3b…","diagnostics":[]}
 ```
 
 | Field | Meaning |
