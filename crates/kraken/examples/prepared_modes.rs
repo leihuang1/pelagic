@@ -22,11 +22,12 @@ fn check_bits(actual: &PressureField, expected: &PressureField) {
 fn main() -> Result<(), Box<dyn Error>> {
     let env_path = PathBuf::from(std::env::args_os().nth(1).ok_or("pass a .env path")?);
     let case = legacy::load_case(&env_path, env_path.with_extension("flp"))?;
+    // Move ranges inward: `max_range_m` is frozen and should cover every query.
     let queries: Vec<Vec<f64>> = (0..8)
         .map(|index| {
             case.receiver_ranges_m
                 .iter()
-                .map(|range| range + f64::from(index) * 100.0)
+                .map(|range| range * (1.0 - f64::from(index) * 0.05))
                 .collect()
         })
         .collect();

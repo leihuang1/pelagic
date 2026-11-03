@@ -34,6 +34,8 @@ pub struct PreparedModes {
 ///
 /// The input case is cloned once so the prepared value owns its provenance.
 /// No pressure field is allocated and no partial value is returned on failure.
+/// Choose the case's `max_range_m` for the farthest range you will query; see
+/// [`PreparedModes::field`].
 ///
 /// # Errors
 /// Returns a validation diagnostic for KRAKENC, or the same modal/cancellation
@@ -74,6 +76,11 @@ impl PreparedModes {
     /// scratch-table sizes as [`super::solve`]. Neither modes nor environment
     /// arrays are cloned. Returned metadata owns the queried ranges/offsets.
     /// A cancelled or failed query leaves this value reusable.
+    ///
+    /// Ranges beyond the frozen `max_range_m` are accepted, as they are in an
+    /// ordinary case, but the modes were not refined for them, so pressure there
+    /// can be wrong with no diagnostic. Prepare a new case to query farther;
+    /// [`Self::case`] exposes the frozen value.
     ///
     /// # Errors
     /// Returns the normal case diagnostics for invalid ranges/offsets, or the

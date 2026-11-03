@@ -22,7 +22,8 @@ let original = prepared.field(
     &case.receiver_ranges_m,
     &case.receiver_offsets_m,
 )?;
-let farther = prepared.field(
+// The case's `max_range_m` must already cover these: see "What stays fixed".
+let other_ranges = prepared.field(
     &[1000.0, 2000.0, 4000.0],
     &case.receiver_offsets_m,
 )?;
@@ -52,10 +53,17 @@ offsets can vary; changing anything else requires preparing a new case:
 - mode limit, mode-sample depths, source and receiver depths;
 - source geometry, source pattern and coherent/incoherent addition.
 
-In particular, `max_range_m` controls eigenvalue convergence: it is not just a
-plotting range and is not changed by a field query. Default mode-sample depths
-can depend on source and receiver depths, so this API does not permit changing
-those depths even when an application regards them as field-only settings.
+**Choose `max_range_m` for the farthest range you will query.** It is not just a
+plotting range: it [controls eigenvalue convergence](input.md), and a field query
+cannot change it. Like `solve`, `field` accepts ranges beyond it with no
+diagnostic, but the modes were not refined for those ranges, so their pressure can
+be wrong. A value of 0 uses the base mesh only, with no refinement for any range.
+Read the frozen value from `prepared.case().max_range_m`, and prepare a new case
+to query farther.
+
+Default mode-sample depths can depend on source and receiver depths, so this API
+does not permit changing those depths even when an application regards them as
+field-only settings.
 
 Only single-case **real KRAKEN** is supported. KRAKENC is rejected; there is no
 prepared `FieldCase` or range-dependent profile API. Do not substitute this API
