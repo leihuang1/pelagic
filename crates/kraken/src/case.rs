@@ -302,7 +302,6 @@ impl Case {
         for (field, values) in [
             ("source_depths_m", &definition.source_depths_m),
             ("receiver_depths_m", &definition.receiver_depths_m),
-            ("receiver_ranges_m", &definition.receiver_ranges_m),
         ] {
             if values.is_empty() || values.len() > MAX_VECTOR_LENGTH {
                 diagnostics.push(error(field, "vector length is outside the supported range"));
@@ -310,53 +309,19 @@ impl Case {
             if values.iter().any(|value| !value.is_finite()) {
                 diagnostics.push(error(field, "values must be finite"));
             }
-            if field != "receiver_ranges_m"
-                && values.iter().any(|depth| {
-                    *depth < definition.fluid_top_depth_m()
-                        || *depth > definition.fluid_bottom_depth_m()
-                })
-            {
+            if values.iter().any(|depth| {
+                *depth < definition.fluid_top_depth_m()
+                    || *depth > definition.fluid_bottom_depth_m()
+            }) {
                 diagnostics.push(error(field, "depths must lie in water"));
             }
         }
-        if definition
-            .receiver_ranges_m
-            .iter()
-            .any(|range| *range < 0.0)
-            || definition
-                .receiver_ranges_m
-                .windows(2)
-                .any(|pair| pair[1] <= pair[0])
-        {
-            diagnostics.push(error(
-                "receiver_ranges_m",
-                "receiver ranges must be non-negative and strictly increasing",
-            ));
-        }
-        if definition.receiver_offsets_m.len() != definition.receiver_depths_m.len()
-            || definition
-                .receiver_offsets_m
-                .iter()
-                .any(|offset| !offset.is_finite())
-        {
-            diagnostics.push(error(
-                "receiver_offsets_m",
-                "receiver offsets must be finite and match receiver-depth count",
-            ));
-        }
-        if definition.source_geometry == SourceGeometry::Point
-            && definition.receiver_ranges_m.first().is_some_and(|&range| {
-                definition
-                    .receiver_offsets_m
-                    .iter()
-                    .any(|&offset| !(range + offset).is_finite() || range + offset < 0.0)
-            })
-        {
-            diagnostics.push(error(
-                "receiver_offsets_m",
-                "point-source effective ranges must be finite and non-negative",
-            ));
-        }
+        validate_ranges_and_offsets(
+            &definition,
+            &definition.receiver_ranges_m,
+            &definition.receiver_offsets_m,
+            &mut diagnostics,
+        );
         if let (Some(first), Some(last)) = (
             definition.mode_sample_depths_m.first(),
             definition.mode_sample_depths_m.last(),
@@ -378,17 +343,7 @@ impl Case {
                 "FIELD depths must lie within one reference wavelength of the mode-sample interval",
             ));
         }
-        let field_samples = definition
-            .source_depths_m
-            .len()
-            .checked_mul(definition.receiver_depths_m.len())
-            .and_then(|count| count.checked_mul(definition.receiver_ranges_m.len()));
-        if field_samples.is_none_or(|count| count > MAX_FIELD_SAMPLES) {
-            diagnostics.push(error(
-                "field_grid",
-                format!("field grid may not exceed {MAX_FIELD_SAMPLES} samples"),
-            ));
-        }
+        validate_field_size(&definition, &definition.receiver_ranges_m, &mut diagnostics);
 
         if diagnostics.diagnostics.is_empty() {
             Ok(Self(definition))
@@ -599,4 +554,88 @@ pub(crate) fn input_values(case: &Case) -> usize {
                 _ => 0,
             })
             .sum::<usize>()
+}
+
+// Shared by validated cases and prepared-mode queries; keep the same diagnostic order.
+pub(crate) fn validate_field_query(
+    definition: &CaseDefinition,
+    receiver_ranges_m: &[f64],
+    receiver_offsets_m: &[f64],
+) -> Result<(), DiagnosticReport> {
+    let mut diagnostics = DiagnosticReport::default();
+    validate_ranges_and_offsets(
+        definition,
+        receiver_ranges_m,
+        receiver_offsets_m,
+        &mut diagnostics,
+    );
+    validate_field_size(definition, receiver_ranges_m, &mut diagnostics);
+    if diagnostics.diagnostics.is_empty() {
+        Ok(())
+    } else {
+        Err(diagnostics)
+    }
+}
+
+fn validate_ranges_and_offsets(
+    definition: &CaseDefinition,
+    receiver_ranges_m: &[f64],
+    receiver_offsets_m: &[f64],
+    diagnostics: &mut DiagnosticReport,
+) {
+    if receiver_ranges_m.is_empty() || receiver_ranges_m.len() > MAX_VECTOR_LENGTH {
+        diagnostics.push(error(
+            "receiver_ranges_m",
+            "vector length is outside the supported range",
+        ));
+    }
+    if receiver_ranges_m.iter().any(|value| !value.is_finite()) {
+        diagnostics.push(error("receiver_ranges_m", "values must be finite"));
+    }
+    if receiver_ranges_m.iter().any(|range| *range < 0.0)
+        || receiver_ranges_m.windows(2).any(|pair| pair[1] <= pair[0])
+    {
+        diagnostics.push(error(
+            "receiver_ranges_m",
+            "receiver ranges must be non-negative and strictly increasing",
+        ));
+    }
+    if receiver_offsets_m.len() != definition.receiver_depths_m.len()
+        || receiver_offsets_m.iter().any(|offset| !offset.is_finite())
+    {
+        diagnostics.push(error(
+            "receiver_offsets_m",
+            "receiver offsets must be finite and match receiver-depth count",
+        ));
+    }
+    if definition.source_geometry == SourceGeometry::Point
+        && receiver_ranges_m.first().is_some_and(|&range| {
+            receiver_offsets_m
+                .iter()
+                .any(|&offset| !(range + offset).is_finite() || range + offset < 0.0)
+        })
+    {
+        diagnostics.push(error(
+            "receiver_offsets_m",
+            "point-source effective ranges must be finite and non-negative",
+        ));
+    }
+}
+
+fn validate_field_size(
+    definition: &CaseDefinition,
+    receiver_ranges_m: &[f64],
+    diagnostics: &mut DiagnosticReport,
+) {
+    let field_samples = definition
+        .source_depths_m
+        .len()
+        .checked_mul(definition.receiver_depths_m.len())
+        .and_then(|count| count.checked_mul(receiver_ranges_m.len()));
+    if field_samples.is_none_or(|count| count > MAX_FIELD_SAMPLES) {
+        diagnostics.push(error(
+            "field_grid",
+            format!("field grid may not exceed {MAX_FIELD_SAMPLES} samples"),
+        ));
+    }
 }

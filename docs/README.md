@@ -30,7 +30,8 @@ supported, and the known limits.
 KRAKEN topics: [multi-profile FIELD](kraken/field.md) ·
 [elastic half-spaces](kraken/elastic-halfspaces.md) ·
 [finite elastic layers](kraken/finite-elastic-layers.md) ·
-[rough interfaces](kraken/roughness.md)
+[rough interfaces](kraken/roughness.md) ·
+[reusing modes from Rust](kraken/prepared-modes.md)
 
 ## Output formats
 

@@ -1,7 +1,7 @@
 # KRAKEN implementation map
 
 The public test surface remains `Case::from_definition`, the legacy/JSON
-loaders, `solve`, `solve_complex_modes`, `solve_field` and `solve_frequencies`. Numerical acceptance
+loaders, `solve`, `solve_complex_modes`, `prepare_modes`, `PreparedModes::field`, `solve_field` and `solve_frequencies`. Numerical acceptance
 is still the [fixed compatibility target](../kraken/compatibility.md); this map
 adds no physics or new acceptance requirements.
 
@@ -89,6 +89,10 @@ all blocks must share one backend; a mismatched block returns `KR0201` before
 numerical work, including for multi-profile blocks. Independent
 `solve`/`solve_field` calls reset the bound. HDF5 legacy/JSON execution and API
 differential checks share this Interface; no global solver state is used.
+
+`prepared.rs` keeps a real-KRAKEN Case with its `ModeSet`. `PreparedModes::field`
+validates new ranges and offsets with the Case rules, then calls the same
+`tabulate_field_query` as `solve`, so it adds no separate FIELD arithmetic.
 
 FIELD synthesis and multi-profile propagation still own their intentionally
 different precision/operation grouping. N² complex-speed interpolation computes

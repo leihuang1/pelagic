@@ -3,6 +3,8 @@ pub(crate) mod elastic;
 mod field;
 pub(crate) mod layers;
 mod modes;
+mod prepared;
+pub use prepared::{PreparedModes, prepare_modes};
 #[cfg(test)]
 pub(crate) mod pekeris;
 pub(crate) mod profile;
@@ -65,11 +67,28 @@ fn synthesize_field(case: &Case, mode_set: &ModeSet) -> Result<PressureField, Di
     tabulate_field(case, mode_set, PHASE_TABLE_VALUES)
 }
 
-/// FIELD with range-phase and source-amplitude tables of at most about
-/// `table_values` modal terms each; the table size never changes the result.
-#[allow(clippy::too_many_lines)]
 fn tabulate_field(
     case: &Case,
+    mode_set: &ModeSet,
+    table_values: usize,
+) -> Result<PressureField, DiagnosticReport> {
+    tabulate_field_query(
+        case,
+        &case.receiver_ranges_m,
+        &case.receiver_offsets_m,
+        mode_set,
+        table_values,
+    )
+}
+
+/// FIELD at these ranges and offsets, with every other setting taken from `case`.
+/// Range-phase and source-amplitude tables hold at most about `table_values`
+/// modal terms each; the table size never changes the result.
+#[allow(clippy::too_many_lines)]
+fn tabulate_field_query(
+    case: &Case,
+    receiver_ranges_m: &[f64],
+    receiver_offsets_m: &[f64],
     mode_set: &ModeSet,
     table_values: usize,
 ) -> Result<PressureField, DiagnosticReport> {
@@ -78,7 +97,7 @@ fn tabulate_field(
         .source_depths_m
         .len()
         .checked_mul(case.receiver_depths_m.len())
-        .and_then(|count| count.checked_mul(case.receiver_ranges_m.len()))
+        .and_then(|count| count.checked_mul(receiver_ranges_m.len()))
         .ok_or_else(|| error("KR0302", "field grid size overflow", "field_grid"))?;
     if sample_count > MAX_FIELD_SAMPLES
         || sample_count
@@ -144,7 +163,7 @@ fn tabulate_field(
             .collect()
     };
     let receiver_count = case.receiver_depths_m.len();
-    let range_count = case.receiver_ranges_m.len();
+    let range_count = receiver_ranges_m.len();
     let range_capacity = table_values / mode_count.max(1);
     // Fewer than eight ranges would mostly sum padding.
     let range_lanes = range_count >= FIELD_RANGE_LANES && range_capacity >= FIELD_RANGE_LANES;
@@ -157,7 +176,7 @@ fn tabulate_field(
     .clamp(1, range_count.max(1));
     let source_batch = range_capacity.max(1);
     let mut pressure = vec![Complex64::new(0.0, 0.0); sample_count];
-    for (block_index, ranges) in case.receiver_ranges_m.chunks(block_len).enumerate() {
+    for (block_index, ranges) in receiver_ranges_m.chunks(block_len).enumerate() {
         let phases = if range_lanes && ranges.len() >= FIELD_RANGE_LANES {
             FieldPhases::RangeLanes(crate::parallelism::map(
                 ranges.len().div_ceil(FIELD_RANGE_LANES),
@@ -210,7 +229,7 @@ fn tabulate_field(
                 crate::cancellation::check()?;
                 let receiver_index = row % receiver_count;
                 let receiver_depth = case.receiver_depths_m[receiver_index];
-                let receiver_offset = case.receiver_offsets_m[receiver_index];
+                let receiver_offset = receiver_offsets_m[receiver_index];
                 let offset_shapes: Vec<_> = modes
                     .iter()
                     .zip(&amplitudes[row / receiver_count])
@@ -302,8 +321,8 @@ fn tabulate_field(
     Ok(PressureField {
         source_depths_m: case.source_depths_m.clone(),
         receiver_depths_m: case.receiver_depths_m.clone(),
-        receiver_ranges_m: case.receiver_ranges_m.clone(),
-        receiver_offsets_m: case.receiver_offsets_m.clone(),
+        receiver_ranges_m: receiver_ranges_m.to_vec(),
+        receiver_offsets_m: receiver_offsets_m.to_vec(),
         pressure,
     })
 }
