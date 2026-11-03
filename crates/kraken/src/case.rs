@@ -316,7 +316,6 @@ impl Case {
                 diagnostics.push(error(field, "depths must lie in water"));
             }
         }
-        validate_range_values(&definition.receiver_ranges_m, &mut diagnostics);
         validate_ranges_and_offsets(
             &definition,
             &definition.receiver_ranges_m,
@@ -564,7 +563,6 @@ pub(crate) fn validate_field_query(
     receiver_offsets_m: &[f64],
 ) -> Result<(), DiagnosticReport> {
     let mut diagnostics = DiagnosticReport::default();
-    validate_range_values(receiver_ranges_m, &mut diagnostics);
     validate_ranges_and_offsets(
         definition,
         receiver_ranges_m,
@@ -579,24 +577,21 @@ pub(crate) fn validate_field_query(
     }
 }
 
-fn validate_range_values(values: &[f64], diagnostics: &mut DiagnosticReport) {
-    if values.is_empty() || values.len() > MAX_VECTOR_LENGTH {
-        diagnostics.push(error(
-            "receiver_ranges_m",
-            "vector length is outside the supported range",
-        ));
-    }
-    if values.iter().any(|value| !value.is_finite()) {
-        diagnostics.push(error("receiver_ranges_m", "values must be finite"));
-    }
-}
-
 fn validate_ranges_and_offsets(
     definition: &CaseDefinition,
     receiver_ranges_m: &[f64],
     receiver_offsets_m: &[f64],
     diagnostics: &mut DiagnosticReport,
 ) {
+    if receiver_ranges_m.is_empty() || receiver_ranges_m.len() > MAX_VECTOR_LENGTH {
+        diagnostics.push(error(
+            "receiver_ranges_m",
+            "vector length is outside the supported range",
+        ));
+    }
+    if receiver_ranges_m.iter().any(|value| !value.is_finite()) {
+        diagnostics.push(error("receiver_ranges_m", "values must be finite"));
+    }
     if receiver_ranges_m.iter().any(|range| *range < 0.0)
         || receiver_ranges_m.windows(2).any(|pair| pair[1] <= pair[0])
     {

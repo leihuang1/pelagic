@@ -86,11 +86,9 @@ impl PreparedModes {
         crate::cancellation::check()?;
         crate::case::validate_field_query(&self.case, receiver_ranges_m, receiver_offsets_m)?;
         super::tabulate_field_query(
-            super::FieldQuery {
-                case: &self.case,
-                receiver_ranges_m,
-                receiver_offsets_m,
-            },
+            &self.case,
+            receiver_ranges_m,
+            receiver_offsets_m,
             &self.modes,
             super::PHASE_TABLE_VALUES,
         )
