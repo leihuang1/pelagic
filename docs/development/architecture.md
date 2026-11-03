@@ -69,8 +69,7 @@ the [porting map](porting-map.md) links Rust modules to the Fortran sources.
 - `native-output/src/{bellhop,kraken}.rs` write the native products. `native.rs`
   shares only record and primitive I/O.
 - `native-output/src/directory.rs` publishes a file group: verified ownership,
-  exclusive lock and scratch, and rollback on handled errors. The single-file
-  publisher remains for Rust callers. The rules are in
+  exclusive lock and scratch, and rollback on handled errors. The rules are in
   [native output](../guide/native-output.md#ownership-quota-and-failure-contract).
 - BELLHOP's `result::FieldGrid` yields pressure depth-major for native SHD and
   Python, without changing the range-major solver/HDF5 layout.

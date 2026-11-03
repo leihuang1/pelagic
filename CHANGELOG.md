@@ -18,6 +18,10 @@ in the [interface contract](docs/development/interface-contract.md).
   inputs remain frozen, including `max_range_m`, so choose it for the farthest
   range you will query. Queries use the existing arithmetic and limits. See
   [mode reuse](docs/kraken/prepared-modes.md). Existing solve APIs are unchanged.
+- **Unused single-file HDF5 functions removed from Rust.** Nothing in this
+  repository called `output::bellhop::write_hdf5_atomic`, `output::kraken::run_legacy`
+  or `output::kraken::run_json`; the CLI already publishes through result
+  directories, and its behaviour does not change.
 
 ## 0.6.1 — 2026-11-02
 

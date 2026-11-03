@@ -14,7 +14,6 @@ use kraken::{
 use sha2::{Digest, Sha256};
 
 use super::hdf5::{hdf5_error, write_scalar_attribute, write_string_attribute};
-use super::publication::{check_file_size, publish};
 
 pub const SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_MAX_OUTPUT_BYTES: u64 = 256 * 1024 * 1024;
@@ -64,80 +63,6 @@ impl From<String> for RunError {
     }
 }
 
-/// Solve one supported legacy pair and publish a complete, versioned HDF5 result.
-///
-/// Exact input snapshots are parsed and hashed once. Frequencies are solved/written
-/// sequentially; no collection of all frequency results is retained. Dataset payload
-/// and flushed file size are bounded by `max_output_bytes` (default 256 MiB in the CLI).
-/// Existing per-frequency numerical work limits remain unchanged.
-///
-/// Publication is atomic: without `overwrite`, a hard link refuses an existing
-/// destination, including one created during the run. With it, rename replaces the
-/// old output only after every frequency succeeds. Inputs cannot be destinations.
-/// A pre-existing `<output>.tmp` is never truncated or removed.
-///
-/// # Errors
-///
-/// Returns input diagnostics, numerical diagnostics, or a quota/filesystem/HDF5 error.
-/// No incomplete result is published on failure.
-pub fn run_legacy(
-    env_path: &Path,
-    flp_path: &Path,
-    output_path: &Path,
-    solver: ModeSolver,
-    overwrite: bool,
-    max_output_bytes: u64,
-) -> Result<RunSummary, RunError> {
-    if max_output_bytes == 0 {
-        return Err(RunError::Output("max_output_bytes must be positive".into()));
-    }
-    let input = kraken::input::load_legacy(env_path, flp_path, solver).map_err(RunError::Input)?;
-    let snapshots: Vec<_> = input
-        .snapshots()
-        .iter()
-        .map(|snapshot| (snapshot.role(), snapshot.path(), snapshot.source()))
-        .collect();
-    run_cases(
-        input.cases(),
-        &snapshots,
-        output_path,
-        overwrite,
-        max_output_bytes,
-    )
-}
-
-/// Run a strict self-contained JSON snapshot without reading auxiliary files.
-/// `solver`, if supplied, must match the document; it never overrides its physics.
-/// Uses the same quotas, HDF5 v1 writer and atomic publication as `run_legacy`.
-/// # Errors
-/// Returns input, numerical or output errors; no incomplete product is published.
-pub fn run_json(
-    path: &Path,
-    output_path: &Path,
-    solver: Option<ModeSolver>,
-    overwrite: bool,
-    max_output_bytes: u64,
-) -> Result<RunSummary, RunError> {
-    let source = read_source(path)?;
-    let cases =
-        kraken::json::load_case_document_named(source.as_bytes(), path).map_err(RunError::Input)?;
-    if solver.is_some_and(|solver| solver != cases[0].profiles()[0].mode_solver) {
-        return Err(RunError::Input(input_report(
-            path,
-            "KR0202",
-            "--solver must match the JSON document",
-            "mode_solver",
-        )));
-    }
-    run_cases(
-        &cases,
-        &[("json", path, source.as_str())],
-        output_path,
-        overwrite,
-        max_output_bytes,
-    )
-}
-
 fn check_field_payload(cases: &[FieldCase], max_output_bytes: u64) -> Result<(), RunError> {
     if max_output_bytes == 0 {
         return Err(RunError::Output("max_output_bytes must be positive".into()));
@@ -159,32 +84,6 @@ fn check_field_payload(cases: &[FieldCase], max_output_bytes: u64) -> Result<(),
         )));
     }
     Ok(())
-}
-
-fn run_cases(
-    cases: &[FieldCase],
-    inputs: &[(&str, &Path, &str)],
-    output_path: &Path,
-    overwrite: bool,
-    max_output_bytes: u64,
-) -> Result<RunSummary, RunError> {
-    check_field_payload(cases, max_output_bytes)?;
-    publish(
-        output_path,
-        &inputs.iter().map(|(_, path, _)| *path).collect::<Vec<_>>(),
-        overwrite,
-        Some(max_output_bytes),
-        "KR0402",
-        |file, temporary| {
-            write_run(
-                cases,
-                inputs,
-                Some((file, temporary)),
-                None,
-                max_output_bytes,
-            )
-        },
-    )
 }
 
 /// Run legacy inputs once and publish selected CLI formats as a protected file group.
@@ -221,6 +120,7 @@ pub fn run_legacy_input_directory(
     run_directory(
         input.cases(),
         &snapshots,
+        &snapshots.iter().map(|(_, p, _)| *p).collect::<Vec<_>>(),
         output,
         &super::directory::stem(env)?,
         format,
@@ -264,7 +164,7 @@ pub fn run_json_source_directory(
             "mode_solver",
         )));
     }
-    run_directory_protected(
+    run_directory(
         &cases,
         &[("json", path, source)],
         protected_inputs,
@@ -276,25 +176,6 @@ pub fn run_json_source_directory(
 }
 
 fn run_directory(
-    cases: &[FieldCase],
-    inputs: &[(&str, &Path, &str)],
-    output: &Path,
-    stem: &str,
-    format: super::directory::Format,
-    maximum: u64,
-) -> Result<RunSummary, RunError> {
-    run_directory_protected(
-        cases,
-        inputs,
-        &inputs.iter().map(|(_, p, _)| *p).collect::<Vec<_>>(),
-        output,
-        stem,
-        format,
-        maximum,
-    )
-}
-
-fn run_directory_protected(
     cases: &[FieldCase],
     inputs: &[(&str, &Path, &str)],
     protected_inputs: &[&Path],
@@ -314,7 +195,7 @@ fn run_directory_protected(
             cases,
             inputs,
             file.as_ref().map(|f| (f, path.as_path())),
-            Some((scratch, stem, format)),
+            (scratch, stem, format),
             maximum,
         )?;
         if let Some(file) = file {
@@ -324,12 +205,12 @@ fn run_directory_protected(
     })
 }
 
-#[allow(clippy::too_many_lines, clippy::unnecessary_debug_formatting)] // Quote input paths so embedded newlines cannot spoof report fields.
+#[allow(clippy::unnecessary_debug_formatting)] // Quote input paths so embedded newlines cannot spoof report fields.
 fn write_run(
     cases: &[FieldCase],
     inputs: &[(&str, &Path, &str)],
     hdf5: Option<(&File, &Path)>,
-    directory: Option<(&Path, &str, super::directory::Format)>,
+    (root, stem, format): (&Path, &str, super::directory::Format),
     maximum: u64,
 ) -> Result<RunSummary, RunError> {
     let mut budget = Budget {
@@ -343,21 +224,17 @@ fn write_run(
     } else {
         None
     };
-    let mut report = directory
-        .map(|(root, stem, _)| native_output::create(&root.join(format!("{stem}.prt"))))
-        .transpose()
+    let mut report = native_output::create(&root.join(format!("{stem}.prt")))
         .map_err(|e| RunError::Output(e.to_string()))?;
-    if let Some(report) = &mut report {
-        writeln!(report, "Pelagic {} KRAKEN run report (not the Fortran PRT format)\nreference: Acoustics Toolbox v2023.5\nformat: {:?}\nmax_output_bytes: {maximum}", env!("CARGO_PKG_VERSION"), directory.unwrap().2).map_err(|e| e.to_string())?;
-        for (role, path, source) in inputs {
-            writeln!(
-                report,
-                "input {role}: {:?} sha256={:x}",
-                path.as_os_str(),
-                Sha256::digest(source.as_bytes())
-            )
-            .map_err(|e| e.to_string())?;
-        }
+    writeln!(report, "Pelagic {} KRAKEN run report (not the Fortran PRT format)\nreference: Acoustics Toolbox v2023.5\nformat: {format:?}\nmax_output_bytes: {maximum}", env!("CARGO_PKG_VERSION")).map_err(|e| e.to_string())?;
+    for (role, path, source) in inputs {
+        writeln!(
+            report,
+            "input {role}: {:?} sha256={:x}",
+            path.as_os_str(),
+            Sha256::digest(source.as_bytes())
+        )
+        .map_err(|e| e.to_string())?;
     }
     let mut summary = RunSummary {
         frequency_count: cases.len(),
@@ -381,24 +258,20 @@ fn write_run(
             write_frequency(&group, case, &result, &mut budget, file, path)?;
             check_file(file, path, maximum)?;
         }
-        if let Some((root, stem, format)) = directory {
-            let name = if cases.len() == 1 {
-                stem.to_owned()
-            } else {
-                format!("{stem}.f{index:04}")
-            };
-            if format.legacy() {
-                super::kraken_native::write(root, &name, case, &result, maximum)?;
-            }
-            if let Some(report) = &mut report {
-                writeln!(report, "frequency[{index}] {} Hz; native_stem={name}; profiles={} ranges_m={:?}; modes={:?}; pressures={}", case.profiles()[0].frequency_hz, case.profiles().len(), case.ranges_m(), result.modes.iter().map(|m| m.modes.len()).collect::<Vec<_>>(), result.field.pressure.len()).map_err(|e| e.to_string())?;
-                for (profile, environment) in case.profiles().iter().enumerate() {
-                    writeln!(report, "  profile[{profile}] title={:?}; solver={:?}; mesh_reference_frequency_hz={}; source_geometry={:?}; mode_addition={:?}", environment.title, environment.mode_solver, environment.mesh_reference_frequency_hz.unwrap_or(environment.frequency_hz), environment.source_geometry, environment.mode_addition).map_err(|e| e.to_string())?;
-                }
-                report.flush().map_err(|e| e.to_string())?;
-            }
-            super::directory::check_quota(root, Some(maximum))?;
+        let name = if cases.len() == 1 {
+            stem.to_owned()
+        } else {
+            format!("{stem}.f{index:04}")
+        };
+        if format.legacy() {
+            super::kraken_native::write(root, &name, case, &result, maximum)?;
         }
+        writeln!(report, "frequency[{index}] {} Hz; native_stem={name}; profiles={} ranges_m={:?}; modes={:?}; pressures={}", case.profiles()[0].frequency_hz, case.profiles().len(), case.ranges_m(), result.modes.iter().map(|m| m.modes.len()).collect::<Vec<_>>(), result.field.pressure.len()).map_err(|e| e.to_string())?;
+        for (profile, environment) in case.profiles().iter().enumerate() {
+            writeln!(report, "  profile[{profile}] title={:?}; solver={:?}; mesh_reference_frequency_hz={}; source_geometry={:?}; mode_addition={:?}", environment.title, environment.mode_solver, environment.mesh_reference_frequency_hz.unwrap_or(environment.frequency_hz), environment.source_geometry, environment.mode_addition).map_err(|e| e.to_string())?;
+        }
+        report.flush().map_err(|e| e.to_string())?;
+        super::directory::check_quota(root, Some(maximum))?;
         summary.mode_count += result
             .modes
             .iter()
@@ -415,9 +288,7 @@ fn write_run(
         write_scalar_attribute(file, "pressure_count", &summary.pressure_count)?;
         check_file(file, path, maximum)?;
     }
-    if let Some(mut report) = report {
-        report.flush().map_err(|e| e.to_string())?;
-    }
+    report.flush().map_err(|e| e.to_string())?;
     Ok(summary)
 }
 
@@ -467,7 +338,10 @@ fn check_file(file: &File, path: &Path, maximum: u64) -> Result<(), String> {
     // ponytail: physical quota checked after header/profile/frequency flushes; a bounded HDF5 VFD
     // is needed for a strict in-write disk quota, not for sequential bounded results.
     file.flush().map_err(hdf5_error)?;
-    check_file_size(path, maximum)
+    if fs::metadata(path).map_err(|error| error.to_string())?.len() > maximum {
+        return Err(format!("HDF5 file exceeds {maximum} bytes"));
+    }
+    Ok(())
 }
 
 fn write_header(

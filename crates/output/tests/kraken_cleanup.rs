@@ -1,14 +1,15 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use kraken::ModeSolver;
-use output::kraken::{DEFAULT_MAX_OUTPUT_BYTES, RunError, run_legacy};
+use output::directory::{Format, verified_manifest_sha256};
+use output::kraken::{
+    DEFAULT_MAX_OUTPUT_BYTES, RunError, run_json_directory, run_legacy_directory,
+};
 
 #[test]
 fn field_payload_admission_precedes_solving_and_publication_for_every_entry() {
-    use output::directory::Format;
-    use output::kraken::{run_json, run_json_directory, run_legacy_directory};
-
     let directory = std::env::temp_dir().join(format!("kraken-admission-{}", std::process::id()));
     fs::create_dir(&directory).unwrap();
     let fixture =
@@ -49,15 +50,6 @@ fn field_payload_admission_precedes_solving_and_publication_for_every_entry() {
                 "admission created scratch or locks"
             );
         };
-        check(run_legacy(
-            &env,
-            &flp,
-            &output,
-            ModeSolver::Kraken,
-            true,
-            maximum,
-        ));
-        check(run_json(&json, &output, None, true, maximum));
         for format in [Format::Legacy, Format::Hdf5, Format::Both] {
             check(run_legacy_directory(
                 &env,
@@ -73,6 +65,20 @@ fn field_payload_admission_precedes_solving_and_publication_for_every_entry() {
     fs::remove_dir_all(directory).unwrap();
 }
 
+/// Artifact bytes by name. Reading fails on a directory, so left-behind scratch panics here.
+fn snapshot(root: &Path) -> BTreeMap<String, Vec<u8>> {
+    fs::read_dir(root)
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            (
+                entry.file_name().into_string().unwrap(),
+                fs::read(entry.path()).unwrap(),
+            )
+        })
+        .collect()
+}
+
 #[test]
 fn failed_runs_release_scratch_before_retry_in_the_same_process() {
     let directory = std::env::temp_dir().join(format!("kraken-cleanup-{}", std::process::id()));
@@ -82,46 +88,64 @@ fn failed_runs_release_scratch_before_retry_in_the_same_process() {
     let source = fs::read_to_string(fixture.with_extension("env")).unwrap();
     let env = directory.join("case.env");
     let flp = directory.join("case.flp");
-    let output = directory.join("result.h5");
-    let scratch = directory.join("result.h5.tmp");
+    let output = directory.join("result");
     fs::copy(fixture.with_extension("flp"), &flp).unwrap();
-    let run = |quota| run_legacy(&env, &flp, &output, ModeSolver::Kraken, true, quota);
-    for simulation_failure in [false, true] {
-        fs::write(&output, b"previous complete result").unwrap();
-        fs::write(
-            &env,
-            if simulation_failure {
-                source.replace("75.0 50.0 62.5 /", "75.0 5.0 62.5 /")
+    for format in [Format::Hdf5, Format::Both] {
+        let run =
+            |quota| run_legacy_directory(&env, &flp, &output, ModeSolver::Kraken, format, quota);
+        for simulation_failure in [false, true] {
+            // Different input bytes, so that the retry must replace these artifacts.
+            fs::write(&env, source.replacen("Derived", "Previous", 1)).unwrap();
+            run(DEFAULT_MAX_OUTPUT_BYTES).unwrap();
+            let previous = snapshot(&output);
+            let previous_manifest = verified_manifest_sha256(&output).unwrap();
+            fs::write(
+                &env,
+                if simulation_failure {
+                    source.replace("75.0 50.0 62.5 /", "75.0 5.0 62.5 /")
+                } else {
+                    source.clone()
+                },
+            )
+            .unwrap();
+            let error = run(if simulation_failure {
+                DEFAULT_MAX_OUTPUT_BYTES
             } else {
-                source.clone()
-            },
-        )
-        .unwrap();
-        let error = run(if simulation_failure {
-            DEFAULT_MAX_OUTPUT_BYTES
-        } else {
-            4096
-        })
-        .unwrap_err();
-        if simulation_failure {
-            assert!(matches!(
-                error,
-                RunError::Simulation {
-                    frequency_index: 1,
-                    ..
-                }
-            ));
-        } else {
-            assert!(
-                matches!(error, RunError::Output(ref message) if message.contains("HDF5 file exceeds"))
+                4096
+            })
+            .unwrap_err();
+            if simulation_failure {
+                assert!(matches!(
+                    error,
+                    RunError::Simulation {
+                        frequency_index: 1,
+                        ..
+                    }
+                ));
+            } else {
+                assert!(
+                    matches!(error, RunError::Output(ref message) if message.contains("HDF5 file exceeds"))
+                );
+            }
+            assert_eq!(snapshot(&output), previous, "failed run changed its output");
+            // Do not rely on subprocess exit to release HDF5 resources before retry. Only Windows
+            // can observe a leak here, because Unix removes a file that is still open.
+            fs::write(&env, &source).unwrap();
+            assert_eq!(run(DEFAULT_MAX_OUTPUT_BYTES).unwrap().frequency_count, 3);
+            assert_ne!(
+                verified_manifest_sha256(&output).unwrap(),
+                previous_manifest
+            );
+            assert_eq!(
+                hdf5::File::open(output.join("case.h5"))
+                    .unwrap()
+                    .attr("frequency_count")
+                    .unwrap()
+                    .read_scalar::<u64>()
+                    .unwrap(),
+                3
             );
         }
-        assert!(!scratch.exists(), "failed run left its scratch file");
-        assert_eq!(fs::read(&output).unwrap(), b"previous complete result");
-        // Do not rely on subprocess exit to release HDF5 resources before retry.
-        fs::write(&env, &source).unwrap();
-        assert_eq!(run(DEFAULT_MAX_OUTPUT_BYTES).unwrap().frequency_count, 3);
-        assert!(!scratch.exists());
     }
     fs::remove_dir_all(directory).unwrap();
 }

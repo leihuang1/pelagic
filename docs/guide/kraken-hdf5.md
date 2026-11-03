@@ -71,18 +71,16 @@ builds it using the existing static HDF5 dependency. See the [CLI guide](cli.md)
   frequency index and Hz value. Unsupported combinations are rejected; the
   pinned KRAKEN elastic-loss limitation above is explicitly retained.
 
-Exit 0 and successful HDF5 publication certify completion, not fixed-oracle
+Exit 0 and a published `CASE.h5` certify completion, not fixed-oracle
 parity for arbitrary inputs. The former
 [wide three-layer refinement exception](../history/krakenc-three-layer-refinement.md) is fixed:
 its natural four-mode KRAKENC spectrum and complete legacy/JSON HDF5 products now
 pass the pinned reference. This does not add a runtime parity-certification flag.
 
-Rust adapters may call `output::kraken::run_legacy` with input/output
-paths, engine, overwrite policy and byte quota, or `run_json` for one JSON
-snapshot with an optional matching engine assertion. These existing Rust APIs
-retain single-file publication; CLI uses `run_legacy_directory` or
-`run_json_directory`, sharing the same HDF5 writer and ordered solve iterator.
-The numerical `kraken` crate
+The CLI runs through `output::kraken`: `run_legacy_directory` for a legacy pair,
+or `run_json_directory` for one JSON snapshot with an optional matching engine
+assertion. Stdin and `run-many` use their forms for already-read inputs. All
+share one HDF5 writer and ordered solve iterator. The numerical `kraken` crate
 has no production HDF5 dependency.
 
 ## Resource limits and publication
@@ -103,10 +101,11 @@ The default cumulative output limit is **268,435,456 bytes (256 MiB)**;
 `--max-output-bytes N` accepts a positive override. All FIELD float32 payloads
 are admitted against it before numerical work. Numeric dataset payloads are
 charged cumulatively before writing; actual HDF5 file size, including metadata,
-is checked after the header, each frequency flush, final summary attributes,
-and HDF5 close before publication. CLI additionally checks cumulative physical
-bytes across all selected native/HDF5 products, report and manifest; see
-[the group quota/failure contract](native-output.md).
+is checked after the header, each profile of a multi-profile frequency, each
+frequency flush and final summary attributes.
+Cumulative physical bytes across all selected native/HDF5 products and the report
+are checked after each frequency, and again with the manifest after HDF5 close,
+before installation; see [the group quota/failure contract](native-output.md).
 A rejected pre-installation run publishes nothing and attempts to remove its owned scratch;
 a cleanup I/O failure is reported as a warning.
 
@@ -117,21 +116,6 @@ frequency**; this output quota is not a cumulative CPU budget, timeout or
 cancellation mechanism. A scratch file can temporarily exceed the physical
 quota during the header or one bounded frequency's writes, before its flush check; there is
 no hard byte-limited HDF5 filesystem driver.
-
-For the retained **Rust single-file APIs** (not CLI group publication), the
-private publication module is shared with BELLHOP; its v3
-schema and absence of a KRAKEN byte quota remain separate. KRAKEN payload
-accounting and header/profile/frequency flush checks stay in the v1 writer;
-the shared publisher checks its existing physical quota again after close.
-
-`<output>.tmp` is exclusively created by HDF5 and is never a truncated
-pre-existing file. After all frequencies succeed, HDF5 flush/close and file
-sync must succeed. Without overwrite, an atomic hard link refuses a destination
-that appeared during execution; with overwrite, an atomic rename replaces the
-old output. Scratch/output paths share a directory/filesystem. Filesystems
-without the required hard-link/rename support return an explicit output error.
-An already existing scratch file is left untouched. Atomic publication is not
-an all-platform power-loss durability guarantee for directory metadata.
 
 ## Root attributes and axes
 

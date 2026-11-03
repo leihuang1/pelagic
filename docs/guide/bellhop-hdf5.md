@@ -9,17 +9,9 @@ Schema version 3 is written by `pelagic bellhop run --format hdf5|both` and
 selected. The CLI defaults to native files; the HTTP protocol does not.
 No KRAKEN byte quota is imposed on BELLHOP.
 
-The existing Rust single-file publisher still exclusively creates
-`<output>.tmp`, writes/closes/syncs schema v3 and installs via an exclusive
-hard link or explicit overwrite rename. It protects consumed inputs and
-symlink aliases, never adopts existing scratch, and requires an existing
-parent with same-filesystem hard-link/rename support. This is not a directory
-power-loss durability guarantee or the new CLI group-installation policy.
-
-Rust callers can use `write_hdf5_atomic` with all consumed input paths for this
-policy. The existing `write_hdf5` remains a low-level path writer for trusted
-private files; the HTTP implementation still uses it in a private temporary
-directory and returns its bytes directly as `application/x-hdf5`.
+The HTTP adapter writes each result with `output::bellhop::write_hdf5`, a
+low-level path writer for trusted private files, in a private temporary
+directory, and returns its bytes directly as `application/x-hdf5`.
 
 ## Root attributes
 

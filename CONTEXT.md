@@ -41,14 +41,10 @@ _Avoid_: All neighboring files
 A complete numerical product in BELLHOP schema v3 or KRAKEN schema v1. Native MOD/SHD/RAY/ARR products use separate pinned reader layouts; Fortran goldens remain fixed comparison evidence, not new Rust outputs.
 _Avoid_: Fortran golden, common solver result
 
-**HDF5 publication**:
-Installing a complete local HDF5 result only after writing, closing and syncing succeeds. Consumed inputs are protected, scratch is exclusively owned, and no-overwrite installation must reject destinations that appear during execution.
-_Avoid_: Best-effort overwrite, early existence check alone
-
 **Native result**:
 An existing solver result serialized for the pinned v2023.5 numerical readers, with explicit precision, units and order. KRAKEN native pairs are per ordered frequency block; irregular BELLHOP arrivals are per paired receiver. Neither adapter changes physics or reconstructs inputs.
 _Avoid_: Fortran-identical bytes, common solver output model
 
 **Result directory**:
-A CLI file group with a bounded ownership manifest, numerical artifacts and a Pelagic run report. Verified owned artifacts are updated by default, stale owned artifacts removed and unrelated files retained. Installation can be rolled back; failed rollback retains named recovery data. This is not an atomic reader snapshot or crash-recovery journal.
-_Avoid_: Atomic directory replacement, all neighboring files are ours
+A CLI file group with a bounded ownership manifest, numerical artifacts and a Pelagic run report. Artifacts install only after writing, closing and syncing succeed. Consumed inputs are protected, scratch is exclusively owned, and destinations that appear during execution are refused. Verified owned artifacts are updated by default, stale owned artifacts removed and unrelated files retained. Installation can be rolled back; failed rollback retains named recovery data. This is not an atomic reader snapshot or crash-recovery journal.
+_Avoid_: Atomic directory replacement, all neighboring files are ours, best-effort overwrite, early existence check alone

@@ -25,7 +25,7 @@ struct Artifact {
     sha256: String,
 }
 
-/// Three CLI formats; HTTP continues using its existing single-file adapter.
+/// The CLI's three formats. HTTP instead returns one HDF5 file it writes privately.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Format {
     Legacy,
@@ -236,7 +236,7 @@ impl Transaction {
             .map_err(message)?;
         check_quota(&self.stage, maximum)?;
         for name in names.iter().map(String::as_str).chain([MANIFEST]) {
-            // Windows FlushFileBuffers requires write access, as in single-file publication.
+            // Windows FlushFileBuffers requires write access.
             fs::OpenOptions::new()
                 .read(true)
                 .write(true)

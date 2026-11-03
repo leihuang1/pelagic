@@ -54,7 +54,7 @@ Cartesian product of every option:
   source patterns and coherent/incoherent addition within its published limits.
   Coupled/incoherent input and unsupported coupling grids are rejected.
 - Ordered discrete frequencies, repetitions, strict [self-contained JSON](json.md)
-  and actual [single-file HDF5 output](../guide/kraken-hdf5.md). Failure stops the
+  and actual [HDF5 output](../guide/kraken-hdf5.md). Failure stops the
   sequence without publishing a successful prefix.
 
 See [legacy syntax, precision and budgets](input.md) for the input contract.
