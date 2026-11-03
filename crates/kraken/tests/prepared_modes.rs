@@ -3,7 +3,10 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::{Arc, atomic::AtomicBool};
 
-use kraken::{Case, DiagnosticReport, ModeSet, PressureField, legacy, prepare_modes, solve};
+use kraken::{
+    Case, DiagnosticReport, ModeSet, PressureField, SourcePatternPoint, legacy, prepare_modes,
+    solve,
+};
 
 fn load(stem: &str) -> Case {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -27,6 +30,14 @@ fn bits(values: &[f64]) -> Vec<u64> {
     values.iter().map(|value| value.to_bits()).collect()
 }
 
+fn pressure_bits(field: &PressureField) -> Vec<(u64, u64)> {
+    field
+        .pressure
+        .iter()
+        .map(|p| (p.re.to_bits(), p.im.to_bits()))
+        .collect()
+}
+
 fn same_field(actual: &PressureField, expected: &PressureField) {
     assert_eq!(
         bits(&actual.source_depths_m),
@@ -44,13 +55,6 @@ fn same_field(actual: &PressureField, expected: &PressureField) {
         bits(&actual.receiver_offsets_m),
         bits(&expected.receiver_offsets_m)
     );
-    let pressure_bits = |field: &PressureField| {
-        field
-            .pressure
-            .iter()
-            .map(|p| (p.re.to_bits(), p.im.to_bits()))
-            .collect::<Vec<_>>()
-    };
     assert_eq!(pressure_bits(actual), pressure_bits(expected));
 }
 
@@ -193,15 +197,14 @@ fn cancellation_does_not_leave_a_partial_or_poisoned_preparation() {
 
 #[test]
 fn prepared_modes_are_owned_and_can_be_shared_by_independent_queries() {
+    fn assert_owned_and_shareable<T: Send + Sync + 'static>() {}
+    assert_owned_and_shareable::<kraken::PreparedModes>();
+
     let base = load("Pekeris");
     let prepared = Arc::new(prepare_modes(&base).unwrap());
     let expected = solve(&base).unwrap();
-    let mut changed = base.into_definition();
-    changed.frequency_hz *= 2.0;
-    changed.mode_sample_depths_m.clear();
-    // Mutating a copy returned from a read-only accessor cannot corrupt preparation.
-    let mut exported_modes = prepared.modes().clone();
-    exported_modes.modes.clear();
+    // Compiles only because the prepared value keeps no borrow of its input.
+    drop(base);
     std::thread::scope(|scope| {
         let handles: Vec<_> = (0..4)
             .map(|_| {
@@ -280,6 +283,66 @@ fn frozen_field_options_and_signed_zero_metadata_match_full_solve() {
             assert_eq!(prepared.case().mode_addition, addition);
         }
     }
+}
+
+#[test]
+fn frozen_source_pattern_matches_full_solve_and_scales_only_the_first_source() {
+    let omnidirectional = load("MunkLossless");
+    assert_eq!(omnidirectional.source_depths_m.len(), 2);
+    let mut definition = omnidirectional.clone().into_definition();
+    definition.source_pattern = [(0.0, 1.0), (15.0, 0.25), (90.0, 0.1)]
+        .map(|(angle_degrees, amplitude)| SourcePatternPoint {
+            angle_degrees,
+            amplitude,
+        })
+        .to_vec();
+    let base = Case::from_definition(definition).unwrap();
+    let prepared = prepare_modes(&base).unwrap();
+    let prepared_without_pattern = prepare_modes(&omnidirectional).unwrap();
+    let offsets = vec![40.0; base.receiver_depths_m.len()];
+    // One range takes the scalar path; seventeen take the 8-lane path with a tail.
+    for range_count in [1, 17] {
+        let ranges: Vec<_> = (0..range_count)
+            .map(|i| 1000.0 + f64::from(i) * 123.0)
+            .collect();
+        let query = query_case(&base, &ranges, &offsets).unwrap();
+        let expected = threads(1, || solve(&query).unwrap());
+        let actual = threads(4, || prepared.field(&ranges, &offsets).unwrap());
+        same_field(&actual, &expected.field);
+        same_modes(prepared.modes(), &expected.modes);
+
+        // Parity alone would also pass if both routes ignored the pattern.
+        let first_source = base.receiver_depths_m.len() * ranges.len();
+        let scaled = pressure_bits(&actual);
+        let unscaled = pressure_bits(&prepared_without_pattern.field(&ranges, &offsets).unwrap());
+        assert_ne!(scaled[..first_source], unscaled[..first_source]);
+        assert_eq!(scaled[first_source..], unscaled[first_source..]);
+    }
+}
+
+#[test]
+fn frozen_mode_limit_caps_the_field_sum_but_keeps_all_prepared_modes() {
+    let all_modes = load("MunkLossless");
+    let mut definition = all_modes.clone().into_definition();
+    definition.mode_limit = 5;
+    let base = Case::from_definition(definition).unwrap();
+    let prepared = prepare_modes(&base).unwrap();
+    assert!(prepared.modes().modes.len() > base.mode_limit);
+    let ranges = [1000.0, 2000.0, 4000.0];
+    let query = query_case(&base, &ranges, &base.receiver_offsets_m).unwrap();
+    let expected = threads(1, || solve(&query).unwrap());
+    let actual = threads(4, || {
+        prepared.field(&ranges, &base.receiver_offsets_m).unwrap()
+    });
+    same_field(&actual, &expected.field);
+    same_modes(prepared.modes(), &expected.modes);
+
+    // Parity alone would also pass if both routes ignored the limit.
+    let unlimited = prepare_modes(&all_modes)
+        .unwrap()
+        .field(&ranges, &base.receiver_offsets_m)
+        .unwrap();
+    assert_ne!(pressure_bits(&actual), pressure_bits(&unlimited));
 }
 
 #[test]
