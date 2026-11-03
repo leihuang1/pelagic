@@ -1134,7 +1134,9 @@ pub(super) fn geo_gaussian_cartesian(
     Ok(())
 }
 
-#[allow(clippy::cast_possible_truncation)]
+// Measured hot path: inline the per-receiver call to optimize candidate fields with the loop.
+#[inline(always)]
+#[allow(clippy::cast_possible_truncation, clippy::inline_always)]
 fn record(
     recorder: &mut Recorder<'_, '_>,
     cell_index: usize,

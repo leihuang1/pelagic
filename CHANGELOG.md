@@ -7,6 +7,11 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster BELLHOP geometric-Gaussian fields.** On a 14-CPU Apple M4 Pro,
+  `pelagic bellhop run` on field cases is about 1.4 times faster on one thread and
+  1.2 to 1.3 times faster on 14, end to end. Arrival runs take about the same time.
+  Results were bit-for-bit unchanged on that machine. See the
+  [experiment record](docs/history/bellhop-performance-experiments.md).
 - **Explicit real-KRAKEN mode reuse in Rust.** Prepare an immutable modal
   solution once, then synthesize range-independent fields at new receiver
   ranges and horizontal offsets without repeating the modal solve. All other
