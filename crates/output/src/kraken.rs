@@ -3,10 +3,11 @@
 
 use std::fmt;
 use std::fs;
-use std::io::{Read, Write};
-use std::path::Path;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use hdf5::{File, Group, H5Type};
+use kraken::input::{FieldInput, InputSnapshot};
 use kraken::{
     Case, DiagnosticReport, FieldCase, FieldPropagation, ModeAddition, ModeSet, ModeSolver,
     PressureField, ProfileSimulationResult, SourceGeometry,
@@ -86,106 +87,24 @@ fn check_field_payload(cases: &[FieldCase], max_output_bytes: u64) -> Result<(),
     Ok(())
 }
 
-/// Run legacy inputs once and publish selected CLI formats as a protected file group.
-/// # Errors
-/// Returns input, ordered numerical, quota or recoverable publication errors.
-pub fn run_legacy_directory(
-    env: &Path,
-    flp: &Path,
-    output: &Path,
-    solver: ModeSolver,
-    format: super::directory::Format,
-    maximum: u64,
-) -> Result<RunSummary, RunError> {
-    let input = kraken::input::load_legacy(env, flp, solver).map_err(RunError::Input)?;
-    run_legacy_input_directory(env, &input, output, format, maximum)
-}
-
-/// Publish legacy inputs already loaded from `env`, as `run_legacy_directory`
-/// does, without reading them again.
+/// Solve a loaded input once and publish selected CLI formats as a protected file group.
 /// # Errors
 /// Returns ordered numerical, quota or recoverable publication errors.
-pub fn run_legacy_input_directory(
-    env: &Path,
-    input: &kraken::input::FieldInput,
+pub fn run_directory(
+    input: &FieldInput,
     output: &Path,
     format: super::directory::Format,
     maximum: u64,
 ) -> Result<RunSummary, RunError> {
-    let snapshots = input
-        .snapshots()
-        .iter()
-        .map(|s| (s.role(), s.path(), s.source()))
-        .collect::<Vec<_>>();
-    run_directory(
-        input.cases(),
-        &snapshots,
-        &snapshots.iter().map(|(_, p, _)| *p).collect::<Vec<_>>(),
-        output,
-        &super::directory::stem(env)?,
-        format,
-        maximum,
-    )
-}
-
-/// Run self-contained JSON once; an explicit solver remains an assertion, not an override.
-/// # Errors
-/// Returns input, ordered numerical, quota or recoverable publication errors.
-pub fn run_json_directory(
-    path: &Path,
-    output: &Path,
-    solver: Option<ModeSolver>,
-    format: super::directory::Format,
-    maximum: u64,
-) -> Result<RunSummary, RunError> {
-    let source = read_source(path)?;
-    run_json_source_directory(path, &source, &[path], output, solver, format, maximum)
-}
-
-/// Run an exact JSON snapshot, including stdin, without rereading its source.
-/// # Errors
-/// Returns structured input, numerical or publication errors.
-pub fn run_json_source_directory(
-    path: &Path,
-    source: &str,
-    protected_inputs: &[&Path],
-    output: &Path,
-    solver: Option<ModeSolver>,
-    format: super::directory::Format,
-    maximum: u64,
-) -> Result<RunSummary, RunError> {
-    let cases =
-        kraken::json::load_case_document_named(source.as_bytes(), path).map_err(RunError::Input)?;
-    if solver.is_some_and(|s| s != cases[0].profiles()[0].mode_solver) {
-        return Err(RunError::Input(input_report(
-            path,
-            "KR0202",
-            "--solver must match the JSON document",
-            "mode_solver",
-        )));
-    }
-    run_directory(
-        &cases,
-        &[("json", path, source)],
-        protected_inputs,
-        output,
-        &super::directory::stem(path)?,
-        format,
-        maximum,
-    )
-}
-
-fn run_directory(
-    cases: &[FieldCase],
-    inputs: &[(&str, &Path, &str)],
-    protected_inputs: &[&Path],
-    output: &Path,
-    stem: &str,
-    format: super::directory::Format,
-    maximum: u64,
-) -> Result<RunSummary, RunError> {
+    let stem = super::directory::stem(input.path())?;
+    let cases = input.cases();
     check_field_payload(cases, maximum)?;
-    super::directory::publish(output, protected_inputs, Some(maximum), |scratch| {
+    let consumed: Vec<&Path> = input
+        .consumed_inputs()
+        .iter()
+        .map(PathBuf::as_path)
+        .collect();
+    super::directory::publish(output, &consumed, Some(maximum), |scratch| {
         let path = scratch.join(format!("{stem}.h5"));
         let file = format
             .hdf5()
@@ -193,9 +112,9 @@ fn run_directory(
             .transpose()?;
         let summary = write_run(
             cases,
-            inputs,
+            input.snapshots(),
             file.as_ref().map(|f| (f, path.as_path())),
-            (scratch, stem, format),
+            (scratch, &stem, format),
             maximum,
         )?;
         if let Some(file) = file {
@@ -208,7 +127,7 @@ fn run_directory(
 #[allow(clippy::unnecessary_debug_formatting)] // Quote input paths so embedded newlines cannot spoof report fields.
 fn write_run(
     cases: &[FieldCase],
-    inputs: &[(&str, &Path, &str)],
+    inputs: &[InputSnapshot],
     hdf5: Option<(&File, &Path)>,
     (root, stem, format): (&Path, &str, super::directory::Format),
     maximum: u64,
@@ -227,12 +146,13 @@ fn write_run(
     let mut report = native_output::create(&root.join(format!("{stem}.prt")))
         .map_err(|e| RunError::Output(e.to_string()))?;
     writeln!(report, "Pelagic {} KRAKEN run report (not the Fortran PRT format)\nreference: Acoustics Toolbox v2023.5\nformat: {format:?}\nmax_output_bytes: {maximum}", env!("CARGO_PKG_VERSION")).map_err(|e| e.to_string())?;
-    for (role, path, source) in inputs {
+    for input in inputs {
         writeln!(
             report,
-            "input {role}: {:?} sha256={:x}",
-            path.as_os_str(),
-            Sha256::digest(source.as_bytes())
+            "input {}: {:?} sha256={:x}",
+            input.role(),
+            input.path().as_os_str(),
+            Sha256::digest(input.source().as_bytes())
         )
         .map_err(|e| e.to_string())?;
     }
@@ -292,32 +212,6 @@ fn write_run(
     Ok(summary)
 }
 
-/// Read a JSON case as `run_json_directory` does, for callers that need its
-/// snapshot before running it with `run_json_source_directory`.
-/// # Errors
-/// Returns the same input diagnostic as `run_json_directory`.
-pub fn read_source(path: &Path) -> Result<String, RunError> {
-    let mut source = String::new();
-    fs::File::open(path)
-        .and_then(|file| {
-            file.take(kraken::legacy::MAX_INPUT_BYTES + 1)
-                .read_to_string(&mut source)
-        })
-        .map_err(|e| {
-            RunError::Input(input_report(
-                path,
-                "KR0001",
-                &format!("unable to read input: {e}"),
-                "input",
-            ))
-        })?;
-    Ok(source)
-}
-
-fn input_report(path: &Path, code: &'static str, message: &str, field: &str) -> DiagnosticReport {
-    DiagnosticReport::one(kraken::Diagnostic::new(code, message, field, path, 1, 1))
-}
-
 struct Budget {
     payload: u64,
     maximum: u64,
@@ -347,7 +241,7 @@ fn check_file(file: &File, path: &Path, maximum: u64) -> Result<(), String> {
 fn write_header(
     file: &File,
     cases: &[FieldCase],
-    inputs: &[(&str, &Path, &str)],
+    inputs: &[InputSnapshot],
     budget: &mut Budget,
 ) -> Result<(), String> {
     write_scalar_attribute(file, "schema_version", &SCHEMA_VERSION)?;
@@ -391,14 +285,14 @@ fn write_header(
         budget,
     )?;
     let group = file.create_group("inputs").map_err(hdf5_error)?;
-    for (name, path, source) in inputs {
-        let input = group.create_group(name).map_err(hdf5_error)?;
-        write_string_attribute(&input, "filename", &path.to_string_lossy())?;
-        write_scalar_attribute(&input, "size_bytes", &(source.len() as u64))?;
+    for snapshot in inputs {
+        let input = group.create_group(snapshot.role()).map_err(hdf5_error)?;
+        write_string_attribute(&input, "filename", &snapshot.path().to_string_lossy())?;
+        write_scalar_attribute(&input, "size_bytes", &(snapshot.source().len() as u64))?;
         write_string_attribute(
             &input,
             "sha256",
-            &format!("{:x}", Sha256::digest(source.as_bytes())),
+            &format!("{:x}", Sha256::digest(snapshot.source().as_bytes())),
         )?;
     }
     Ok(())

@@ -11,8 +11,8 @@ adds no physics or new acceptance requirements.
 `case.rs` owns Case/FIELD invariants, `diagnostic.rs` diagnostics, and
 `result.rs` numerical products. Numerical files below live in `solver/`.
 
-- `crates/kraken/src/input/mod.rs` owns legacy acquisition and exact consumed-input
-  snapshots; ENV and FLP can own different resource stems.
+- `crates/kraken/src/input/mod.rs` owns the Case intake, legacy acquisition and exact
+  consumed-input snapshots; ENV and FLP can own different resource stems.
 - `input/legacy/mod.rs` owns records, inheritance, profile/frequency ordering, resource
   selection and source-location diagnostics. Single-environment file loading discovers
   top/bottom tables together, then parses again for assembly (two ENV parses, formerly

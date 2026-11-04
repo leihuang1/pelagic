@@ -4,12 +4,10 @@ use std::path::Path;
 
 use kraken::ModeSolver;
 use output::directory::{Format, verified_manifest_sha256};
-use output::kraken::{
-    DEFAULT_MAX_OUTPUT_BYTES, RunError, run_json_directory, run_legacy_directory,
-};
+use output::kraken::{DEFAULT_MAX_OUTPUT_BYTES, RunError, run_directory};
 
 #[test]
-fn field_payload_admission_precedes_solving_and_publication_for_every_entry() {
+fn field_payload_admission_precedes_solving_and_publication_for_every_source_kind() {
     let directory = std::env::temp_dir().join(format!("kraken-admission-{}", std::process::id()));
     fs::create_dir(&directory).unwrap();
     let fixture =
@@ -51,15 +49,10 @@ fn field_payload_admission_precedes_solving_and_publication_for_every_entry() {
             );
         };
         for format in [Format::Legacy, Format::Hdf5, Format::Both] {
-            check(run_legacy_directory(
-                &env,
-                &flp,
-                &output,
-                ModeSolver::Kraken,
-                format,
-                maximum,
-            ));
-            check(run_json_directory(&json, &output, None, format, maximum));
+            for input in [&env, &json] {
+                let input = kraken::input::load(input, None, None).unwrap();
+                check(run_directory(&input, &output, format, maximum));
+            }
         }
     }
     fs::remove_dir_all(directory).unwrap();
@@ -91,8 +84,10 @@ fn failed_runs_release_scratch_before_retry_in_the_same_process() {
     let output = directory.join("result");
     fs::copy(fixture.with_extension("flp"), &flp).unwrap();
     for format in [Format::Hdf5, Format::Both] {
-        let run =
-            |quota| run_legacy_directory(&env, &flp, &output, ModeSolver::Kraken, format, quota);
+        let run = |quota| {
+            let input = kraken::input::load(&env, None, None).unwrap();
+            run_directory(&input, &output, format, quota)
+        };
         for simulation_failure in [false, true] {
             // Different input bytes, so that the retry must replace these artifacts.
             fs::write(&env, source.replacen("Derived", "Previous", 1)).unwrap();

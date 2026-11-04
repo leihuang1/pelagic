@@ -30,12 +30,16 @@ The bounded sequence of meshes retaining raw roots for later seeds, a separate R
 _Avoid_: Shared root solver, extrapolated mode shapes
 
 **Input snapshot**:
-The exact source bytes parsed for an acoustic input, paired with their supplied path and resource role. KRAKEN retains ENV/FLP/TRC/BRC/IRC/SBP snapshots; BELLHOP retains its primary source for existing HDF5 provenance.
+The exact source bytes parsed for an acoustic input, paired with their supplied path and resource role. KRAKEN retains a JSON snapshot or ENV/FLP/TRC/BRC/IRC/SBP snapshots; BELLHOP retains its primary source for existing HDF5 provenance.
 _Avoid_: Reconstructed input, reread provenance
 
 **Consumed input**:
 A primary or auxiliary path actually read under the selected acoustic options. A merely adjacent same-stem file is not a consumed input; ENV and FLP may own different resource stems.
 _Avoid_: All neighboring files
+
+**Case intake**:
+A Module's single path from an input source, a file path or a reader, to one loaded value holding its Cases, input snapshots and consumed inputs. It owns routing, reading, parsing and validation; for KRAKEN also the 1 MiB read bound, the FLP and engine defaults and the solver assertion. Adapters choose the source and do not re-sequence those steps; the exception is `pg.bellhop.load` of a JSON file, which keeps its own read and parse so that its diagnostics stay unchanged. Each Module has its own, and no type crosses between them.
+_Avoid_: Shared loader, adapter-side read, parse and check sequence
 
 **HDF5 result**:
 A complete numerical product in BELLHOP schema v3 or KRAKEN schema v1. Native MOD/SHD/RAY/ARR products use separate pinned reader layouts; Fortran goldens remain fixed comparison evidence, not new Rust outputs.

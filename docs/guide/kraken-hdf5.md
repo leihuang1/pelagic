@@ -77,11 +77,12 @@ parity for arbitrary inputs. The former
 its natural four-mode KRAKENC spectrum and complete legacy/JSON HDF5 products now
 pass the pinned reference. This does not add a runtime parity-certification flag.
 
-The CLI runs through `output::kraken`: `run_legacy_directory` for a legacy pair,
-or `run_json_directory` for one JSON snapshot with an optional matching engine
-assertion. Stdin and `run-many` use their forms for already-read inputs. All
-share one HDF5 writer and ordered solve iterator. The numerical `kraken` crate
-has no production HDF5 dependency.
+Rust adapters load through the Case intake: `kraken::input::load` for a file, or
+`load_reader` for a stream such as stdin, named `stdin.json`. Either returns one
+`FieldInput`, after any optional `--solver` assertion. The CLI publishes it through
+`output::kraken::run_directory`, so `run`, stdin and `run-many` share one HDF5 writer
+and ordered solve iterator. The numerical `kraken` crate has no production HDF5
+dependency.
 
 ## Resource limits and publication
 

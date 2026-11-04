@@ -16,7 +16,7 @@ bellhop, kraken        ──> (no workspace dependencies)
 
 | Crate | Owns |
 | --- | --- |
-| `bellhop`, `kraken` | Input parsing, validation into immutable Cases, solvers, results, diagnostics |
+| `bellhop`, `kraken` | Case intake, input parsing, validation into immutable Cases, solvers, results, diagnostics |
 | `native-output` | Toolbox-format writers (`.ray`, `.arr`, `.shd`, `.mod`) and result-directory publication. No HDF5 |
 | `output` | BELLHOP HDF5 v3 and KRAKEN HDF5 v1 writers. Re-exports the directory API |
 | `cli` | The `pelagic` program: argument handling per model, behind one dispatch |
@@ -40,6 +40,13 @@ Outside `crates/`:
 - **Adapters add no physics.** The CLI, server, Python and MATLAB move cases in
   and results out. Validation happens once, in the solver crate. See the
   [interface contract](interface-contract.md#adapter-architecture).
+- **Adapters load through the Case intake.** `kraken::input` and `bellhop::input`
+  take a file path or a reader and return one value: cases, snapshots and consumed
+  inputs. The library never touches process stdin; the CLI maps `-` to the reader
+  entry in one small helper. Three paths stay outside it. The server, which already
+  holds bytes, parses them with `bellhop::json::load_case_document`. Python's
+  `from_json`, which has no file, keeps the name `request.json`. `pg.bellhop.load`
+  of a JSON file keeps its own read and parse, so that its diagnostics stay unchanged.
 - **Results are serialized as they are.** Writers never re-solve, interpolate,
   pad or reconstruct inputs.
 
@@ -54,7 +61,7 @@ crates/{bellhop,kraken}/src/
   case.rs         validation and immutable Case invariants
   diagnostic.rs   diagnostics
   result.rs       numerical products
-  input/          legacy and JSON parsing, auxiliary-file acquisition
+  input/          Case intake, legacy and JSON parsing, auxiliary-file acquisition
   solver/         the numerical implementation
 ```
 

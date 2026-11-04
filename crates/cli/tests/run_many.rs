@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 fn directory(name: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!("pelagic-run-many-{name}-{}", std::process::id()));
@@ -58,6 +59,14 @@ fn outcomes(output: &Path) -> BTreeMap<String, String> {
             )
         })
         .collect()
+}
+
+/// The `input_sha256` of a case that read only `input`.
+fn fingerprint(input: &[u8]) -> String {
+    let mut hash = Sha256::new();
+    hash.update((input.len() as u64).to_le_bytes());
+    hash.update(input);
+    format!("{:x}", hash.finalize())
 }
 
 fn files(directory: &Path) -> BTreeMap<String, Vec<u8>> {
@@ -553,6 +562,109 @@ fn a_case_is_fingerprinted_and_solved_from_one_read() {
     );
     let report = fs::read_to_string(output.join("p/p.prt")).unwrap();
     assert!(report.contains("first read"), "{report}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn resume_skips_current_kraken_json_and_fingerprints_changed_bytes_that_fail() {
+    let root = directory("resume-json");
+    let case = root.join("case.json");
+    let source = fs::read(example("kraken", "pekeris", "json")).unwrap();
+    fs::write(&case, &source).unwrap();
+    let output = root.join("results");
+    let run = || {
+        pelagic(&[
+            &"kraken",
+            &"run-many",
+            &case,
+            &"--output",
+            &output,
+            &"--resume",
+        ])
+    };
+    assert!(run().status.success());
+    let published = files(&output.join("case"));
+    assert!(run().status.success());
+    fs::write(&case, b"{ malformed").unwrap();
+    assert_eq!(run().status.code(), Some(2));
+
+    let records = records(&output);
+    let summary = |record: &Value| {
+        (
+            record["outcome"].as_str().unwrap().to_owned(),
+            record["input_sha256"].as_str().unwrap().to_owned(),
+        )
+    };
+    assert_eq!(
+        records.iter().map(summary).collect::<Vec<_>>(),
+        [
+            ("ok".to_owned(), fingerprint(&source)),
+            ("skipped".to_owned(), fingerprint(&source)),
+            ("failed".to_owned(), fingerprint(b"{ malformed")),
+        ]
+    );
+    assert_eq!(records[1]["manifest_sha256"], records[0]["manifest_sha256"]);
+    assert_eq!(records[2]["exit_code"], 2);
+    assert_eq!(records[2]["diagnostics"][0]["code"], "KR0103");
+    assert_eq!(files(&output.join("case")), published);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kraken_failures_are_fingerprinted_only_for_json_that_was_read() {
+    let root = directory("failure-hash");
+    let cases = root.join("cases");
+    fs::create_dir(&cases).unwrap();
+    let valid = fs::read(example("kraken", "pekeris", "json")).unwrap();
+    let mut invalid: Value = serde_json::from_slice(&valid).unwrap();
+    invalid["frequency"] = serde_json::json!(-1);
+    let invalid = serde_json::to_vec(&invalid).unwrap();
+    for (name, source) in [
+        ("malformed.json", &b"{ malformed"[..]),
+        ("invalid.json", &invalid),
+        ("mismatch.json", &valid),
+        ("legacy.env", b"not an environment\n"),
+    ] {
+        fs::write(cases.join(name), source).unwrap();
+    }
+    fs::write(cases.join("legacy.flp"), b"not a field\n").unwrap();
+    let output = root.join("output");
+    let missing = cases.join("missing.json");
+    let process = pelagic(&[
+        &"kraken",
+        &"run-many",
+        &cases,
+        &missing,
+        &"--solver",
+        &"krakenc",
+        &"--output",
+        &output,
+    ]);
+    assert_eq!(process.status.code(), Some(2));
+    let expected = [
+        ("invalid", Some(fingerprint(&invalid)), "KR0201"),
+        ("legacy", None, "KR0101"),
+        ("malformed", Some(fingerprint(b"{ malformed")), "KR0103"),
+        ("mismatch", Some(fingerprint(&valid)), "KR0202"),
+        ("missing", None, "KR0001"),
+    ];
+    let records = records(&output);
+    assert_eq!(records.len(), expected.len());
+    for (stem, input_sha256, code) in expected {
+        let record = records.iter().find(|r| r["stem"] == stem).unwrap();
+        assert_eq!(record["outcome"], "failed", "{stem}");
+        assert_eq!(
+            record["input_sha256"],
+            serde_json::json!(input_sha256),
+            "{stem}"
+        );
+        assert_eq!(record["diagnostics"][0]["code"], code, "{stem}");
+    }
+    let mismatch = records.iter().find(|r| r["stem"] == "mismatch").unwrap();
+    assert_eq!(mismatch["diagnostics"][0]["field"], "kraken.solver");
+    // The solver assertion must not be what rejected the invalid document.
+    let invalid = records.iter().find(|r| r["stem"] == "invalid").unwrap();
+    assert_eq!(invalid["diagnostics"][0]["field"], "frequency");
     fs::remove_dir_all(root).unwrap();
 }
 

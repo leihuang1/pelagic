@@ -88,6 +88,7 @@ fn legacy_rg_json_round_trip_preserves_ray_outcomes() {
         let (_, source, inputs) = bellhop::legacy::load_case_with_inputs(&fixture(name))
             .unwrap()
             .into_parts();
+        let source = String::from_utf8(source).unwrap();
         for input in inputs.iter().skip(1) {
             fs::copy(input, path.with_extension(input.extension().unwrap())).unwrap();
         }

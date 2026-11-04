@@ -23,6 +23,22 @@ in the [interface contract](docs/development/interface-contract.md).
   or `output::kraken::run_json`; the CLI already publishes through result
   directories, and its behaviour does not change.
 
+**Compatibility**
+
+- KRAKEN `run` and `run-many` now report a JSON solver mismatch under the field
+  `kraken.solver`, the JSON path, as `validate` and `export` already did. It was
+  `mode_solver`.
+- KRAKEN `validate`, `export` and `run -` now word a read failure as
+  `unable to read input: ...`, as `run FILE` already did.
+- Python `pg.kraken.load` of a JSON file now reports what the CLI does.
+  Diagnostics name the real path instead of `request.json`. A solver mismatch has
+  the field `kraken.solver`, the CLI's message and a source location, and is
+  reported before the 1 MiB check on the case's canonical form. A file that cannot
+  be opened was already `KR0001`, but a failure after opening it, such as non-UTF-8
+  content, was `PG0001` and is now `KR0001` too. Both now have a source location and
+  the `unable to read input:` prefix. The `flp` rejection has the CLI's message and
+  a source location.
+
 ## 0.6.1 — 2026-11-02
 
 - **Small KRAKEN solves no longer start threads they cannot use.** Mode search,

@@ -957,21 +957,37 @@ fn environment_cases(
 }
 
 pub(crate) fn read_file(path: &Path) -> Result<String, DiagnosticReport> {
-    let mut source = String::new();
-    File::open(path)
-        .and_then(|file| file.take(MAX_INPUT_BYTES + 1).read_to_string(&mut source))
-        .map_err(|error| {
-            one(
-                "KR0001",
-                format!("unable to read input: {error}"),
-                "input",
-                path,
-                1,
-                1,
-            )
-        })?;
+    let source = read_file_bounded(path)?;
     check_input_size(&source, path)?;
     Ok(source)
+}
+
+/// [`read_bounded`], from the file at `path`.
+pub(crate) fn read_file_bounded(path: &Path) -> Result<String, DiagnosticReport> {
+    let file = File::open(path).map_err(|error| unreadable(path, &error))?;
+    read_bounded(file, path)
+}
+
+/// Read up to one byte past the input limit, leaving the size to the caller:
+/// legacy and JSON input report it under different codes.
+pub(crate) fn read_bounded(reader: impl Read, path: &Path) -> Result<String, DiagnosticReport> {
+    let mut source = String::new();
+    reader
+        .take(MAX_INPUT_BYTES + 1)
+        .read_to_string(&mut source)
+        .map_err(|error| unreadable(path, &error))?;
+    Ok(source)
+}
+
+fn unreadable(path: &Path, error: &std::io::Error) -> DiagnosticReport {
+    one(
+        "KR0001",
+        format!("unable to read input: {error}"),
+        "input",
+        path,
+        1,
+        1,
+    )
 }
 
 fn check_input_size(source: &str, path: &Path) -> Result<(), DiagnosticReport> {
