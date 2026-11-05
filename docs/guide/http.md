@@ -18,6 +18,9 @@ The default listener is `0.0.0.0:8080`. Generated documentation is public:
 - Swagger UI: `GET /docs`
 - Readiness: `GET /healthz`
 
+Each response of `GET /healthz` and of the `POST /v1/` endpoints below follows
+the schema that the OpenAPI document gives for its route and status.
+
 The service provides plain HTTP only. Terminate TLS in a reverse proxy or load
 balancer when traffic crosses a trusted-network boundary.
 

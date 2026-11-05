@@ -44,7 +44,8 @@ Outside `crates/`:
   take a file path or a reader and return one value: cases, snapshots and consumed
   inputs. The library never touches process stdin; the CLI maps `-` to the reader
   entry in one small helper. Three paths stay outside it. The server, which already
-  holds bytes, parses them with `bellhop::json::load_case_document`. Python's
+  holds bytes, parses them with `bellhop::json::load_case_document`, in the one
+  request extractor that every `/v1/` route takes. Python's
   `from_json`, which has no file, keeps the name `request.json`. `pg.bellhop.load`
   of a JSON file keeps its own read and parse, so that its diagnostics stay unchanged.
 - **Results are serialized as they are.** Writers never re-solve, interpolate,
@@ -94,7 +95,12 @@ the [porting map](porting-map.md) links Rust modules to the Fortran sources.
   Python writes native files from finished results, so it calls `stream::block_name`
   and not the stream.
 - HTTP writes private HDF5 files and keeps its own protocol. It does not use the
-  CLI's directory publication.
+  CLI's directory publication. Its response types are also the schemas that
+  `/openapi.json` publishes; the arrival and field types are views over the solver
+  result, so serializing them copies no arrays. A test checks a response for every
+  published route and status against that document. The `/v1/run` and `/v1/field`
+  500s are the exception: no request in the test reaches them, so it checks
+  constructed error bodies.
 
 ## Concurrency and cancellation
 
