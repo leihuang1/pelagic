@@ -179,15 +179,7 @@ fn located(error: &RunError) -> Vec<kraken::Diagnostic> {
             frequency_index,
             frequency_hz: _,
             report,
-        } => report
-            .diagnostics()
-            .iter()
-            .cloned()
-            .map(|mut d| {
-                d.field = format!("frequencies[{frequency_index}].{}", d.field);
-                d
-            })
-            .collect(),
+        } => report.in_frequency(*frequency_index),
         RunError::Output(message) => vec![kraken::Diagnostic::new(
             "KR0402", message, "output", "<output>", 1, 1,
         )],

@@ -81,8 +81,8 @@ Rust adapters load through the Case intake: `kraken::input::load` for a file, or
 `load_reader` for a stream such as stdin, named `stdin.json`. Either returns one
 `FieldInput`, after any optional `--solver` assertion. The CLI publishes it through
 `output::kraken::run_directory`, so `run`, stdin and `run-many` share one HDF5 writer
-and ordered solve iterator. The numerical `kraken` crate has no production HDF5
-dependency.
+and one frequency-block stream, with its ordered solve iterator. The numerical
+`kraken` crate has no production HDF5 dependency.
 
 ## Resource limits and publication
 

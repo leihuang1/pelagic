@@ -1,6 +1,8 @@
 //! A native MOD/SHD pair per ordered frequency block, each MOD retaining profile order.
 //! Separate blocks can have different geometry in the accepted JSON contract.
 #![allow(clippy::cast_possible_truncation)]
+pub mod stream;
+
 use crate::native::{self, Direct, count, doubles, singles, text};
 use kraken::{Boundary, Case, FieldCase, ModeSet, ModeSolver, ProfileSimulationResult};
 use std::io;

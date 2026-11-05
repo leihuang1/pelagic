@@ -17,7 +17,7 @@ bellhop, kraken        ──> (no workspace dependencies)
 | Crate | Owns |
 | --- | --- |
 | `bellhop`, `kraken` | Case intake, input parsing, validation into immutable Cases, solvers, results, diagnostics |
-| `native-output` | Toolbox-format writers (`.ray`, `.arr`, `.shd`, `.mod`) and result-directory publication. No HDF5 |
+| `native-output` | Toolbox-format writers (`.ray`, `.arr`, `.shd`, `.mod`), the KRAKEN frequency-block stream and result-directory publication. No HDF5 |
 | `output` | BELLHOP HDF5 v3 and KRAKEN HDF5 v1 writers. Re-exports the directory API |
 | `cli` | The `pelagic` program: argument handling per model, behind one dispatch |
 | `server` | The BELLHOP-only HTTP adapter |
@@ -80,8 +80,19 @@ the [porting map](porting-map.md) links Rust modules to the Fortran sources.
   [native output](../guide/native-output.md#ownership-quota-and-failure-contract).
 - BELLHOP's `result::FieldGrid` yields pressure depth-major for native SHD and
   Python, without changing the range-major solver/HDF5 layout.
-- KRAKEN writes each frequency block in both formats before dropping it. The
-  solver state that carries across frequencies is kept.
+- `native-output/src/kraken/stream.rs` owns the KRAKEN frequency-block stream:
+  one solve iterator and, for each block, the HDF5 block writer's write, the
+  native pair, the report lines and their flush, the directory quota, then the
+  writer's check. The order decides which diagnostic wins and what a failure leaves, so its
+  tests live there, without HDF5.
+  Each block is written, then dropped, before the next result is taken from the
+  iterator, which may already have solved it; the solver state that carries across
+  frequencies is kept.
+- `output::kraken` is the stream's HDF5 block writer. Its header precedes the stream,
+  which creates the report, and its totals follow the last block. Its check
+  flushes again after the block's group closes, which can grow the file.
+  Python writes native files from finished results, so it calls `stream::block_name`
+  and not the stream.
 - HTTP writes private HDF5 files and keeps its own protocol. It does not use the
   CLI's directory publication.
 

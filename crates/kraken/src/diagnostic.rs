@@ -82,6 +82,20 @@ impl DiagnosticReport {
             diagnostics: vec![diagnostic],
         }
     }
+
+    /// The diagnostics of a solve of frequency block `index`, each field located under
+    /// `frequencies[index]`, the block's index in the result (`/frequencies/{index}` in HDF5).
+    #[must_use]
+    pub fn in_frequency(&self, index: usize) -> Vec<Diagnostic> {
+        self.diagnostics
+            .iter()
+            .cloned()
+            .map(|mut diagnostic| {
+                diagnostic.field = format!("frequencies[{index}].{}", diagnostic.field);
+                diagnostic
+            })
+            .collect()
+    }
 }
 
 impl fmt::Display for DiagnosticReport {

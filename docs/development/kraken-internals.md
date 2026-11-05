@@ -116,6 +116,11 @@ all blocks must share one backend; a mismatched block returns `KR0201` before
 numerical work, including for multi-profile blocks. Independent
 `solve`/`solve_field` calls reset the bound. HDF5 legacy/JSON execution and API
 differential checks share this Interface; no global solver state is used.
+The CLI reaches it through the [frequency-block stream](architecture.md#output-paths),
+which writes each block before taking the next result from the iterator; Python
+collects the results first. Both locate a block's numerical diagnostics under its
+index with `DiagnosticReport::in_frequency`, as `frequencies[i]`, matching the
+result's `/frequencies/{i}` group.
 
 `prepared.rs` keeps a real-KRAKEN Case with its `ModeSet`. `PreparedModes::field`
 validates new ranges and offsets with the Case rules, then calls the same

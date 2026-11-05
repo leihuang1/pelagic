@@ -21,6 +21,14 @@ _Avoid_: Job, generic acoustics configuration
 One KRAKEN solve frequency with ordered modal profiles, profile ranges and range-independent, adiabatic or coupled propagation. Frequency order and repetitions belong to the enclosing input sequence.
 _Avoid_: Broadband response, time-domain response
 
+**Frequency block**:
+A FIELD case at its index in the enclosing input sequence, with its result once solved. The index identifies it, because frequencies can repeat: it names the block's HDF5 group and its native stem, except that an only block takes the run's stem alone.
+_Avoid_: Frequency result, per-frequency output
+
+**Frequency-block stream**:
+The one order in which a KRAKEN run solves and writes its frequency blocks, through a single solve iterator, with HDF5 plugged in as a block writer. On a failure, this order decides which diagnostic wins and what partial state exists. Python writes native files from finished results, so it shares only the block naming.
+_Avoid_: Writer loop, adapter-side write sequence
+
 **Input material**:
 A parsed finite medium or half-space, from an ENV or a JSON case, whose absorption still uses the input's selected unit, volume-loss model and per-medium power law. It becomes canonical dB/wavelength only for a selected solve frequency, by the same conversion for both inputs.
 _Avoid_: Legacy material, canonical layer containing raw loss, parallel power-law arrays

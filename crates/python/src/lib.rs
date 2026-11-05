@@ -228,18 +228,7 @@ impl NativeCase {
             CaseData::Kraken(cases) => kraken::cancellation::with_token(token, || {
                 let mut results = Vec::with_capacity(cases.len());
                 for (index, result) in kraken::solve_frequencies(cases).enumerate() {
-                    results.push(result.map_err(|r| {
-                        let diagnostics: Vec<_> = r
-                            .diagnostics()
-                            .iter()
-                            .cloned()
-                            .map(|mut d| {
-                                d.field = format!("frequencies[{index}].{}", d.field);
-                                d
-                            })
-                            .collect();
-                        failure("simulation", diagnostics)
-                    })?);
+                    results.push(result.map_err(|r| failure("simulation", r.in_frequency(index)))?);
                 }
                 Ok(ResultData::Kraken(results))
             }),
@@ -336,7 +325,7 @@ impl NativeResult {
                     (CaseData::Bellhop(case), ResultData::Bellhop(result)) => native_output::bellhop::write(scratch, "case", case, result)?,
                     (CaseData::Kraken(cases), ResultData::Kraken(results)) => {
                         for (index, (case, result)) in cases.iter().zip(results).enumerate() {
-                            let stem = if cases.len() == 1 { "case".to_owned() } else { format!("case.f{index:04}") };
+                            let stem = native_output::kraken::stream::block_name("case", index, cases.len());
                             native_output::kraken::write(scratch, &stem, case, result, max_output_bytes)?;
                         }
                     }
