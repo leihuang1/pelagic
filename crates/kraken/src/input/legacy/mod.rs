@@ -9,8 +9,8 @@ use crate::attenuation::VolumeLoss;
 use crate::json;
 use crate::{
     BottomBoundary, Case, CaseDefinition, Diagnostic, DiagnosticReport, Interpolation,
-    MAX_VECTOR_LENGTH, ModeAddition, ModeSolver, SoundSpeedPoint, SourceGeometry,
-    SourcePatternPoint, SurfaceBoundary,
+    MAX_VECTOR_LENGTH, ModeAddition, ModeSolver, SourceGeometry, SourcePatternPoint,
+    SurfaceBoundary,
 };
 
 /// Maximum byte length of each legacy input, including source-based loading.
@@ -747,26 +747,13 @@ fn environment_cases(
             1,
         ));
     }
-    // ReadSzRz stores depths in single precision. Keep samples at either fluid
-    // interface on the exact f64 boundary, whether the f32 spelling rounds up or down.
-    let bottom_depth = environment.materials.fluid_bottom();
-    let top_depth = environment.materials.fluid_top();
-    #[allow(clippy::cast_possible_truncation)]
-    let boundaries = [bottom_depth, top_depth].map(|depth| (f64::from(depth as f32), depth));
     for depths in [
         &mut environment.source_depths,
         &mut environment.receiver_depths,
         &mut field.source_depths,
         &mut field.receiver_depths,
     ] {
-        for depth in depths {
-            for (rounded, exact) in boundaries {
-                if *depth == rounded {
-                    *depth = exact;
-                    break;
-                }
-            }
-        }
+        environment.materials.snap_to_interfaces(depths);
     }
 
     let mut mode_sample_depths_m = environment.source_depths;
@@ -824,26 +811,9 @@ fn environment_cases(
         receiver_ranges_m: field.receiver_ranges_m,
         receiver_offsets_m: field.receiver_offsets_m,
     };
-    let table_values = match &definition.bottom_boundary {
-        BottomBoundary::Reflection(points) => points.len(),
-        BottomBoundary::Impedance { points, .. } => points.len(),
-        _ => 0,
-    };
-    let surface_values = match &definition.surface_boundary {
-        SurfaceBoundary::Reflection(points) => points.len(),
-        _ => 0,
-    };
-    let values = environment.materials.input_values()
-        + definition.interface_roughness_m.len()
-        + table_values
-        + surface_values
-        + 2 * definition.source_pattern.len()
-        + definition.mode_sample_depths_m.len()
-        + definition.source_depths_m.len()
-        + definition.receiver_depths_m.len()
-        + definition.receiver_ranges_m.len()
-        + definition.receiver_offsets_m.len();
-    if values
+    if environment
+        .materials
+        .input_values(&definition)
         .checked_mul(environment.frequencies_hz.len())
         .is_none_or(|n| n > MAX_FREQUENCY_INPUT_VALUES)
     {
@@ -863,16 +833,9 @@ fn environment_cases(
         .frequencies_hz
         .into_iter()
         .map(|frequency_hz| {
-            let input = environment
+            environment
                 .materials
-                .case_definition(&definition, frequency_hz);
-            Case::from_definition(input)
-                .and_then(|case| {
-                    if case.mesh_reference_frequency_hz.is_some() {
-                        case.mesh_points_at(1)?;
-                    }
-                    Ok(case)
-                })
+                .case(&definition, frequency_hz)
                 .map_err(|mut report| {
                     for diagnostic in &mut report.diagnostics {
                         if diagnostic.field == "source_pattern" {
@@ -1278,11 +1241,6 @@ fn number(token: &Token, path: &Path, field: &str) -> Result<f64, DiagnosticRepo
     Ok(value)
 }
 
-enum FiniteMedium {
-    Fluid(material::Fluid),
-    Elastic(material::Elastic),
-}
-
 struct Environment {
     title: String,
     frequency_hz: f64,
@@ -1383,7 +1341,8 @@ fn read_environment(
         b'T' => VolumeLoss::Thorp,
         b'F' => {
             let p = reader.numbers("volume_attenuation", 4)?;
-            if p[0] <= -273.0 || p[1] < 0.0 || !(0.0..=14.0).contains(&p[2]) || p[3] < 0.0 {
+            let parameters = [p[0], p[1], p[2], p[3]];
+            if material::invalid_francois_garrison(&parameters) {
                 return Err(reader_error(
                     &reader,
                     "KR0201",
@@ -1391,11 +1350,11 @@ fn read_environment(
                     "volume_attenuation",
                 ));
             }
-            VolumeLoss::FrancoisGarrison([p[0], p[1], p[2], p[3]])
+            VolumeLoss::FrancoisGarrison(parameters)
         }
         b'B' => {
             let count = reader.count("bio_layers.count")?;
-            if count > 200 {
+            if count > material::MAX_BIOLOGICAL_LAYERS {
                 return Err(reader_error(
                     &reader,
                     "KR0201",
@@ -1406,7 +1365,8 @@ fn read_environment(
             let mut layers = Vec::with_capacity(count);
             for _ in 0..count {
                 let p = reader.numbers("bio_layers", 5)?;
-                if p[0] < 0.0 || p[1] < p[0] || p[2] <= 0.0 || p[3] <= 0.0 || p[4] < 0.0 {
+                let layer = [p[0], p[1], p[2], p[3], p[4]];
+                if material::invalid_biological_layer(&layer) {
                     return Err(reader_error(
                         &reader,
                         "KR0201",
@@ -1414,7 +1374,7 @@ fn read_environment(
                         "bio_layers",
                     ));
                 }
-                layers.push([p[0], p[1], p[2], p[3], p[4]]);
+                layers.push(layer);
             }
             VolumeLoss::Biological(layers)
         }
@@ -1452,11 +1412,8 @@ fn read_environment(
     } else {
         [0.0, 1500.0, 0.0, 1.0, 0.0, 0.0]
     };
-    let mut water = None;
+    let mut stack = material::Stack::default();
     let mut inherited = defaults;
-    let mut additional_layers = Vec::new();
-    let mut top_elastic_layers = Vec::new();
-    let mut bottom_elastic_layers = Vec::new();
     let mut top = 0.0;
     let mut profile_points = 0;
     let mut interface_roughness_m = Vec::with_capacity(medium_count + 1);
@@ -1489,46 +1446,30 @@ fn read_environment(
                 format!("additional_fluid_layers[{}].sound_speed_profile", index - 1),
             )
         };
-        let (header, profile) = match medium {
-            FiniteMedium::Fluid(layer) => {
-                if !bottom_elastic_layers.is_empty() {
-                    return Err(reader_error(
-                        &reader,
-                        "KR0202",
-                        "finite fluids must be contiguous; solids between fluids are unsupported",
-                        &old_profile,
-                    ));
-                }
-                top = layer.bottom_depth_m;
-                if water.is_none() {
-                    water = Some(layer);
-                    ("water_header".to_owned(), "sound_speed_profile".to_owned())
-                } else {
-                    let prefix = format!("additional_fluid_layers[{}]", additional_layers.len());
-                    additional_layers.push(layer);
-                    (
-                        format!("{prefix}.header"),
-                        format!("{prefix}.sound_speed_profile"),
-                    )
-                }
-            }
-            FiniteMedium::Elastic(layer) => {
-                top = layer.bottom_depth_m;
-                let prefix = if water.is_none() {
-                    let prefix = format!("top_elastic_layers[{}]", top_elastic_layers.len());
-                    top_elastic_layers.push(layer);
-                    prefix
-                } else {
-                    let prefix = format!("bottom_elastic_layers[{}]", bottom_elastic_layers.len());
-                    bottom_elastic_layers.push(layer);
-                    prefix
-                };
+        if stack.splits_fluids(&medium) {
+            return Err(reader_error(
+                &reader,
+                "KR0202",
+                "finite fluids must be contiguous; solids between fluids are unsupported",
+                &old_profile,
+            ));
+        }
+        top = medium.bottom_depth_m();
+        let prefix = match stack.push(medium) {
+            material::Slot::Water => None,
+            material::Slot::Additional(index) => Some(format!("additional_fluid_layers[{index}]")),
+            material::Slot::Top(index) => Some(format!("top_elastic_layers[{index}]")),
+            material::Slot::Bottom(index) => Some(format!("bottom_elastic_layers[{index}]")),
+        };
+        let (header, profile) = prefix.map_or_else(
+            || ("water_header".to_owned(), "sound_speed_profile".to_owned()),
+            |prefix| {
                 (
                     format!("{prefix}.header"),
                     format!("{prefix}.sound_speed_profile"),
                 )
-            }
-        };
+            },
+        );
         let header_location = reader.locations[&old_header];
         let profile_location = reader.locations.get(&old_profile).copied();
         reader.locations.insert(header, header_location);
@@ -1536,7 +1477,7 @@ fn read_environment(
             reader.locations.insert(profile, location);
         }
     }
-    let water = water.ok_or_else(|| {
+    let media = stack.into_media().ok_or_else(|| {
         reader_error(
             &reader,
             "KR0202",
@@ -1606,12 +1547,7 @@ fn read_environment(
             1
         };
         bottom = read_half_space(reader, "bottom_half_space", top, defaults, minimum)?;
-        if bottom[2] > 0.0 {
-            bottom_boundary = crate::Boundary::ElasticHalfSpace {
-                shear_sound_speed_mps: bottom[2],
-                shear_attenuation_db_per_wavelength: 0.0,
-            };
-        }
+        bottom_boundary = material::half_space_boundary(&bottom);
     }
     let limits = reader.numbers("phase_speed_limits", 2)?;
     let max_range_m = reader.scalar("max_range_km")? * 1000.0;
@@ -1652,29 +1588,17 @@ fn read_environment(
             b'V' => SurfaceBoundary::Vacuum,
             b'R' => SurfaceBoundary::Rigid,
             b'F' => SurfaceBoundary::Reflection(Vec::new()),
-            _ if surface[2] > 0.0 => SurfaceBoundary::ElasticHalfSpace {
-                shear_sound_speed_mps: surface[2],
-                shear_attenuation_db_per_wavelength: 0.0,
-            },
-            _ => SurfaceBoundary::FluidHalfSpace,
+            _ => material::half_space_boundary(&surface),
         },
         bottom_boundary,
-        materials: material::Materials {
-            surface_half_space: material::HalfSpace {
-                values: surface,
-                power_law: water.power_law,
-            },
-            bottom_half_space: material::HalfSpace {
-                values: bottom,
-                power_law: bottom_power_law,
-            },
-            water,
-            additional: additional_layers,
-            top: top_elastic_layers,
-            bottom: bottom_elastic_layers,
-            unit: option(2),
-            volume: volume_loss,
-        },
+        materials: material::Materials::new(
+            media,
+            surface,
+            bottom,
+            bottom_power_law,
+            option(2),
+            volume_loss,
+        ),
         interface_roughness_m,
         c_low: limits[0],
         c_high: limits[1],
@@ -1699,7 +1623,7 @@ fn read_finite_layer(
     index: usize,
     top: f64,
     mut inherited: [f64; 6],
-) -> Result<(FiniteMedium, [f64; 6], usize, f64), DiagnosticReport> {
+) -> Result<(material::FiniteMedium, [f64; 6], usize, f64), DiagnosticReport> {
     let header_field = if index == 0 {
         "water_header".into()
     } else {
@@ -1758,27 +1682,14 @@ fn read_finite_layer(
             for (i, token) in record.tokens.iter().enumerate() {
                 point[i] = number(token, &reader.path, &profile_field)?;
             }
-            if point[0] < top
-                || point[0] > bottom
-                || points.last().is_some_and(|p| point[0] <= p[0])
-            {
-                return Err(reader.record_error(
-                    &record,
-                    &profile_field,
-                    "depths must increase within each finite layer",
-                ));
-            }
-            if (points.is_empty() && point[0] != top)
-                || point[2] < 0.0
-                || point[4] < 0.0
-                || point[5] < 0.0
-                || (point[2] == 0.0 && point[5] != 0.0)
-                || points.first().is_some_and(|p| {
-                    (p[2] == 0.0 && (point[3] != p[3] || point[2] != 0.0))
-                        || (p[2] > 0.0 && point[2] == 0.0)
-                })
-            {
-                return Err(reader.record_error(&record, &profile_field, "requires constant-density fluid (no shear loss), or positive elastic shear speed throughout the layer; nonnegative absorption"));
+            if let Some(fault) = material::row_fault(&points, &point, top, bottom) {
+                let message = match fault {
+                    material::RowFault::Depth => "depths must increase within each finite layer",
+                    material::RowFault::Material => {
+                        "requires constant-density fluid (no shear loss), or positive elastic shear speed throughout the layer; nonnegative absorption"
+                    }
+                };
+                return Err(reader.record_error(&record, &profile_field, message));
             }
             inherited = point;
             points.push(point);
@@ -1802,37 +1713,11 @@ fn read_finite_layer(
             ));
         }
     }
-    if points.first().is_some_and(|p| p[2] > 0.0) {
-        let point_count = points.len();
-        return Ok((
-            FiniteMedium::Elastic(material::Elastic {
-                bottom_depth_m: bottom,
-                points,
-                mesh_points,
-                power_law: power,
-            }),
-            inherited,
-            point_count,
-            roughness,
-        ));
-    }
+    let point_count = points.len();
     Ok((
-        FiniteMedium::Fluid(material::Fluid {
-            bottom_depth_m: bottom,
-            density_g_cm3: points.first().map_or(1.0, |p| p[3]),
-            mesh_points,
-            points: points
-                .iter()
-                .map(|p| SoundSpeedPoint {
-                    depth_m: p[0],
-                    sound_speed_mps: p[1],
-                })
-                .collect(),
-            attenuation: points.iter().map(|p| p[4]).collect(),
-            power_law: power,
-        }),
+        material::FiniteMedium::new(bottom, mesh_points, points, power),
         inherited,
-        points.len(),
+        point_count,
         roughness,
     ))
 }
@@ -1852,14 +1737,7 @@ fn read_half_space(
     for (value, token) in values.iter_mut().zip(&record.tokens) {
         *value = number(token, &reader.path, field)?;
     }
-    if values[0] != depth
-        || values[1] <= 0.0
-        || values[2] < 0.0
-        || values[3] <= 0.0
-        || values[4] < 0.0
-        || values[5] < 0.0
-        || (values[2] == 0.0 && values[5] != 0.0)
-    {
+    if values[0] != depth || material::invalid_half_space(&values) {
         return Err(reader.record_error(&record, field, "require half-space at the boundary, positive compressional speed/density, nonnegative shear speed/loss and no shear loss for a fluid"));
     }
     Ok(values)
@@ -1881,7 +1759,7 @@ fn read_power_law(
         &reader.path,
         "attenuation_power_law",
     )?;
-    if beta < 0.0 || transition <= 0.0 {
+    if material::invalid_power_law(beta, transition) {
         return Err(reader.record_error(
             record,
             "attenuation_power_law",

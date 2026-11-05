@@ -22,10 +22,18 @@ adds no physics or new acceptance requirements.
   optimization; FLP still has separate discovery and assembly parses.
 - `input/material.rs` owns **Input materials**: raw absorption and power laws
   travel with each fluid, solid or half-space, never in canonical loss fields.
-  Its `case_definition` selects one frequency and converts the whole material
-  stack using `attenuation::db_per_wavelength`. Storage accounting happens
-  before frequency copies. Biological loss uses node depths, but half-space
-  conversion retains the reference's HUGE-depth exclusion.
+  Its `case` selects one frequency, converts the whole material stack using
+  `attenuation::db_per_wavelength` and validates the Case. Storage accounting
+  happens before frequency copies. Biological loss uses node depths, but
+  half-space conversion retains the reference's HUGE-depth exclusion.
+- `input/material.rs` also holds rules both loaders share: which raw rows,
+  half-spaces, power laws and volume-loss parameters are acceptable, how media
+  classify and stack, how depths snap to fluid interfaces and how many raw values
+  one frequency of an environment spends. `case::input_values` is a second counter,
+  of canonical values. Each loader keeps its own wording, locations, codes and check
+  order. An ENV half-space must also sit at its boundary depth, which JSON cannot
+  express. `tests/rejection_parity.rs` pins both inputs' verdicts on the shared
+  rules and the known differences below.
 - `input/json/` builds the same input materials from a JSON case, so both inputs
   share one loss conversion; `legacy::field_document_with_resources` writes an
   ENV/FLP pair as that JSON, keeping its loss recipe.
@@ -36,6 +44,25 @@ adds no physics or new acceptance requirements.
   during Case validation, not once for checking and again for their minima.
 - `Case::from_definition` retains topology, spectral, geometry and remaining
   boundary/material checks. Validated Cases stay immutable.
+
+## Known differences between ENV and JSON
+
+The inputs do not accept exactly the same cases. These differences are existing
+behaviour. `tests/rejection_parity.rs` pins their load verdicts; changing one needs a
+schema decision.
+
+- **Storage budget.** `V` is `Materials::input_values`, counting raw values, and `C`
+  is `case::input_values`, counting canonical values, so lossless media cost less in
+  `C`. With `P` profiles and `F` frequencies, ENV requires `V*F` within 5,000,000 for
+  each profile and `(P + sum(C))*F` within it overall. JSON requires `sum(V)*F` within
+  it, and `FieldCase::new` also requires `P + sum(C)` within it at each frequency; only
+  JSON reaches that check, and only at `F = 1`. Either input can reject what the other
+  accepts. An ENV that only JSON rejects has `P >= 2`. It runs from the CLI and `export`
+  prints its document, since `export` does not reload it, but that document fails to
+  load with KR0201. Python loads an ENV through that document, so it rejects the same
+  ENV outright.
+- **Empty biological list.** JSON accepts `"layers": []`. ENV count `0` gets KR0201
+  from the generic `Reader::count` bound.
 
 ## Validated Case to modes and FIELD
 

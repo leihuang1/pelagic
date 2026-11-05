@@ -528,13 +528,6 @@ pub(crate) const MAX_SEQUENCE_VALUES: usize = 5_000_000;
 pub(crate) fn input_values(case: &Case) -> usize {
     case.sound_speed_profile.len()
         + case.water_attenuation_db_per_wavelength.len()
-        + case.interface_roughness_m.len()
-        + case.mode_sample_depths_m.len()
-        + case.source_depths_m.len()
-        + case.receiver_depths_m.len()
-        + case.receiver_ranges_m.len()
-        + case.receiver_offsets_m.len()
-        + 2 * case.source_pattern.len()
         + case
             .additional_fluid_layers
             .iter()
@@ -546,7 +539,19 @@ pub(crate) fn input_values(case: &Case) -> usize {
             .chain(&case.bottom_elastic_layers)
             .map(|layer| 7 + 6 * layer.material_profile.len())
             .sum::<usize>()
-        + [&case.surface_boundary, &case.bottom_boundary]
+        + template_values(case)
+}
+
+/// What a definition stores besides its material, which every value count counts alike.
+pub(crate) fn template_values(definition: &CaseDefinition) -> usize {
+    definition.interface_roughness_m.len()
+        + definition.mode_sample_depths_m.len()
+        + definition.source_depths_m.len()
+        + definition.receiver_depths_m.len()
+        + definition.receiver_ranges_m.len()
+        + definition.receiver_offsets_m.len()
+        + 2 * definition.source_pattern.len()
+        + [&definition.surface_boundary, &definition.bottom_boundary]
             .iter()
             .map(|b| match b {
                 crate::Boundary::Reflection(p) => p.len(),
