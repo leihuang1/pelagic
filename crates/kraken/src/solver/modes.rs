@@ -28,49 +28,29 @@ const SHAPE_ROW_BYTES: usize = 7 * size_of::<f64>() + size_of::<bool>();
 // All workers' lane scratch together; beyond it, a worker holds one mode at a time.
 const SHAPE_LANE_BYTES: usize = 64 * 1024 * 1024;
 
-pub(super) fn solve(case: &Case, mut root_limit: usize) -> Result<ModeSet, DiagnosticReport> {
-    let omega = 2.0 * PI * case.frequency_hz;
-    let (bottom_k2, bottom_complex_k2) = if case.bottom_boundary.is_half_space() {
-        // AttenMod::CRCI converts dB/wavelength to a positive imaginary sound speed.
-        let bottom_c = complex_speed(
-            case.bottom_sound_speed_mps,
-            case.bottom_attenuation_db_per_wavelength,
-        );
-        (
-            (omega / case.bottom_sound_speed_mps).powi(2),
-            Complex64::new(omega * omega, 0.0) / bottom_c.powi(2),
+/// Whether real KRAKEN searches `case` as elastic media, carrying the mode count from
+/// mesh to mesh as Solve2's root limit. With finite elastic layers, the first mesh's
+/// limit is the count the previous solve left; an elastic top alone replaces it unread.
+pub(super) fn elastic_search(case: &Case) -> bool {
+    crate::solver::elastic::has_layers(case)
+        || matches!(
+            case.surface_boundary,
+            SurfaceBoundary::ElasticHalfSpace { .. }
         )
-    } else {
-        (0.0, Complex64::new(0.0, 0.0))
-    };
-    let profiles = crate::solver::layers::iter(case)
-        .map(|layer| Profile::new_layer(case, layer))
-        .collect::<Result<Vec<_>, _>>()?;
-    if !omega.is_finite()
-        || !bottom_k2.is_finite()
-        || !bottom_complex_k2.re.is_finite()
-        || !bottom_complex_k2.im.is_finite()
-    {
-        return Err(error(
-            "KR0302",
-            "frequency/profile requires an unsupported mesh",
-            "mesh_points",
-        ));
-    }
+}
+
+pub(super) fn solve(case: &Case, mut root_limit: usize) -> Result<ModeSet, DiagnosticReport> {
+    let meshes = Meshes::new(case)?;
     let elastic_top = matches!(
         case.surface_boundary,
         SurfaceBoundary::ElasticHalfSpace { .. }
     );
-    let elastic_search = crate::solver::elastic::has_layers(case) || elastic_top;
+    let elastic_search = elastic_search(case);
     let mut refinement = crate::solver::refinement::Refinement::<f64>::default();
     let mut work = 0_usize;
     for multiplier in crate::solver::refinement::MULTIPLIERS {
         crate::cancellation::check()?;
-        let layers = crate::solver::layers::mesh_layers(case, multiplier)?;
-        let mut mesh = Mesh::new(case, &profiles, layers, omega, bottom_k2, bottom_complex_k2)?;
-        mesh.top_solids = crate::solver::elastic::SolidMesh::build(case, multiplier, true, true)?;
-        mesh.bottom_solids =
-            crate::solver::elastic::SolidMesh::build(case, multiplier, false, true)?;
+        let mesh = Mesh::new(&meshes, multiplier)?;
         let mut roots =
             if crate::solver::elastic::has_layers(case) || (elastic_top && multiplier > 2) {
                 mesh.solid_roots(&refinement, root_limit, &mut work)?
@@ -78,7 +58,8 @@ pub(super) fn solve(case: &Case, mut root_limit: usize) -> Result<ModeSet, Diagn
                 mesh.roots(&mut work)?
             };
         if elastic_top && !crate::solver::elastic::has_layers(case) {
-            let low = omega * omega / crate::solver::elastic::maximum_speed(case).powi(2);
+            let low =
+                meshes.omega * meshes.omega / crate::solver::elastic::maximum_speed(case).powi(2);
             roots.truncate(refinement.selected_count(&roots, low)?);
         }
         if elastic_search {
@@ -100,6 +81,55 @@ pub(super) fn solve(case: &Case, mut root_limit: usize) -> Result<ModeSet, Diagn
     ))
 }
 
+/// What every refinement mesh of one solve is built from.
+struct Meshes<'a> {
+    case: &'a Case,
+    omega: f64,
+    bottom_k2: f64,
+    bottom_complex_k2: Complex64,
+    profiles: Vec<Profile<'a>>,
+}
+
+impl<'a> Meshes<'a> {
+    fn new(case: &'a Case) -> Result<Self, DiagnosticReport> {
+        let omega = 2.0 * PI * case.frequency_hz;
+        let (bottom_k2, bottom_complex_k2) = if case.bottom_boundary.is_half_space() {
+            // AttenMod::CRCI converts dB/wavelength to a positive imaginary sound speed.
+            let bottom_c = complex_speed(
+                case.bottom_sound_speed_mps,
+                case.bottom_attenuation_db_per_wavelength,
+            );
+            (
+                (omega / case.bottom_sound_speed_mps).powi(2),
+                Complex64::new(omega * omega, 0.0) / bottom_c.powi(2),
+            )
+        } else {
+            (0.0, Complex64::new(0.0, 0.0))
+        };
+        let profiles = crate::solver::layers::iter(case)
+            .map(|layer| Profile::new_layer(case, layer))
+            .collect::<Result<Vec<_>, _>>()?;
+        if !omega.is_finite()
+            || !bottom_k2.is_finite()
+            || !bottom_complex_k2.re.is_finite()
+            || !bottom_complex_k2.im.is_finite()
+        {
+            return Err(error(
+                "KR0302",
+                "frequency/profile requires an unsupported mesh",
+                "mesh_points",
+            ));
+        }
+        Ok(Self {
+            case,
+            omega,
+            bottom_k2,
+            bottom_complex_k2,
+            profiles,
+        })
+    }
+}
+
 struct Mesh<'a> {
     case: &'a Case,
     h: f64,
@@ -117,15 +147,10 @@ struct Mesh<'a> {
 }
 
 impl<'a> Mesh<'a> {
-    #[allow(clippy::cast_precision_loss)]
-    fn new(
-        case: &'a Case,
-        profiles: &[Profile<'_>],
-        layers: Vec<crate::solver::layers::MeshLayer>,
-        omega: f64,
-        bottom_k2: f64,
-        bottom_complex_k2: Complex64,
-    ) -> Result<Self, DiagnosticReport> {
+    fn new(meshes: &Meshes<'a>, multiplier: usize) -> Result<Self, DiagnosticReport> {
+        let case = meshes.case;
+        let omega = meshes.omega;
+        let layers = crate::solver::layers::mesh_layers(case, multiplier)?;
         let h = layers[0].h;
         let mut min_speed = f64::INFINITY;
         let mut invalid_speed = false;
@@ -133,7 +158,7 @@ impl<'a> Mesh<'a> {
         let mut b1 = Vec::new();
         for ((layer, profile), material) in layers
             .iter()
-            .zip(profiles)
+            .zip(&meshes.profiles)
             .zip(crate::solver::layers::iter(case))
         {
             let water_loss = material.loss.iter().any(|&a| a != 0.0);
@@ -187,20 +212,23 @@ impl<'a> Mesh<'a> {
                 "surface_boundary",
             ));
         }
+        let top_solids = crate::solver::elastic::SolidMesh::build(case, multiplier, true, true)?;
+        let bottom_solids =
+            crate::solver::elastic::SolidMesh::build(case, multiplier, false, true)?;
         Ok(Self {
             case,
             h,
             omega,
-            bottom_k2,
-            bottom_complex_k2,
+            bottom_k2: meshes.bottom_k2,
+            bottom_complex_k2: meshes.bottom_complex_k2,
             surface_k2,
             surface_complex_k2,
             b1,
             b1c,
             layers,
             min_speed,
-            top_solids: Vec::new(),
-            bottom_solids: Vec::new(),
+            top_solids,
+            bottom_solids,
         })
     }
 
@@ -1701,7 +1729,7 @@ fn inverse_iteration_lanes<const K: usize>(
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_MODE_LIMIT, MAX_WORK, Mesh, SHAPE_LANES, brent, inverse_iteration,
+        MAX_MODE_LIMIT, MAX_WORK, Mesh, Meshes, SHAPE_LANES, brent, inverse_iteration,
         inverse_iteration_lanes, solve,
     };
     use crate::solver::{elastic, layers, pekeris};
@@ -1710,41 +1738,11 @@ mod tests {
         solver::profile::Profile,
     };
     use num_complex::Complex64;
-    use std::f64::consts::PI;
     use std::path::Path;
 
-    // The first mesh, built as `solve` builds it.
-    fn first_mesh<'a>(
-        case: &'a Case,
-        profiles: &[Profile<'_>],
-    ) -> Result<Mesh<'a>, DiagnosticReport> {
-        fixture_mesh(case, profiles, 1)
-    }
-
-    // One refinement's mesh, built as `solve` builds it.
-    fn fixture_mesh<'a>(
-        case: &'a Case,
-        profiles: &[Profile<'_>],
-        multiplier: usize,
-    ) -> Result<Mesh<'a>, DiagnosticReport> {
-        let omega = 2.0 * PI * case.frequency_hz;
-        let (bottom_k2, bottom_complex_k2) = if case.bottom_boundary.is_half_space() {
-            let c = elastic::complex_speed(
-                case.bottom_sound_speed_mps,
-                case.bottom_attenuation_db_per_wavelength,
-            );
-            (
-                (omega / case.bottom_sound_speed_mps).powi(2),
-                Complex64::new(omega * omega, 0.0) / c.powi(2),
-            )
-        } else {
-            (0.0, 0.0.into())
-        };
-        let layers = layers::mesh_layers(case, multiplier)?;
-        let mut mesh = Mesh::new(case, profiles, layers, omega, bottom_k2, bottom_complex_k2)?;
-        mesh.top_solids = elastic::SolidMesh::build(case, multiplier, true, true)?;
-        mesh.bottom_solids = elastic::SolidMesh::build(case, multiplier, false, true)?;
-        Ok(mesh)
+    // One refinement's mesh, as `solve` builds it.
+    fn fixture_mesh(case: &Case, multiplier: usize) -> Result<Mesh<'_>, DiagnosticReport> {
+        Mesh::new(&Meshes::new(case)?, multiplier)
     }
 
     fn assert_inverse_result(
@@ -1862,10 +1860,7 @@ mod tests {
                 .join("tests/fixtures")
                 .join(name);
             let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
-            let profiles = layers::iter(&case)
-                .map(|layer| Profile::new_layer(&case, layer).unwrap())
-                .collect::<Vec<_>>();
-            let mesh = first_mesh(&case, &profiles).unwrap();
+            let mesh = fixture_mesh(&case, 1).unwrap();
             let roots = mesh.roots(&mut 0).unwrap();
             let samples = mesh.sample_brackets();
             let expected = roots
@@ -1926,10 +1921,7 @@ mod tests {
         // Multiple batches exceed the inline cutoff even with very few roots.
         input.mesh_points = 8192;
         let case = Case::from_definition(input).unwrap();
-        let profiles = layers::iter(&case)
-            .map(|layer| Profile::new_layer(&case, layer).unwrap())
-            .collect::<Vec<_>>();
-        let mut mesh = first_mesh(&case, &profiles).unwrap();
+        let mut mesh = fixture_mesh(&case, 1).unwrap();
         let x = mesh.roots(&mut 0).unwrap()[0];
         // Only post-processing reads omega on this fluid mesh: force its distinct
         // normalization error while leaving a successful inverse iteration intact.
@@ -1959,10 +1951,7 @@ mod tests {
         };
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Pekeris");
         let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
-        let profiles = layers::iter(&case)
-            .map(|layer| Profile::new_layer(&case, layer).unwrap())
-            .collect::<Vec<_>>();
-        let mesh = first_mesh(&case, &profiles).unwrap();
+        let mesh = fixture_mesh(&case, 1).unwrap();
         let x = mesh.roots(&mut 0).unwrap()[0];
         let (d, e) = mesh.mode_matrix(x);
         let phi = inverse_iteration(&d, &e).unwrap();
@@ -1999,10 +1988,7 @@ mod tests {
                 .join("tests/fixtures")
                 .join(name);
             let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
-            let profiles = layers::iter(&case)
-                .map(|layer| Profile::new_layer(&case, layer).unwrap())
-                .collect::<Vec<_>>();
-            let mesh = first_mesh(&case, &profiles).unwrap();
+            let mesh = fixture_mesh(&case, 1).unwrap();
             let grid = layers::grid(&mesh.layers, case.fluid_top_depth_m());
             let last = mesh.layers.last().unwrap();
             let n = last.node_start + last.intervals + 1;
@@ -2045,13 +2031,7 @@ mod tests {
             let Ok(case) = load_case(&env, env.with_extension("flp")) else {
                 continue;
             };
-            let Ok(profiles) = layers::iter(&case)
-                .map(|layer| Profile::new_layer(&case, layer))
-                .collect::<Result<Vec<_>, _>>()
-            else {
-                continue;
-            };
-            let Ok(mesh) = first_mesh(&case, &profiles) else {
+            let Ok(mesh) = fixture_mesh(&case, 1) else {
                 continue;
             };
             // Evanescent to beyond the slowest speed, the half-space branch
@@ -2104,11 +2084,8 @@ mod tests {
             let root = fixtures.join(name);
             let case = load_case(root.with_extension("env"), root.with_extension("flp"))
                 .unwrap_or_else(|report| panic!("{name}: {report:?}"));
-            let profiles = layers::iter(&case)
-                .map(|layer| Profile::new_layer(&case, layer).unwrap())
-                .collect::<Vec<_>>();
             for multiplier in crate::solver::refinement::MULTIPLIERS {
-                let mesh = fixture_mesh(&case, &profiles, multiplier)
+                let mesh = fixture_mesh(&case, multiplier)
                     .unwrap_or_else(|report| panic!("{name} mesh {multiplier}: {report:?}"));
                 let top = (mesh.omega / mesh.min_speed).powi(2);
                 let mut x: Vec<_> = (0..=24).map(|i| top * f64::from(i) / 20.0).collect();
@@ -2137,10 +2114,7 @@ mod tests {
         for name in ["FluidBoundaryVV", "LayeredBoundaryVV"] {
             let root = fixtures.join(name);
             let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
-            let profiles = layers::iter(&case)
-                .map(|layer| Profile::new_layer(&case, layer).unwrap())
-                .collect::<Vec<_>>();
-            let mut mesh = fixture_mesh(&case, &profiles, 1).unwrap();
+            let mut mesh = fixture_mesh(&case, 1).unwrap();
             mesh.b1.fill(-2.0);
             // Force a small positive first pivot; counting its sign before clamping adds one.
             let layer = &mesh.layers[0];
@@ -2167,21 +2141,14 @@ mod tests {
         assert_eq!(brent(2.0, 3.0, 1e-13, evaluate).unwrap(), None);
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ElasticHalfTopN");
         let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
-        let profiles = crate::solver::layers::iter(&case)
-            .map(|layer| Profile::new_layer(&case, layer).unwrap())
-            .collect::<Vec<_>>();
-        let mesh = Mesh::new(
-            &case,
-            &profiles,
-            crate::solver::layers::mesh_layers(&case, 1).unwrap(),
-            2.0 * std::f64::consts::PI * case.frequency_hz,
-            0.0,
-            0.0.into(),
-        )
-        .unwrap();
+        let mesh = fixture_mesh(&case, 1).unwrap();
         let mut work = MAX_WORK;
         let report = mesh.roots(&mut work).unwrap_err();
         assert_eq!(report.diagnostics()[0].code, "KR0302");
+        assert!(
+            report.diagnostics()[0].message.contains("work limit"),
+            "{report}"
+        );
     }
 
     #[test]

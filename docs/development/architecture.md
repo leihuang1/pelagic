@@ -146,9 +146,10 @@ thread:
   and amplitude tables hold about a million modal terms at most, in blocks of
   ranges and sources.
   Range-dependent FIELD reuses each profile's receiver-depth brackets.
-- **KRAKEN frequency blocks and profiles** carry the previous mode count forward,
-  but only real elastic searches read it: finite elastic layers and an elastic
-  surface half-space. Those sequences run in order, and so does any sequence
+- **KRAKEN frequency blocks and profiles** carry the previous mode count forward.
+  Real KRAKEN's searches with finite elastic layers read it as their first root
+  limit, so those sequences run in order. So do those with an elastic surface
+  half-space, although that search replaces the count unread, and any sequence
   below eight threads, where one solve's own parallelism beats solving side by
   side. Otherwise the first item solves alone, with every thread, and then up to
   four items per thread together. Results are consumed in order, so diagnostics,
@@ -158,7 +159,8 @@ thread:
   result can be larger, and solver scratch is separate.
 
 `tests/parallelism.rs` in both crates compares every fixture and example, and
-BELLHOP resource-limit failures, across thread counts. Independent cases may
+BELLHOP resource-limit failures, across thread counts; KRAKEN's include eight, where
+solves first run side by side. Independent cases may
 also run concurrently, through Python's `run_many` or the CLI's `run-many`,
 which publishes each case through the same code as `run`. Cancellation is a
 thread-scoped token that the solvers check inside ray tracing, influence,

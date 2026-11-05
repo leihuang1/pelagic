@@ -34,16 +34,8 @@ fn field_result_bytes(result: &ProfileSimulationResult) -> usize {
         + result.field.pressure.len() * size_of::<Complex64>()
 }
 
-// Only real KRAKEN's elastic searches read the mode count carried from the last solve.
 fn independent_profiles(case: &FieldCase) -> bool {
-    case.profiles.iter().all(|profile| {
-        profile.mode_solver == crate::ModeSolver::Krakenc
-            || (!crate::solver::elastic::has_layers(profile)
-                && !matches!(
-                    profile.surface_boundary,
-                    crate::SurfaceBoundary::ElasticHalfSpace { .. }
-                ))
-    })
+    !case.profiles.iter().any(crate::solver::carries_mode_count)
 }
 
 // With nothing solved yet, one solve gets every thread: its size is unknown, and
@@ -84,8 +76,9 @@ pub fn solve_field(case: &FieldCase) -> Result<ProfileSimulationResult, Diagnost
 /// With enough threads, independent blocks after the first solve together on demand,
 /// sharing the budget, so a failure or cancellation can discard later blocks already
 /// solved.
-/// Real finite-elastic and elastic-top KRAKEN stays sequential, retaining Solve2's
-/// search bound; separate calls to `solve_field` start separate reference runs.
+/// Real finite-elastic KRAKEN stays sequential, retaining Solve2's search bound, and
+/// so, conservatively, does elastic-top KRAKEN; separate calls to `solve_field` start
+/// separate reference runs.
 #[allow(clippy::missing_panics_doc)] // FieldCase construction guarantees a nonempty sequence
 pub fn solve_frequencies(
     cases: &[FieldCase],

@@ -242,9 +242,9 @@ fn cancellation_between_blocks_precedes_cached_solver_errors_but_not_mixed_solve
 
 #[test]
 fn elastic_frequency_and_profile_sequences_keep_sequential_search_bounds() {
-    for (stem, counts) in [
-        ("FiniteElasticPower", [6, 6]),
-        ("ElasticHalfTopBroadband", [3, 3]),
+    for (stem, counts, profile_counts) in [
+        ("FiniteElasticPower", [6, 6], [8, 5, 5]),
+        ("ElasticHalfTopBroadband", [3, 3], [4, 2, 4]),
     ] {
         let cases = load(stem, ModeSolver::Kraken);
         let expected = threads(1, || {
@@ -262,17 +262,36 @@ fn elastic_frequency_and_profile_sequences_keep_sequential_search_bounds() {
             });
             assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
         }
+        // The narrower middle profile leaves fewer modes. Finite elastic layers carry
+        // that count into the third profile's search; an elastic top alone does not.
         let profile = cases[0].profiles()[0].clone();
+        let mut narrow = profile.clone().into_definition();
+        narrow.c_high_mps = 1600.0;
         let field = FieldCase::new(
-            vec![profile; 3],
+            vec![
+                profile.clone(),
+                Case::from_definition(narrow).unwrap(),
+                profile,
+            ],
             vec![0.0, 500.0, 1000.0],
             FieldPropagation::Adiabatic,
         )
         .unwrap();
         let expected = threads(1, || solve_field(&field).unwrap());
         assert_eq!(
-            format!("{:?}", threads(8, || solve_field(&field).unwrap())),
-            format!("{expected:?}")
+            expected
+                .modes
+                .iter()
+                .map(|set| set.modes.len())
+                .collect::<Vec<_>>(),
+            profile_counts
         );
+        // At and above the thread count where windows open.
+        for count in [8, 16] {
+            assert_eq!(
+                format!("{:?}", threads(count, || solve_field(&field).unwrap())),
+                format!("{expected:?}")
+            );
+        }
     }
 }

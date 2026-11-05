@@ -104,8 +104,9 @@ frequencies and range-dependent profiles also solve side by side after the first
 and their results still arrive in order, so about 128 MiB of finished results can
 wait in memory. Fewer solve together if their results are large. If a frequency
 fails, any later ones already solved are discarded. Real KRAKEN with
-finite elastic layers or an elastic surface half-space solves them one after
-another, because each one continues from the last.
+finite elastic layers solves them one after another, because each one continues
+from the last. So, conservatively, does real KRAKEN with an elastic surface
+half-space.
 
 ## Many cases
 

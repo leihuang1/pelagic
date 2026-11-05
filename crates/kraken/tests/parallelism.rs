@@ -16,7 +16,7 @@ fn outcome(cases: &[FieldCase], threads: usize) -> String {
 
 fn assert_thread_invariant(path: &Path, cases: &[FieldCase]) {
     let single = outcome(cases, 1);
-    for threads in [2, 5] {
+    for threads in [2, 5, 8] {
         assert!(
             outcome(cases, threads) == single,
             "{} differs with {threads} threads",
