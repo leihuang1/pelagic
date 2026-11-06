@@ -158,7 +158,9 @@ fn normal_curvature(ray: &RayState, sample: &super::ssp::SoundSpeedSample) -> f6
         + sample.c_zz * ray.tangent[0].powi(2)
 }
 
-#[allow(clippy::too_many_arguments)]
+// Measured hot path: called twice in every ray step.
+#[allow(clippy::too_many_arguments, clippy::inline_always)]
+#[inline(always)]
 fn reduce_step(
     initial_position_m: [f64; 2],
     unit_tangent: [f64; 2],

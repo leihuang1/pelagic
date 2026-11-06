@@ -623,7 +623,8 @@ pub(super) fn geo_hat_cartesian(
         }
         let tangent = [segment[0] / segment_length, segment[1] / segment_length];
         let normal = [-tangent[1], tangent[0]];
-        let receiver_angle_degrees = tangent[1].atan2(tangent[0]).to_degrees();
+        // Only arrivals read the angle, and most segments reach no receiver.
+        let mut receiver_angle_degrees = None;
         let delta_q = current.q[0] - previous.q[0];
         let delta_time = current.travel_time_s - previous.travel_time_s;
         let segment_q = previous.q[0];
@@ -686,7 +687,8 @@ pub(super) fn geo_hat_cartesian(
                             phase_radians: phase,
                             delay,
                             source_angle_degrees: launch_angle_degrees,
-                            receiver_angle_degrees,
+                            receiver_angle_degrees: *receiver_angle_degrees
+                                .get_or_insert_with(|| segment_angle_degrees(tangent)),
                             top_bounces: current.top_bounces,
                             bottom_bounces: current.bottom_bounces,
                             incoherent_intensity: constant.powi(2) * hat_weight,
@@ -1023,7 +1025,8 @@ pub(super) fn geo_gaussian_cartesian(
         }
         let tangent = [segment[0] / segment_length, segment[1] / segment_length];
         let normal = [-tangent[1], tangent[0]];
-        let receiver_angle_degrees = tangent[1].atan2(tangent[0]).to_degrees();
+        // Only arrivals read the angle, and most segments reach no receiver.
+        let mut receiver_angle_degrees = None;
         let delta_q = current.q[0] - previous.q[0];
         let delta_time = current.travel_time_s - previous.travel_time_s;
         let segment_q = previous.q[0];
@@ -1096,7 +1099,8 @@ pub(super) fn geo_gaussian_cartesian(
                             phase_radians: phase,
                             delay,
                             source_angle_degrees: launch_angle_degrees,
-                            receiver_angle_degrees,
+                            receiver_angle_degrees: *receiver_angle_degrees
+                                .get_or_insert_with(|| segment_angle_degrees(tangent)),
                             top_bounces: current.top_bounces,
                             bottom_bounces: current.bottom_bounces,
                             incoherent_intensity: (2.0 * PI).sqrt()
@@ -1512,6 +1516,10 @@ fn crosses_caustic(q: f64, old_q: f64) -> bool {
 
 fn crosses_simple_caustic(q: f64, old_q: f64) -> bool {
     (q < 0.0 && old_q >= 0.0) || (q > 0.0 && old_q <= 0.0)
+}
+
+fn segment_angle_degrees(tangent: [f64; 2]) -> f64 {
+    tangent[1].atan2(tangent[0]).to_degrees()
 }
 
 fn dot(left: [f64; 2], right: [f64; 2]) -> f64 {

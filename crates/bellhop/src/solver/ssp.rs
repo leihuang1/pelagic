@@ -132,6 +132,9 @@ impl SoundSpeedModel {
         })
     }
 
+    // Measured hot path: called three times in every ray step, which uses only some fields.
+    #[inline(always)]
+    #[allow(clippy::inline_always)]
     pub fn evaluate(
         &self,
         position_m: [f64; 2],
