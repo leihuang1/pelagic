@@ -104,8 +104,9 @@ frequencies and range-dependent profiles also solve side by side after the first
 and their results still arrive in order, so about 128 MiB of finished results can
 wait in memory. Fewer solve together if their results are large. If a frequency
 fails, any later ones already solved are discarded. Real KRAKEN with
-finite elastic layers or an elastic surface half-space solves them one after
-another, because each one continues from the last.
+finite elastic layers solves them one after another, because each one continues
+from the last. So, conservatively, does real KRAKEN with an elastic surface
+half-space.
 
 ## Many cases
 
@@ -185,7 +186,7 @@ is killed still leaves every finished case recorded:
 | `version` | The Pelagic version, which the results record |
 | `format` | `legacy`, `hdf5` or `both` |
 | `options` | Options that change the results: `{"solver": …, "max_output_bytes": …}` for KRAKEN, `{}` for BELLHOP |
-| `input_sha256` | SHA-256 over every file the case read, auxiliary files included, each as its length in 8 little-endian bytes followed by its bytes. `null` if the case could not be loaded: a BELLHOP case or legacy KRAKEN files that cannot be read, parsed or validated, or a KRAKEN JSON file that cannot be read. A KRAKEN JSON case is validated only when solved, so an invalid one still has its hash |
+| `input_sha256` | SHA-256 over every file the case read, auxiliary files included, each as its length in 8 little-endian bytes followed by its bytes. `null` if the case could not be loaded: a BELLHOP case or legacy KRAKEN files that cannot be read, parsed or validated, or a KRAKEN JSON file that cannot be read. A KRAKEN JSON file that was read keeps its hash even when it is invalid |
 | `outcome` | `ok`, `failed` or `skipped` |
 | `exit_code` | What `run` would have returned: `0`, `2`, `3` or `4` |
 | `seconds` | Wall time for the case |

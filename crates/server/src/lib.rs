@@ -3,16 +3,16 @@
 //! Synchronous HTTP facade for modern, self-contained BELLHOP cases.
 
 use std::io::{self, Write};
+use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Bytes;
 use axum::error_handling::HandleErrorLayer;
-use axum::extract::rejection::BytesRejection;
-use axum::extract::{Request, State};
+use axum::extract::{FromRequest, Request, State};
 use axum::http::header::{AUTHORIZATION, CONTENT_DISPOSITION, CONTENT_TYPE, WWW_AUTHENTICATE};
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -27,7 +27,7 @@ use bellhop::solver::{
     SourceField, run as run_simulation,
 };
 use serde::Serialize;
-use serde::ser::{SerializeStruct, Serializer};
+use serde::ser::Serializer;
 use tokio::sync::Semaphore;
 use tower::limit::ConcurrencyLimitLayer;
 use tower::timeout::TimeoutLayer;
@@ -242,36 +242,86 @@ impl From<&Diagnostic> for DiagnosticResponse {
 
 #[derive(ToSchema)]
 #[schema(value_type = String, format = Binary)]
-#[allow(dead_code)]
 struct Hdf5Response(Vec<u8>);
 
-#[derive(ToSchema)]
-#[allow(dead_code)]
-struct ArrivalsResponse {
+impl IntoResponse for Hdf5Response {
+    fn into_response(self) -> Response {
+        let mut response = self.0.into_response();
+        response
+            .headers_mut()
+            .insert(CONTENT_TYPE, HeaderValue::from_static(HDF5_MEDIA_TYPE));
+        response.headers_mut().insert(
+            CONTENT_DISPOSITION,
+            HeaderValue::from_static("attachment; filename=\"bellhop-result.h5\""),
+        );
+        response
+    }
+}
+
+/// Serializes a result slice as a JSON array of response views, each made from
+/// its item as it is written, so a large result is never cloned or collected.
+struct Views<'a, T, V>(&'a [T], PhantomData<fn() -> V>);
+
+impl<'a, T, V> Views<'a, T, V> {
+    fn new(items: &'a [T]) -> Self {
+        Self(items, PhantomData)
+    }
+}
+
+impl<'a, T, V: From<&'a T> + Serialize> Serialize for Views<'a, T, V> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.collect_seq(self.0.iter().map(V::from))
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+struct ArrivalsResponse<'a> {
     schema_version: u32,
-    title: String,
+    title: &'a str,
     frequency_hz: f64,
     warnings: Vec<DiagnosticResponse>,
-    sources: Vec<ArrivalSourceResponse>,
+    #[schema(value_type = Vec<ArrivalSourceResponse>)]
+    sources: Views<'a, SourceArrivals, ArrivalSourceResponse<'a>>,
 }
 
-#[derive(ToSchema)]
-#[allow(dead_code)]
-struct ArrivalSourceResponse {
+#[derive(Serialize, ToSchema)]
+struct ArrivalSourceResponse<'a> {
     source_depth_m: f64,
-    receivers: Vec<ArrivalReceiverResponse>,
+    #[schema(value_type = Vec<ArrivalReceiverResponse>)]
+    receivers: Views<'a, ReceiverArrivals, ArrivalReceiverResponse<'a>>,
 }
 
-#[derive(ToSchema)]
-#[allow(dead_code)]
-struct ArrivalReceiverResponse {
+impl<'a> From<&'a SourceArrivals> for ArrivalSourceResponse<'a> {
+    fn from(source: &'a SourceArrivals) -> Self {
+        Self {
+            source_depth_m: source.source_depth_m,
+            receivers: Views::new(&source.receivers),
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+struct ArrivalReceiverResponse<'a> {
     range_m: f64,
     depth_m: f64,
-    arrivals: Vec<ArrivalResponse>,
+    #[schema(value_type = Vec<ArrivalResponse>)]
+    arrivals: Views<'a, Arrival, ArrivalResponse>,
 }
 
-#[derive(ToSchema)]
-#[allow(dead_code)]
+impl<'a> From<&'a ReceiverArrivals> for ArrivalReceiverResponse<'a> {
+    fn from(receiver: &'a ReceiverArrivals) -> Self {
+        Self {
+            range_m: receiver.range_m,
+            depth_m: receiver.depth_m,
+            arrivals: Views::new(&receiver.arrivals),
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
 struct ArrivalResponse {
     amplitude: f32,
     phase_radians: f32,
@@ -283,15 +333,30 @@ struct ArrivalResponse {
     bottom_bounces: u32,
 }
 
-#[derive(ToSchema)]
-#[allow(dead_code)]
-struct FieldResponse {
+impl From<&Arrival> for ArrivalResponse {
+    fn from(arrival: &Arrival) -> Self {
+        Self {
+            amplitude: arrival.amplitude,
+            phase_radians: arrival.phase_radians,
+            travel_time_s: arrival.travel_time_s,
+            attenuation_time_s: arrival.attenuation_time_s,
+            source_angle_degrees: arrival.source_angle_degrees,
+            receiver_angle_degrees: arrival.receiver_angle_degrees,
+            top_bounces: arrival.top_bounces,
+            bottom_bounces: arrival.bottom_bounces,
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+struct FieldResponse<'a> {
     schema_version: u32,
-    title: String,
+    title: &'a str,
     frequency_hz: f64,
     run_kind: FieldRunKindResponse,
     warnings: Vec<DiagnosticResponse>,
-    sources: Vec<FieldSourceResponse>,
+    #[schema(value_type = Vec<FieldSourceResponse>)]
+    sources: Views<'a, SourceField, FieldSourceResponse<'a>>,
 }
 
 #[derive(Clone, Copy, Serialize, ToSchema)]
@@ -302,183 +367,46 @@ enum FieldRunKindResponse {
     Incoherent,
 }
 
-#[derive(ToSchema)]
-#[allow(dead_code)]
-struct FieldSourceResponse {
+#[derive(Serialize, ToSchema)]
+struct FieldSourceResponse<'a> {
     source_depth_m: f64,
-    receivers: Vec<FieldReceiverResponse>,
+    #[schema(value_type = Vec<FieldReceiverResponse>)]
+    receivers: Views<'a, FieldSample, FieldReceiverResponse>,
 }
 
-#[derive(ToSchema)]
-#[allow(dead_code)]
+impl<'a> From<&'a SourceField> for FieldSourceResponse<'a> {
+    fn from(source: &'a SourceField) -> Self {
+        Self {
+            source_depth_m: source.source_depth_m,
+            receivers: Views::new(&source.samples),
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
 struct FieldReceiverResponse {
     range_m: f64,
     depth_m: f64,
     pressure: PressureResponse,
 }
 
-#[derive(ToSchema)]
-#[allow(dead_code)]
+impl From<&FieldSample> for FieldReceiverResponse {
+    fn from(sample: &FieldSample) -> Self {
+        Self {
+            range_m: sample.range_m,
+            depth_m: sample.depth_m,
+            pressure: PressureResponse {
+                real: sample.pressure.re,
+                imaginary: sample.pressure.im,
+            },
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
 struct PressureResponse {
     real: f32,
     imaginary: f32,
-}
-
-#[derive(Serialize)]
-struct BorrowedArrivalsResponse<'a> {
-    schema_version: u32,
-    title: &'a str,
-    frequency_hz: f64,
-    warnings: Vec<DiagnosticResponse>,
-    sources: BorrowedArrivalSources<'a>,
-}
-
-struct BorrowedArrivalSources<'a>(&'a [SourceArrivals]);
-struct BorrowedArrivalSource<'a>(&'a SourceArrivals);
-struct BorrowedArrivalReceivers<'a>(&'a [ReceiverArrivals]);
-struct BorrowedArrivalReceiver<'a>(&'a ReceiverArrivals);
-struct BorrowedArrivals<'a>(&'a [Arrival]);
-struct BorrowedArrival<'a>(&'a Arrival);
-
-#[derive(Serialize)]
-struct BorrowedFieldResponse<'a> {
-    schema_version: u32,
-    title: &'a str,
-    frequency_hz: f64,
-    run_kind: FieldRunKindResponse,
-    warnings: Vec<DiagnosticResponse>,
-    sources: BorrowedFieldSources<'a>,
-}
-
-struct BorrowedFieldSources<'a>(&'a [SourceField]);
-struct BorrowedFieldSource<'a>(&'a SourceField);
-struct BorrowedFieldReceivers<'a>(&'a [FieldSample]);
-struct BorrowedFieldReceiver<'a>(&'a FieldSample);
-struct BorrowedPressure<'a>(&'a FieldSample);
-
-impl Serialize for BorrowedArrivalSources<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.collect_seq(self.0.iter().map(BorrowedArrivalSource))
-    }
-}
-
-impl Serialize for BorrowedArrivalSource<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer.serialize_struct("ArrivalSourceResponse", 2)?;
-        state.serialize_field("source_depth_m", &self.0.source_depth_m)?;
-        state.serialize_field("receivers", &BorrowedArrivalReceivers(&self.0.receivers))?;
-        state.end()
-    }
-}
-
-impl Serialize for BorrowedArrivalReceivers<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.collect_seq(self.0.iter().map(BorrowedArrivalReceiver))
-    }
-}
-
-impl Serialize for BorrowedArrivalReceiver<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer.serialize_struct("ArrivalReceiverResponse", 3)?;
-        state.serialize_field("range_m", &self.0.range_m)?;
-        state.serialize_field("depth_m", &self.0.depth_m)?;
-        state.serialize_field("arrivals", &BorrowedArrivals(&self.0.arrivals))?;
-        state.end()
-    }
-}
-
-impl Serialize for BorrowedArrivals<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.collect_seq(self.0.iter().map(BorrowedArrival))
-    }
-}
-
-impl Serialize for BorrowedArrival<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer.serialize_struct("ArrivalResponse", 8)?;
-        state.serialize_field("amplitude", &self.0.amplitude)?;
-        state.serialize_field("phase_radians", &self.0.phase_radians)?;
-        state.serialize_field("travel_time_s", &self.0.travel_time_s)?;
-        state.serialize_field("attenuation_time_s", &self.0.attenuation_time_s)?;
-        state.serialize_field("source_angle_degrees", &self.0.source_angle_degrees)?;
-        state.serialize_field("receiver_angle_degrees", &self.0.receiver_angle_degrees)?;
-        state.serialize_field("top_bounces", &self.0.top_bounces)?;
-        state.serialize_field("bottom_bounces", &self.0.bottom_bounces)?;
-        state.end()
-    }
-}
-
-impl Serialize for BorrowedFieldSources<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.collect_seq(self.0.iter().map(BorrowedFieldSource))
-    }
-}
-
-impl Serialize for BorrowedFieldSource<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer.serialize_struct("FieldSourceResponse", 2)?;
-        state.serialize_field("source_depth_m", &self.0.source_depth_m)?;
-        state.serialize_field("receivers", &BorrowedFieldReceivers(&self.0.samples))?;
-        state.end()
-    }
-}
-
-impl Serialize for BorrowedFieldReceivers<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.collect_seq(self.0.iter().map(BorrowedFieldReceiver))
-    }
-}
-
-impl Serialize for BorrowedFieldReceiver<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer.serialize_struct("FieldReceiverResponse", 3)?;
-        state.serialize_field("range_m", &self.0.range_m)?;
-        state.serialize_field("depth_m", &self.0.depth_m)?;
-        state.serialize_field("pressure", &BorrowedPressure(self.0))?;
-        state.end()
-    }
-}
-
-impl Serialize for BorrowedPressure<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer.serialize_struct("PressureResponse", 2)?;
-        state.serialize_field("real", &self.0.pressure.re)?;
-        state.serialize_field("imaginary", &self.0.pressure.im)?;
-        state.end()
-    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -586,12 +514,12 @@ fn serialize_arrivals(
 ) -> Result<Vec<u8>, JsonWorkerError> {
     validate_arrival_result(result).map_err(JsonWorkerError::NonFinite)?;
     serialize_json(
-        &BorrowedArrivalsResponse {
+        &ArrivalsResponse {
             schema_version: 1,
             title: &result.title,
             frequency_hz: result.frequency_hz,
             warnings: warnings.iter().map(DiagnosticResponse::from).collect(),
-            sources: BorrowedArrivalSources(&result.arrival_sources),
+            sources: Views::new(&result.arrival_sources),
         },
         max_bytes,
     )
@@ -605,13 +533,13 @@ fn serialize_field(
 ) -> Result<Vec<u8>, JsonWorkerError> {
     validate_field_result(result).map_err(JsonWorkerError::NonFinite)?;
     serialize_json(
-        &BorrowedFieldResponse {
+        &FieldResponse {
             schema_version: 1,
             title: &result.title,
             frequency_hz: result.frequency_hz,
             run_kind,
             warnings: warnings.iter().map(DiagnosticResponse::from).collect(),
-            sources: BorrowedFieldSources(&result.field_sources),
+            sources: Views::new(&result.field_sources),
         },
         max_bytes,
     )
@@ -709,15 +637,11 @@ impl IntoResponse for ApiError {
         (status = 504, description = "Request timed out", body = ErrorResponse)
     )
 )]
-async fn validate_case(
-    headers: HeaderMap,
-    body: Result<Bytes, BytesRejection>,
-) -> Result<Json<ValidationResponse>, ApiError> {
-    let body = extract_json_body(&headers, body)?;
-    let outcome = parse_document(&body)?;
+async fn validate_case(case: CaseRequest) -> Result<Json<ValidationResponse>, ApiError> {
     Ok(Json(ValidationResponse {
         valid: true,
-        warnings: outcome
+        warnings: case
+            .outcome
             .warnings
             .iter()
             .map(DiagnosticResponse::from)
@@ -745,12 +669,11 @@ async fn validate_case(
 )]
 async fn run_case(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    body: Result<Bytes, BytesRejection>,
-) -> Result<Response, ApiError> {
-    let body = extract_json_body(&headers, body)?;
-    let outcome = parse_document(&body)?;
-    let request_bytes = body.to_vec();
+    CaseRequest {
+        bytes: request_bytes,
+        outcome,
+    }: CaseRequest,
+) -> Result<Hdf5Response, ApiError> {
     let limits = state.simulation_limits;
     let bytes = match blocking_worker(&state, move || {
         simulate_to_hdf5(&outcome.value, &request_bytes, &outcome.warnings, limits)
@@ -768,16 +691,7 @@ async fn run_case(
             ));
         }
     };
-
-    let mut response = bytes.into_response();
-    response
-        .headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static(HDF5_MEDIA_TYPE));
-    response.headers_mut().insert(
-        CONTENT_DISPOSITION,
-        HeaderValue::from_static("attachment; filename=\"bellhop-result.h5\""),
-    );
-    Ok(response)
+    Ok(Hdf5Response(bytes))
 }
 
 #[utoipa::path(
@@ -800,11 +714,8 @@ async fn run_case(
 )]
 async fn arrivals_case(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    body: Result<Bytes, BytesRejection>,
+    CaseRequest { outcome, .. }: CaseRequest,
 ) -> Result<Response, ApiError> {
-    let body = extract_json_body(&headers, body)?;
-    let outcome = parse_document(&body)?;
     if outcome.value.environment.run.kind != RunKind::Arrivals {
         return Err(ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -835,11 +746,8 @@ async fn arrivals_case(
 )]
 async fn field_case(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    body: Result<Bytes, BytesRejection>,
+    CaseRequest { outcome, .. }: CaseRequest,
 ) -> Result<Response, ApiError> {
-    let body = extract_json_body(&headers, body)?;
-    let outcome = parse_document(&body)?;
     let run_kind = match outcome.value.environment.run.kind {
         RunKind::Coherent => FieldRunKindResponse::Coherent,
         RunKind::SemiCoherent => FieldRunKindResponse::SemiCoherent,
@@ -968,53 +876,64 @@ fn simulation_error(report: &DiagnosticReport) -> ApiError {
     ApiError::from_report(status, code, message, report)
 }
 
-fn extract_json_body(
-    headers: &HeaderMap,
-    body: Result<Bytes, BytesRejection>,
-) -> Result<Bytes, ApiError> {
-    let media_type = headers
-        .get(CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(';').next())
-        .map(str::trim);
-    if !matches!(media_type, Some("application/json"))
-        && !media_type.is_some_and(|value| value.ends_with("+json"))
-    {
-        return Err(ApiError::new(
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "unsupported_media_type",
-            "Content-Type must be application/json",
-        ));
-    }
-    body.map_err(|rejection| {
-        ApiError::new(
-            rejection.status(),
-            if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
-                "body_too_large"
-            } else {
-                "body_read_failed"
-            },
-            rejection.body_text(),
-        )
-    })
+/// A request body accepted as one validated case, with the bytes it was parsed from.
+struct CaseRequest {
+    bytes: Bytes,
+    outcome: LoadOutcome<Case>,
 }
 
-fn parse_document(bytes: &[u8]) -> Result<LoadOutcome<Case>, ApiError> {
-    bellhop::json::load_case_document(bytes).map_err(|error| {
-        let (status, code, message) = match error.kind() {
-            DocumentErrorKind::Malformed => (
-                StatusCode::BAD_REQUEST,
-                "malformed_json",
-                "request body is not a valid JSON case",
-            ),
-            DocumentErrorKind::Semantic => (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "invalid_case",
-                "request body describes an invalid case",
-            ),
-        };
-        ApiError::from_report(status, code, message, error.report())
-    })
+impl<S: Send + Sync> FromRequest<S> for CaseRequest {
+    type Rejection = ApiError;
+
+    /// Reads the whole body, then checks its media type, size and case in that
+    /// order. The order decides which error a request gets: a stalled body times
+    /// out whatever its media type, and a body that is not JSON is refused for
+    /// that before its size.
+    async fn from_request(request: Request, state: &S) -> Result<Self, ApiError> {
+        let media_type = request.headers().get(CONTENT_TYPE).cloned();
+        let body = Bytes::from_request(request, state).await;
+        let media_type = media_type
+            .as_ref()
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .map(str::trim);
+        if !matches!(media_type, Some("application/json"))
+            && !media_type.is_some_and(|value| value.ends_with("+json"))
+        {
+            return Err(ApiError::new(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "unsupported_media_type",
+                "Content-Type must be application/json",
+            ));
+        }
+        let bytes = body.map_err(|rejection| {
+            ApiError::new(
+                rejection.status(),
+                if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
+                    "body_too_large"
+                } else {
+                    "body_read_failed"
+                },
+                rejection.body_text(),
+            )
+        })?;
+        let outcome = bellhop::json::load_case_document(&bytes).map_err(|error| {
+            let (status, code, message) = match error.kind() {
+                DocumentErrorKind::Malformed => (
+                    StatusCode::BAD_REQUEST,
+                    "malformed_json",
+                    "request body is not a valid JSON case",
+                ),
+                DocumentErrorKind::Semantic => (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "invalid_case",
+                    "request body describes an invalid case",
+                ),
+            };
+            ApiError::from_report(status, code, message, error.report())
+        })?;
+        Ok(Self { bytes, outcome })
+    }
 }
 
 enum WorkerError {
@@ -1087,6 +1006,7 @@ mod tests {
 
     use axum::body::{Body, to_bytes};
     use axum::http::{Request, StatusCode, header};
+    use axum::response::IntoResponse;
     use bellhop::solver::{Arrival, ReceiverArrivals, SimulationResult, SourceArrivals};
     use serde_json::Value;
     use tower::ServiceExt;
@@ -1094,6 +1014,10 @@ mod tests {
     use super::{HDF5_MEDIA_TYPE, ServerConfig, app};
 
     const CASE: &str = include_str!("../../../examples/cases/bellhop/field-g/field-g.json");
+    const VALIDATE: &str = "/v1/validate";
+    const RUN: &str = "/v1/run";
+    const ARRIVALS: &str = "/v1/arrivals";
+    const FIELD: &str = "/v1/field";
 
     fn json_request(path: &str, body: impl Into<Body>) -> Request<Body> {
         Request::builder()
@@ -1145,14 +1069,34 @@ mod tests {
 
     /// Checks `value` against the subset of JSON Schema that utoipa emits.
     fn conforms(value: &Value, schema: &Value, root: &Value) -> bool {
+        let object = match schema {
+            Value::Bool(accepts) => return *accepts,
+            Value::Object(object) => object,
+            other => panic!("unsupported schema {other}"),
+        };
+        // A keyword this check does not apply would let any value pass. The
+        // last three only annotate, as `format` does by default in JSON Schema.
+        let keywords = "$ref oneOf anyOf allOf enum type minimum maximum properties \
+                        required items description example format";
+        for (keyword, argument) in object {
+            assert!(
+                keywords.split(' ').any(|known| known == keyword)
+                    || (keyword == "additionalProperties" && argument.is_boolean()),
+                "unsupported schema keyword {keyword}"
+            );
+        }
         if let Some(reference) = schema["$ref"].as_str() {
             let name = reference.strip_prefix("#/components/schemas/").unwrap();
             let target = &root["components"]["schemas"][name];
             assert!(target.is_object(), "unregistered component {name}");
-            return conforms(value, target, root);
+            if !conforms(value, target, root) {
+                return false;
+            }
         }
-        if let Some(options) = schema["oneOf"].as_array() {
-            return options.iter().filter(|o| conforms(value, o, root)).count() == 1;
+        if let Some(options) = schema["oneOf"].as_array()
+            && options.iter().filter(|o| conforms(value, o, root)).count() != 1
+        {
+            return false;
         }
         if let Some(options) = schema["anyOf"].as_array()
             && !options.iter().any(|o| conforms(value, o, root))
@@ -1185,6 +1129,16 @@ mod tests {
                 "object" => value.is_object(),
                 other => panic!("unexpected schema type {other}"),
             })
+        {
+            return false;
+        }
+        if let Some(number) = value.as_f64()
+            && (schema["minimum"]
+                .as_f64()
+                .is_some_and(|minimum| number < minimum)
+                || schema["maximum"]
+                    .as_f64()
+                    .is_some_and(|maximum| number > maximum))
         {
             return false;
         }
@@ -1239,6 +1193,323 @@ mod tests {
         assert!(conforms(&case, schema, &openapi));
         case["surface"] = serde_json::json!("sand");
         assert!(!conforms(&case, schema, &openapi));
+    }
+
+    /// The published document, with every object declared to have no unlisted
+    /// properties: a response field the document leaves out is unpublished,
+    /// although JSON Schema would allow it.
+    async fn published_responses() -> Value {
+        fn close_objects(schema: &mut Value) {
+            let Value::Object(object) = schema else {
+                return;
+            };
+            if let Some(Value::Object(properties)) = object.get_mut("properties") {
+                properties.values_mut().for_each(close_objects);
+                object
+                    .entry("additionalProperties")
+                    .or_insert(Value::Bool(false));
+            }
+            if let Some(item) = object.get_mut("items") {
+                close_objects(item);
+            }
+            for keyword in ["oneOf", "anyOf", "allOf"] {
+                if let Some(Value::Array(options)) = object.get_mut(keyword) {
+                    options.iter_mut().for_each(close_objects);
+                }
+            }
+        }
+
+        let openapi = app(ServerConfig::default())
+            .oneshot(Request::get("/openapi.json").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let mut openapi: Value =
+            serde_json::from_slice(&to_bytes(openapi.into_body(), usize::MAX).await.unwrap())
+                .unwrap();
+        for schema in openapi["components"]["schemas"]
+            .as_object_mut()
+            .unwrap()
+            .values_mut()
+        {
+            close_objects(schema);
+        }
+        openapi
+    }
+
+    /// Checks `response` against what `openapi` publishes for `method path` and its
+    /// status: a listed status, the one listed media type and, for JSON, the schema.
+    async fn assert_published(
+        openapi: &Value,
+        method: &str,
+        path: &str,
+        response: axum::response::Response,
+    ) -> (StatusCode, Value) {
+        let status = response.status();
+        let published = &openapi["paths"][path][method]["responses"][status.as_str()];
+        assert!(published.is_object(), "{method} {path} returned {status}");
+        let media_type = response.headers()[header::CONTENT_TYPE].to_str().unwrap();
+        let content = published["content"].as_object().unwrap();
+        assert_eq!(
+            content.keys().collect::<Vec<_>>(),
+            [media_type],
+            "{method} {path} {status}"
+        );
+        let schema = content[media_type]["schema"].clone();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        if schema["$ref"] == "#/components/schemas/Hdf5Response" {
+            assert_eq!(&body[..8], b"\x89HDF\r\n\x1a\n");
+            return (status, Value::Null);
+        }
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            conforms(&body, &schema, openapi),
+            "{method} {path} {status}"
+        );
+        (status, body)
+    }
+
+    async fn published_body(openapi: &Value, path: &str, body: impl Into<Body>) -> Value {
+        let response = app(ServerConfig::default())
+            .oneshot(json_request(path, body))
+            .await
+            .unwrap();
+        assert_published(openapi, "post", path, response).await.1
+    }
+
+    fn with_run_kind(case: &[u8], run_kind: &str) -> Vec<u8> {
+        let mut case: Value = serde_json::from_slice(case).unwrap();
+        case["bellhop"]["run"] = serde_json::json!(run_kind);
+        serde_json::to_vec(&case).unwrap()
+    }
+
+    fn without_angles() -> Vec<u8> {
+        let mut case: Value = serde_json::from_str(CASE).unwrap();
+        case["bellhop"]["angles"] = serde_json::json!([]);
+        serde_json::to_vec(&case).unwrap()
+    }
+
+    #[tokio::test]
+    async fn every_published_response_conforms_to_its_schema() {
+        // No request here reaches these; they are checked as constructed `ApiError`s.
+        const CONSTRUCTED: [(&str, u16); 2] = [(RUN, 500), (FIELD, 500)];
+        let openapi = published_responses().await;
+        let mut seen = std::collections::BTreeSet::new();
+        let mut check = async |service: &axum::Router, path: &str, request: Request<Body>| {
+            let method = request.method().as_str().to_ascii_lowercase();
+            let response = service.clone().oneshot(request).await.unwrap();
+            let (status, _) = assert_published(&openapi, &method, path, response).await;
+            seen.insert((path.to_owned(), status.as_u16()));
+            status
+        };
+        let service = app(ServerConfig::default());
+        let health = Request::get("/healthz").body(Body::empty()).unwrap();
+        check(&service, "/healthz", health).await;
+
+        // Every example as written, the JSON result kinds that they lack, and an
+        // arrivals run whose non-finite amplitude is the one real 500.
+        let examples =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/cases/bellhop");
+        let mut cases = Vec::new();
+        for entry in std::fs::read_dir(&examples).unwrap() {
+            let folder = entry.unwrap().path();
+            let name = folder.file_name().unwrap().to_string_lossy().into_owned();
+            cases.push(std::fs::read(folder.join(format!("{name}.json"))).unwrap());
+        }
+        let beam_pattern = std::fs::read(examples.join("beam-pattern/beam-pattern.json")).unwrap();
+        cases.push(with_run_kind(&beam_pattern, "arrivals"));
+        cases.push(with_run_kind(CASE.as_bytes(), "semi_coherent"));
+        cases.push(with_run_kind(CASE.as_bytes(), "incoherent"));
+        let arrivals = with_run_kind(CASE.as_bytes(), "arrivals");
+        let invalid = without_angles();
+
+        let configured = |change: fn(&mut ServerConfig)| {
+            let mut config = ServerConfig::default();
+            change(&mut config);
+            app(config)
+        };
+        let auth = configured(|config| config.auth_token = Some("secret".to_owned()));
+        let small_body = configured(|config| config.max_body_bytes = 8);
+        let small_response = configured(|config| config.max_json_response_bytes = 8);
+        let few_rays = configured(|config| config.simulation_limits.max_rays = 1);
+        let no_time = configured(|config| config.request_timeout = Duration::ZERO);
+        for route in [VALIDATE, RUN, ARRIVALS, FIELD] {
+            let own_kind = if route == ARRIVALS {
+                arrivals.as_slice()
+            } else {
+                CASE.as_bytes()
+            };
+            let mut requests: Vec<(&axum::Router, &[u8])> = cases
+                .iter()
+                .map(|case| (&service, case.as_slice()))
+                .collect();
+            requests.extend([
+                (&service, b"{".as_slice()),
+                (&service, &invalid),
+                (&auth, CASE.as_bytes()),
+                (&small_body, CASE.as_bytes()),
+                (&small_response, own_kind),
+                (&few_rays, own_kind),
+            ]);
+            for (service, body) in requests {
+                check(service, route, json_request(route, body.to_vec())).await;
+            }
+            let untyped = Request::post(route).body(Body::from(CASE)).unwrap();
+            check(&service, route, untyped).await;
+            // A ready response can beat a zero timeout; keep body extraction pending instead.
+            let pending = Request::post(route)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from_stream(futures_util::stream::pending::<
+                    Result<axum::body::Bytes, std::io::Error>,
+                >()))
+                .unwrap();
+            check(&no_time, route, pending).await;
+        }
+        let non_finite = json_request(ARRIVALS, with_run_kind(&beam_pattern, "arrivals"));
+        assert_eq!(
+            check(&service, ARRIVALS, non_finite).await,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "beam-pattern as arrivals no longer has a non-finite amplitude; \
+             find another real 500 for /v1/arrivals"
+        );
+        for (route, status) in CONSTRUCTED {
+            let error = super::ApiError::new(
+                StatusCode::from_u16(status).unwrap(),
+                "output_failed",
+                "unable to create the result",
+            );
+            assert_published(&openapi, "post", route, error.into_response()).await;
+        }
+
+        let mut published = std::collections::BTreeSet::new();
+        for (path, item) in openapi["paths"].as_object().unwrap() {
+            for operation in item.as_object().unwrap().values() {
+                for status in operation["responses"].as_object().unwrap().keys() {
+                    published.insert((path.clone(), status.parse::<u16>().unwrap()));
+                }
+            }
+        }
+        seen.extend(CONSTRUCTED.map(|(route, status)| (route.to_owned(), status)));
+        assert_eq!(seen, published);
+    }
+
+    #[tokio::test]
+    async fn response_conformance_rejects_unpublished_bodies() {
+        let openapi = published_responses().await;
+        let schema = |name: &str| openapi["components"]["schemas"][name].clone();
+        let arrivals_case = with_run_kind(CASE.as_bytes(), "arrivals");
+        let arrivals = published_body(&openapi, "/v1/arrivals", arrivals_case).await;
+        let receiver = arrivals["sources"][0]["receivers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|receiver| !receiver["arrivals"].as_array().unwrap().is_empty())
+            .unwrap();
+        let unpublished: [fn(&mut Value); 6] = [
+            |arrival| {
+                arrival.as_object_mut().unwrap().remove("travel_time_s");
+            },
+            |arrival| {
+                let time = arrival.as_object_mut().unwrap().remove("travel_time_s");
+                arrival["travel_time"] = time.unwrap();
+            },
+            |arrival| arrival["unpublished"] = serde_json::json!(0),
+            |arrival| arrival["top_bounces"] = serde_json::json!(-1),
+            |arrival| arrival["top_bounces"] = serde_json::json!(0.5),
+            |arrival| arrival["amplitude"] = serde_json::json!("1"),
+        ];
+        for change in unpublished {
+            let mut body = arrivals.clone();
+            change(&mut body["sources"][0]["receivers"][receiver]["arrivals"][0]);
+            assert!(!conforms(&body, &schema("ArrivalsResponse"), &openapi));
+        }
+
+        let mut field = published_body(&openapi, "/v1/field", CASE).await;
+        field["run_kind"] = serde_json::json!("arrivals");
+        assert!(!conforms(&field, &schema("FieldResponse"), &openapi));
+        let mut validation = published_body(&openapi, "/v1/validate", CASE).await;
+        validation["warnings"][0]["severity"] = serde_json::json!("note");
+        assert!(!conforms(
+            &validation,
+            &schema("ValidationResponse"),
+            &openapi
+        ));
+        let mut invalid = published_body(&openapi, "/v1/validate", without_angles()).await;
+        invalid["error"]["diagnostics"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("location");
+        assert!(!conforms(&invalid, &schema("ErrorResponse"), &openapi));
+        assert!(conforms(&invalid, &Value::Bool(true), &openapi));
+        assert!(!conforms(&invalid, &Value::Bool(false), &openapi));
+    }
+
+    /// Wire names are Rust identifiers, so a rename changes bytes and schema
+    /// together; this table holds them. A component lists its enum values or its
+    /// required properties in order, then optional ones marked `?`.
+    #[tokio::test]
+    async fn response_wire_names_are_unchanged() {
+        const SURFACE: &str = "\
+HealthResponse: status
+ValidationResponse: valid warnings
+DiagnosticResponse: severity code message location field?
+DiagnosticLocationResponse: path line column
+DiagnosticSeverityResponse: warning error
+ErrorResponse: error
+ErrorDetail: code message diagnostics
+ArrivalsResponse: schema_version title frequency_hz warnings sources
+ArrivalSourceResponse: source_depth_m receivers
+ArrivalReceiverResponse: range_m depth_m arrivals
+ArrivalResponse: amplitude phase_radians travel_time_s attenuation_time_s source_angle_degrees receiver_angle_degrees top_bounces bottom_bounces
+FieldResponse: schema_version title frequency_hz run_kind warnings sources
+FieldRunKindResponse: coherent semi_coherent incoherent
+FieldSourceResponse: source_depth_m receivers
+FieldReceiverResponse: range_m depth_m pressure
+PressureResponse: real imaginary
+/healthz application/json: 200
+/v1/arrivals application/json: 200 400 401 413 415 422 429 500 504
+/v1/field application/json: 200 400 401 413 415 422 429 500 504
+/v1/run application/json: 400 401 413 415 422 429 500 504
+/v1/run application/x-hdf5: 200
+/v1/validate application/json: 200 400 401 413 415 422 504";
+        let openapi = published_responses().await;
+        let words = |list: &Value| -> Vec<String> {
+            let list = list.as_array().into_iter().flatten();
+            list.map(|word| word.as_str().unwrap().to_owned()).collect()
+        };
+        let mut surface = Vec::new();
+        for line in SURFACE.lines().filter(|line| !line.starts_with('/')) {
+            let name = line.split_once(": ").unwrap().0;
+            let schema = &openapi["components"]["schemas"][name];
+            let mut names = [words(&schema["enum"]), words(&schema["required"])].concat();
+            for key in schema["properties"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|p| p.0)
+            {
+                if !names.contains(key) {
+                    names.push(format!("{key}?"));
+                }
+            }
+            surface.push(format!("{name}: {}", names.join(" ")));
+        }
+        let mut statuses = std::collections::BTreeMap::<String, Vec<&str>>::new();
+        for (path, item) in openapi["paths"].as_object().unwrap() {
+            for operation in item.as_object().unwrap().values() {
+                for (status, response) in operation["responses"].as_object().unwrap() {
+                    for media_type in response["content"].as_object().unwrap().keys() {
+                        let route = format!("{path} {media_type}");
+                        statuses.entry(route).or_default().push(status);
+                    }
+                }
+            }
+        }
+        surface.extend(
+            statuses
+                .iter()
+                .map(|(route, list)| format!("{route}: {}", list.join(" "))),
+        );
+        assert_eq!(surface.join("\n"), SURFACE);
     }
 
     #[tokio::test]

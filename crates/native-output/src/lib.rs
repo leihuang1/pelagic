@@ -1,4 +1,5 @@
-//! Native numerical writers and protected result-directory publication, without HDF5.
+//! Native numerical writers, the KRAKEN frequency-block stream and protected result-directory
+//! publication, without HDF5.
 //! Low-level writers require a trusted stem and exclusively owned scratch directory;
 //! adapters publish their complete file groups through [`directory::publish`].
 pub mod bellhop;

@@ -44,6 +44,7 @@ jobs:
       - name: Performance kit
         run: |
           python3 tools/perf/run.py self-test
+          python3 tools/perf/bellhop_cli.py --self-test
           cargo test --locked --manifest-path tools/perf/Cargo.toml
         if: steps.changes.outputs.full == 'true'
       - name: Documentation links

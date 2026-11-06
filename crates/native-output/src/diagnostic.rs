@@ -41,7 +41,7 @@ pub fn capture<T>(operation: impl FnOnce() -> T) -> (T, Vec<PublicationWarning>)
     (result, warnings)
 }
 
-/// Record a cleanup failure, or print it for legacy Rust callers without a capture scope.
+/// Record a cleanup failure, or print it for Rust callers without a capture scope.
 pub fn cleanup(path: &Path, error: &std::io::Error) {
     let diagnostic = PublicationWarning {
         code: "PG0403",

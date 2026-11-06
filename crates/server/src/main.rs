@@ -4,12 +4,17 @@ use std::error::Error;
 use std::io;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use bellhop::solver::SimulationLimits;
 use clap::Parser;
 use server::{ServerConfig, app};
 use tracing_subscriber::EnvFilter;
+
+/// Flags take their defaults from the library, so `--help` cannot drift from it.
+/// `--listen` is not library configuration, and `--auth-token` has no default.
+static DEFAULTS: LazyLock<ServerConfig> = LazyLock::new(ServerConfig::default);
 
 #[derive(Debug, Parser)]
 #[command(
@@ -23,26 +28,30 @@ struct Args {
     listen: SocketAddr,
 
     /// Maximum number of requests admitted to blocking simulation work.
-    #[arg(long, env = "BELLHOP_WORKERS", default_value_t = default_workers())]
+    #[arg(long, env = "BELLHOP_WORKERS", default_value_t = DEFAULTS.workers)]
     workers: usize,
 
     /// Threads for each admitted simulation. Results are identical for any count.
-    #[arg(long, env = "BELLHOP_SOLVER_THREADS", default_value_t = NonZeroUsize::MIN)]
+    #[arg(long, env = "BELLHOP_SOLVER_THREADS", default_value_t = DEFAULTS.solver_threads)]
     solver_threads: NonZeroUsize,
 
     /// End-to-end request timeout, including time spent waiting for a worker.
-    #[arg(long, env = "BELLHOP_REQUEST_TIMEOUT_SECONDS", default_value_t = 120)]
+    #[arg(
+        long,
+        env = "BELLHOP_REQUEST_TIMEOUT_SECONDS",
+        default_value_t = DEFAULTS.request_timeout.as_secs()
+    )]
     request_timeout_seconds: u64,
 
     /// Maximum JSON request-body size.
-    #[arg(long, env = "BELLHOP_MAX_BODY_BYTES", default_value_t = 16 * 1024 * 1024)]
+    #[arg(long, env = "BELLHOP_MAX_BODY_BYTES", default_value_t = DEFAULTS.max_body_bytes)]
     max_body_bytes: usize,
 
     /// Maximum serialized size of a JSON simulation response.
     #[arg(
         long,
         env = "BELLHOP_MAX_JSON_RESPONSE_BYTES",
-        default_value_t = 64 * 1024 * 1024
+        default_value_t = DEFAULTS.max_json_response_bytes
     )]
     max_json_response_bytes: usize,
 
@@ -51,36 +60,48 @@ struct Args {
     auth_token: Option<String>,
 
     /// Maximum launch rays across all source depths.
-    #[arg(long, env = "BELLHOP_MAX_RAYS", default_value_t = 1_000_000)]
+    #[arg(long, env = "BELLHOP_MAX_RAYS", default_value_t = DEFAULTS.simulation_limits.max_rays)]
     max_rays: usize,
 
     /// Maximum integration steps for any one ray.
-    #[arg(long, env = "BELLHOP_MAX_STEPS_PER_RAY", default_value_t = 100_000)]
+    #[arg(
+        long,
+        env = "BELLHOP_MAX_STEPS_PER_RAY",
+        default_value_t = DEFAULTS.simulation_limits.max_steps_per_ray
+    )]
     max_steps_per_ray: usize,
 
     /// Maximum stored ray or eigenray trajectory points per result class.
-    #[arg(long, env = "BELLHOP_MAX_TOTAL_POINTS", default_value_t = 20_000_000)]
+    #[arg(
+        long,
+        env = "BELLHOP_MAX_TOTAL_POINTS",
+        default_value_t = DEFAULTS.simulation_limits.max_total_ray_points
+    )]
     max_total_points: usize,
 
     /// Maximum arrivals retained for any one receiver.
     #[arg(
         long,
         env = "BELLHOP_MAX_ARRIVALS_PER_RECEIVER",
-        default_value_t = 20_000_000
+        default_value_t = DEFAULTS.simulation_limits.max_arrivals_per_receiver
     )]
     max_arrivals_per_receiver: usize,
 
     /// Maximum arrivals retained across one complete simulation.
-    #[arg(long, env = "BELLHOP_MAX_TOTAL_ARRIVALS", default_value_t = 20_000_000)]
+    #[arg(
+        long,
+        env = "BELLHOP_MAX_TOTAL_ARRIVALS",
+        default_value_t = DEFAULTS.simulation_limits.max_total_arrivals
+    )]
     max_total_arrivals: usize,
 
     /// Maximum pressure-field receiver cells.
-    #[arg(long, env = "BELLHOP_MAX_FIELD_CELLS", default_value_t = 20_000_000)]
+    #[arg(
+        long,
+        env = "BELLHOP_MAX_FIELD_CELLS",
+        default_value_t = DEFAULTS.simulation_limits.max_field_cells
+    )]
     max_field_cells: usize,
-}
-
-fn default_workers() -> usize {
-    std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
 }
 
 #[tokio::main]
@@ -99,7 +120,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         max_total_arrivals: args.max_total_arrivals,
         max_total_eigenray_points: args.max_total_points,
         max_field_cells: args.max_field_cells,
-        ..SimulationLimits::default()
+        ..DEFAULTS.simulation_limits
     };
     let config = ServerConfig {
         workers: args.workers,

@@ -11,8 +11,8 @@ adds no physics or new acceptance requirements.
 `case.rs` owns Case/FIELD invariants, `diagnostic.rs` diagnostics, and
 `result.rs` numerical products. Numerical files below live in `solver/`.
 
-- `crates/kraken/src/input/mod.rs` owns legacy acquisition and exact consumed-input
-  snapshots; ENV and FLP can own different resource stems.
+- `crates/kraken/src/input/mod.rs` owns the Case intake, legacy acquisition and exact
+  consumed-input snapshots; ENV and FLP can own different resource stems.
 - `input/legacy/mod.rs` owns records, inheritance, profile/frequency ordering, resource
   selection and source-location diagnostics. Single-environment file loading discovers
   top/bottom tables together, then parses again for assembly (two ENV parses, formerly
@@ -22,10 +22,18 @@ adds no physics or new acceptance requirements.
   optimization; FLP still has separate discovery and assembly parses.
 - `input/material.rs` owns **Input materials**: raw absorption and power laws
   travel with each fluid, solid or half-space, never in canonical loss fields.
-  Its `case_definition` selects one frequency and converts the whole material
-  stack using `attenuation::db_per_wavelength`. Storage accounting happens
-  before frequency copies. Biological loss uses node depths, but half-space
-  conversion retains the reference's HUGE-depth exclusion.
+  Its `case` selects one frequency, converts the whole material stack using
+  `attenuation::db_per_wavelength` and validates the Case. Storage accounting
+  happens before frequency copies. Biological loss uses node depths, but
+  half-space conversion retains the reference's HUGE-depth exclusion.
+- `input/material.rs` also holds rules both loaders share: which raw rows,
+  half-spaces, power laws and volume-loss parameters are acceptable, how media
+  classify and stack, how depths snap to fluid interfaces and how many raw values
+  one frequency of an environment spends. `case::input_values` is a second counter,
+  of canonical values. Each loader keeps its own wording, locations, codes and check
+  order. An ENV half-space must also sit at its boundary depth, which JSON cannot
+  express. `tests/rejection_parity.rs` pins both inputs' verdicts on the shared
+  rules and the known differences below.
 - `input/json/` builds the same input materials from a JSON case, so both inputs
   share one loss conversion; `legacy::field_document_with_resources` writes an
   ENV/FLP pair as that JSON, keeping its loss recipe.
@@ -36,6 +44,25 @@ adds no physics or new acceptance requirements.
   during Case validation, not once for checking and again for their minima.
 - `Case::from_definition` retains topology, spectral, geometry and remaining
   boundary/material checks. Validated Cases stay immutable.
+
+## Known differences between ENV and JSON
+
+The inputs do not accept exactly the same cases. These differences are existing
+behaviour. `tests/rejection_parity.rs` pins their load verdicts; changing one needs a
+schema decision.
+
+- **Storage budget.** `V` is `Materials::input_values`, counting raw values, and `C`
+  is `case::input_values`, counting canonical values, so lossless media cost less in
+  `C`. With `P` profiles and `F` frequencies, ENV requires `V*F` within 5,000,000 for
+  each profile and `(P + sum(C))*F` within it overall. JSON requires `sum(V)*F` within
+  it, and `FieldCase::new` also requires `P + sum(C)` within it at each frequency; only
+  JSON reaches that check, and only at `F = 1`. Either input can reject what the other
+  accepts. An ENV that only JSON rejects has `P >= 2`. It runs from the CLI and `export`
+  prints its document, since `export` does not reload it, but that document fails to
+  load with KR0201. Python loads an ENV through that document, so it rejects the same
+  ENV outright.
+- **Empty biological list.** JSON accepts `"layers": []`. ENV count `0` gets KR0201
+  from the generic `Reader::count` bound.
 
 ## Validated Case to modes and FIELD
 
@@ -83,12 +110,21 @@ growth (at least two passes, within the existing three-pass ceiling).
   Standard arithmetic bounds share bookkeeping, not a new numerical trait or plugin Interface.
 
 `solve_frequencies` keeps real Solve2's run-local bound across ordered blocks,
-without retaining all results; the first error ends the iterator. Blocks that
-cannot read that bound [can solve together](architecture.md). Like JSON,
+without retaining all results; the first error ends the iterator. Blocks and
+profiles whose search does not carry that bound
+[can solve together](architecture.md#concurrency-and-cancellation).
+`solver::carries_mode_count` decides which: for real KRAKEN it asks
+`modes::elastic_search`, the rule the search itself applies, and KRAKENC carries
+none. Like JSON,
 all blocks must share one backend; a mismatched block returns `KR0201` before
 numerical work, including for multi-profile blocks. Independent
 `solve`/`solve_field` calls reset the bound. HDF5 legacy/JSON execution and API
 differential checks share this Interface; no global solver state is used.
+The CLI reaches it through the [frequency-block stream](architecture.md#output-paths),
+which writes each block before taking the next result from the iterator; Python
+collects the results first. Both locate a block's numerical diagnostics under its
+index with `DiagnosticReport::in_frequency`, as `frequencies[i]`, matching the
+result's `/frequencies/{i}` group.
 
 `prepared.rs` keeps a real-KRAKEN Case with its `ModeSet`. `PreparedModes::field`
 validates new ranges and offsets with the Case rules, then calls the same

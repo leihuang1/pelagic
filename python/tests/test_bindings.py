@@ -1,3 +1,5 @@
+import dataclasses
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -7,6 +9,7 @@ import h5py
 import numpy as np
 import pytest
 import pelagic as pg
+from pelagic.errors import Source
 
 ROOT = Path(__file__).resolve().parents[2]
 CLI = Path(os.environ.get("PELAGIC_CLI", ROOT / "target/debug/pelagic"))
@@ -19,6 +22,86 @@ def cli(*args, input=None):
 
 def h5_pressure(group):
     return group["pressure_real"][:] + 1j * group["pressure_imaginary"][:]
+
+
+def test_kraken_file_loads_share_the_cli_intake(tmp_path):
+    source = (ROOT / "examples/cases/kraken/pekeris/pekeris.json").read_bytes()
+    path = tmp_path / "case.json"
+    path.write_bytes(source)
+    case = pg.kraken.load(path, solver="kraken")
+    assert case.run().provenance.input_sha256 == hashlib.sha256(source).hexdigest()
+    assert pg.kraken.Case.from_dict(case.to_dict()).to_dict() == case.to_dict()
+
+    # The same record as the CLI, wherever the mismatch is reported.
+    with pytest.raises(pg.ValidationError) as caught:
+        pg.kraken.load(path, solver="krakenc")
+    expected = {"code": "KR0202", "severity": "error", "field": "kraken.solver",
+                "message": "--solver must match the JSON document",
+                "source": {"path": str(path), "line": 1, "column": 1}}
+    assert dataclasses.asdict(caught.value.diagnostics[0]) == expected
+    run = cli("kraken", "validate", path, "--solver", "krakenc")
+    assert json.loads(run.stderr)["diagnostics"] == [expected]
+
+    with pytest.raises(pg.ValidationError) as caught:
+        pg.kraken.load(tmp_path / "unread.json", flp=tmp_path / "unread.flp")
+    expected = {"code": "KR0202", "severity": "error", "field": "flp",
+                "message": "--flp is invalid for self-contained JSON",
+                "source": {"path": "<case>", "line": 1, "column": 1}}
+    assert dataclasses.asdict(caught.value.diagnostics[0]) == expected
+
+    missing = tmp_path / "missing.json"
+    with pytest.raises(pg.ValidationError) as caught:
+        pg.kraken.load(missing)
+    diagnostic = caught.value.diagnostics[0]
+    assert (diagnostic.code, diagnostic.field) == ("KR0001", "input")
+    assert diagnostic.source == Source(str(missing), 1, 1)
+    assert diagnostic.message.startswith("unable to read input: ")
+
+    binary = tmp_path / "binary.json"
+    binary.write_bytes(b"\xff\xfe")
+    with pytest.raises(pg.ValidationError) as caught:
+        pg.kraken.load(binary)
+    assert caught.value.code == "KR0001"
+
+    # Only a file has a real path to name, and an unknown engine waits for a document that loads.
+    path.write_bytes(b"{ malformed")
+    with pytest.raises(pg.ValidationError) as caught:
+        pg.kraken.load(path, solver="other")
+    assert caught.value.diagnostics[0].source.path == str(path)
+    with pytest.raises(pg.ValidationError) as caught:
+        pg.kraken.Case.from_dict({"pelagic": 1})
+    assert caught.value.diagnostics[0].source.path == "request.json"
+    path.write_bytes(source)
+    with pytest.raises(pg.ValidationError) as caught:
+        pg.kraken.load(path, solver="other")
+    assert (caught.value.code, caught.value.field) == ("KR0202", "mode_solver")
+
+
+def test_kraken_legacy_input_sha256_hashes_the_converted_json():
+    env = ROOT / "examples/cases/kraken/pekeris/pekeris.env"
+    provenance = pg.kraken.load(env).run().provenance
+    assert provenance.input_sha256 == hashlib.sha256(provenance.case_json.encode()).hexdigest()
+    assert provenance.input_sha256 != hashlib.sha256(env.read_bytes()).hexdigest()
+
+
+def test_kraken_solver_mismatch_precedes_the_canonical_size_check(tmp_path):
+    # Whole numbers grow when written as floats, so this fits the 1 MiB input limit only as written.
+    rows = ",".join(f"[{depth},1500]" for depth in range(65001))
+    path = tmp_path / "case.json"
+    path.write_text(json.dumps({
+        "pelagic": 2, "model": "kraken", "frequency": 50, "interpolation": "c_linear",
+        "media": [{"to": 65000, "ssp": "ROWS"}], "surface": "vacuum",
+        "bottom": {"type": "halfspace", "cp": 1700, "rho": 1.5},
+        "source": {"depth": 25}, "receivers": {"depth": 50, "range": 1000},
+        "kraken": {"solver": "kraken", "phase_speed": [1400, 1700], "max_range": 1000},
+    }).replace('"ROWS"', f"[{rows}]"))
+    assert path.stat().st_size < 1 << 20
+    with pytest.raises(pg.ValidationError) as caught:
+        pg.kraken.load(path)
+    assert (caught.value.code, caught.value.field) == ("KR0101", "json")
+    with pytest.raises(pg.ValidationError) as caught:
+        pg.kraken.load(path, solver="krakenc")
+    assert (caught.value.code, caught.value.field) == ("KR0202", "kraken.solver")
 
 
 def test_bellhop_in_process_matches_cli_and_is_immutable(tmp_path):

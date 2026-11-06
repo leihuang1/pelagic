@@ -30,6 +30,9 @@ fn bh_error(kind: &str, report: &bellhop::DiagnosticReport) -> PyErr {
 fn kr_error(kind: &str, report: &kraken::DiagnosticReport) -> PyErr {
     failure(kind, report.diagnostics())
 }
+fn kr_input_error(error: kraken::input::InputError) -> PyErr {
+    kr_error("validation", &error.into_report())
+}
 
 #[pyclass(frozen, module = "pelagic._core")]
 struct Cancellation {
@@ -103,6 +106,39 @@ impl NativeCase {
             inputs,
         })
     }
+
+    /// A JSON file through the Case intake. `input_sha256` hashes its exact bytes.
+    fn load_kraken_json(path: &Path, flp: Option<&Path>, solver: Option<&str>) -> PyResult<Self> {
+        let known = solver.and_then(|name| engine(name).ok());
+        let input = kraken::input::load(path, flp, known).map_err(kr_input_error)?;
+        let document = input.document().map_err(|r| kr_error("validation", &r))?;
+        // to_dict() must reload: reject a case whose JSON form outgrows the input limit.
+        let canonical = kraken::json::encode_case_document(&document, path)
+            .map_err(|r| kr_error("validation", &r))?;
+        // An unknown engine name is reported only for a document that loads.
+        solver.map(engine).transpose()?;
+        Ok(Self {
+            input_sha256: format!(
+                "{:x}",
+                Sha256::digest(input.snapshots()[0].source().as_bytes())
+            ),
+            document: canonical,
+            warnings: "[]".into(),
+            inputs: absolute_inputs(input.consumed_inputs())?,
+            data: Arc::new(CaseData::Kraken(input.into_cases())),
+        })
+    }
+
+    /// An ENV/FLP pair through the Case intake, then its converted JSON through
+    /// `parse`, so that `input_sha256` hashes that JSON.
+    fn load_kraken_legacy(path: &Path, flp: Option<&Path>, solver: Option<&str>) -> PyResult<Self> {
+        let solver = solver.map(engine).transpose()?;
+        let input = kraken::input::load(path, flp, solver).map_err(kr_input_error)?;
+        let document = input.document().map_err(|r| kr_error("validation", &r))?;
+        let text = serde_json::to_string(&document)
+            .map_err(|e| adapter_error("validation", "KR0103", "json", e))?;
+        Self::parse("kraken", &text, absolute_inputs(input.consumed_inputs())?)
+    }
 }
 
 #[pymethods]
@@ -123,6 +159,13 @@ impl NativeCase {
     ) -> PyResult<Self> {
         py.detach(move || {
             let json = path.extension().is_some_and(|e| e == "json");
+            if model == "kraken" {
+                return if json {
+                    Self::load_kraken_json(&path, flp.as_deref(), solver.as_deref())
+                } else {
+                    Self::load_kraken_legacy(&path, flp.as_deref(), solver.as_deref())
+                };
+            }
             if json {
                 if flp.is_some() {
                     return Err(adapter_error(
@@ -132,60 +175,23 @@ impl NativeCase {
                         "--flp is invalid for JSON",
                     ));
                 }
-                let document = read_json(&model, &path)?;
-                let case = Self::parse(&model, &document, vec![absolute(&path)?])?;
-                if let (Some(solver), CaseData::Kraken(cases)) =
-                    (solver.as_deref(), case.data.as_ref())
-                    && engine(solver)? != cases[0].profiles()[0].mode_solver
-                {
-                    return Err(adapter_error(
-                        "validation",
-                        "KR0202",
-                        "mode_solver",
-                        "solver must match JSON",
-                    ));
-                }
-                return Ok(case);
+                let document = read_json(&path)?;
+                return Self::parse(&model, &document, vec![absolute(&path)?]);
             }
             match model.as_str() {
                 "bellhop" => {
-                    let (outcome, _, paths) = bellhop::legacy::load_case_with_inputs(&path)
+                    let (outcome, _, paths) = bellhop::input::load(&path)
                         .map_err(|r| bh_error("validation", &r))?
                         .into_parts();
                     let doc = bellhop::json::export_case_document(&outcome.value)
                         .map_err(|r| bh_error("validation", &r))?;
                     let text = serde_json::to_string(&doc)
                         .map_err(|e| adapter_error("validation", "BH0103", "json", e))?;
-                    let mut case = Self::parse(
-                        "bellhop",
-                        &text,
-                        paths.iter().map(|p| absolute(p)).collect::<PyResult<_>>()?,
-                    )?;
+                    let mut case = Self::parse("bellhop", &text, absolute_inputs(&paths)?)?;
                     // Legacy warnings are input evidence even when canonical JSON has removed that legacy syntax.
                     case.warnings = serde_json::to_string(&outcome.warnings)
                         .map_err(|e| adapter_error("validation", "BH0103", "json", e))?;
                     Ok(case)
-                }
-                "kraken" => {
-                    let flp = flp.unwrap_or_else(|| path.with_extension("flp"));
-                    let input = kraken::input::load_legacy(
-                        &path,
-                        &flp,
-                        engine(solver.as_deref().unwrap_or("kraken"))?,
-                    )
-                    .map_err(|r| kr_error("validation", &r))?;
-                    let document = input.document().map_err(|r| kr_error("validation", &r))?;
-                    let text = serde_json::to_string(&document)
-                        .map_err(|e| adapter_error("validation", "KR0103", "json", e))?;
-                    Self::parse(
-                        "kraken",
-                        &text,
-                        input
-                            .snapshots()
-                            .iter()
-                            .map(|s| absolute(s.path()))
-                            .collect::<PyResult<_>>()?,
-                    )
                 }
                 _ => Err(adapter_error(
                     "validation",
@@ -222,18 +228,7 @@ impl NativeCase {
             CaseData::Kraken(cases) => kraken::cancellation::with_token(token, || {
                 let mut results = Vec::with_capacity(cases.len());
                 for (index, result) in kraken::solve_frequencies(cases).enumerate() {
-                    results.push(result.map_err(|r| {
-                        let diagnostics: Vec<_> = r
-                            .diagnostics()
-                            .iter()
-                            .cloned()
-                            .map(|mut d| {
-                                d.field = format!("frequencies[{index}].{}", d.field);
-                                d
-                            })
-                            .collect();
-                        failure("simulation", diagnostics)
-                    })?);
+                    results.push(result.map_err(|r| failure("simulation", r.in_frequency(index)))?);
                 }
                 Ok(ResultData::Kraken(results))
             }),
@@ -269,29 +264,16 @@ fn engine(name: &str) -> PyResult<kraken::ModeSolver> {
 fn absolute(path: &Path) -> PyResult<PathBuf> {
     std::path::absolute(path).map_err(|e| adapter_error("validation", "PG0001", "input", e))
 }
-fn read_json(model: &str, path: &Path) -> PyResult<String> {
-    use std::io::Read;
-    let file = std::fs::File::open(path).map_err(|e| {
-        adapter_error(
-            "validation",
-            if model == "kraken" {
-                "KR0001"
-            } else {
-                "BH0001"
-            },
-            "input",
-            e,
-        )
-    })?;
-    let mut text = String::new();
-    file.take(if model == "kraken" {
-        kraken::legacy::MAX_INPUT_BYTES + 1
-    } else {
-        u64::MAX
-    })
-    .read_to_string(&mut text)
-    .map_err(|e| adapter_error("validation", "PG0001", "input", e))?;
-    Ok(text)
+fn absolute_inputs(paths: &[PathBuf]) -> PyResult<Vec<PathBuf>> {
+    paths.iter().map(|path| absolute(path)).collect()
+}
+fn read_json(path: &Path) -> PyResult<String> {
+    std::fs::File::open(path)
+        .map_err(|e| adapter_error("validation", "BH0001", "input", e))
+        .and_then(|file| {
+            std::io::read_to_string(file)
+                .map_err(|e| adapter_error("validation", "PG0001", "input", e))
+        })
 }
 
 enum ResultData {
@@ -343,7 +325,7 @@ impl NativeResult {
                     (CaseData::Bellhop(case), ResultData::Bellhop(result)) => native_output::bellhop::write(scratch, "case", case, result)?,
                     (CaseData::Kraken(cases), ResultData::Kraken(results)) => {
                         for (index, (case, result)) in cases.iter().zip(results).enumerate() {
-                            let stem = if cases.len() == 1 { "case".to_owned() } else { format!("case.f{index:04}") };
+                            let stem = native_output::kraken::stream::block_name("case", index, cases.len());
                             native_output::kraken::write(scratch, &stem, case, result, max_output_bytes)?;
                         }
                     }

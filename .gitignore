@@ -9,7 +9,6 @@ __pycache__/
 /matlab/bin/
 *.mltbx
 *.h5
-*.h5.tmp
 *.prt
 *.ray
 *.arr

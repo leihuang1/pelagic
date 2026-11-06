@@ -5,6 +5,7 @@ mod records;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::CaseInput;
 use crate::case::validate_environment;
 use crate::diagnostic::{Diagnostic, DiagnosticReport, LoadOutcome, SourceLocation};
 use crate::model::{BoundaryCondition, EnvironmentCase};
@@ -44,30 +45,6 @@ pub fn load_env(path: &Path) -> Result<LoadOutcome<EnvironmentCase>, DiagnosticR
 /// malformed, inconsistent, or unsupported.
 pub fn load_case(path: &Path) -> Result<LoadOutcome<Case>, DiagnosticReport> {
     load_case_with_inputs(path).map(|input| input.outcome)
-}
-
-/// A complete case with its exact primary source and paths of all consumed inputs.
-#[derive(Clone, Debug)]
-pub struct CaseInput {
-    outcome: LoadOutcome<Case>,
-    source: String,
-    paths: Vec<PathBuf>,
-    auxiliary_sources: Vec<String>,
-}
-
-impl CaseInput {
-    /// Exact sources of the consumed auxiliary inputs, one per path after the
-    /// primary one and in the same order.
-    #[must_use]
-    pub fn auxiliary_sources(&self) -> &[String] {
-        &self.auxiliary_sources
-    }
-
-    /// Consume the read-only input record without rereading or reconstructing provenance.
-    #[must_use]
-    pub fn into_parts(self) -> (LoadOutcome<Case>, String, Vec<PathBuf>) {
-        (self.outcome, self.source, self.paths)
-    }
 }
 
 /// Load with the same parsing/diagnostics as `load_case`, retaining the exact
@@ -225,9 +202,10 @@ pub fn load_case_with_inputs(path: &Path) -> Result<CaseInput, DiagnosticReport>
         diagnostics,
     )?;
     Ok(CaseInput {
+        path: path.to_path_buf(),
         outcome,
-        source,
-        paths: read.paths,
+        source: source.into_bytes(),
+        consumed: read.paths,
         auxiliary_sources: read.sources,
     })
 }

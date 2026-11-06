@@ -1,14 +1,13 @@
 #![forbid(unsafe_code)]
 
-use std::io::{Read, Write};
+use std::io::Write;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Subcommand, ValueEnum};
-use output::kraken::{
-    DEFAULT_MAX_OUTPUT_BYTES, RunError, RunSummary, run_json_directory, run_legacy_directory,
-};
+use kraken::input::{FieldInput, InputError};
+use output::kraken::{DEFAULT_MAX_OUTPUT_BYTES, RunError, RunSummary, run_directory};
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -81,7 +80,7 @@ pub fn execute(
     threads: Option<NonZeroUsize>,
 ) -> ExitCode {
     let result = match command {
-        Command::Validate { case, flp, solver } => validate(&case, flp, solver),
+        Command::Validate { case, flp, solver } => validate(&case, flp.as_deref(), solver),
         Command::Run {
             case,
             flp,
@@ -89,17 +88,14 @@ pub fn execute(
             output,
             format,
             max_output_bytes,
-        } => {
-            let output = output.unwrap_or_else(|| {
-                PathBuf::from(
-                    source_path(&case)
-                        .file_stem()
-                        .unwrap_or_else(|| std::ffi::OsStr::new("kraken")),
-                )
-            });
-            run(&case, flp, solver, &output, format, max_output_bytes)
-                .map(|summary| println!("{}", summary_line(&output, &summary)))
-        }
+        } => run(
+            &case,
+            flp.as_deref(),
+            solver,
+            output,
+            format,
+            max_output_bytes,
+        ),
         Command::RunMany {
             many,
             solver,
@@ -112,7 +108,7 @@ pub fn execute(
             };
             return crate::many::execute(&many, threads, diagnostics, &model);
         }
-        Command::Export { case, flp, solver } => export(&case, flp, solver),
+        Command::Export { case, flp, solver } => export(&case, flp.as_deref(), solver),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -127,46 +123,42 @@ pub fn execute(
     }
 }
 
-/// Solve a case and publish it to `output`, as `run` does.
+/// Load a case; `-` names self-contained JSON on stdin.
+fn load(case: &Path, flp: Option<&Path>, solver: Option<Solver>) -> Result<FieldInput, RunError> {
+    let solver = solver.map(Into::into);
+    if case == Path::new("-") {
+        kraken::input::load_reader(std::io::stdin(), flp, solver)
+    } else {
+        kraken::input::load(case, flp, solver)
+    }
+    .map_err(input_failure)
+}
+
+fn input_failure(failure: InputError) -> RunError {
+    RunError::Input(failure.into_report())
+}
+
+/// Solve a case and publish it to `output`, by default the input's stem.
 fn run(
     case: &Path,
-    flp: Option<PathBuf>,
+    flp: Option<&Path>,
     solver: Option<Solver>,
-    output: &Path,
+    output: Option<PathBuf>,
     format: crate::Format,
     max_output_bytes: u64,
-) -> Result<RunSummary, RunError> {
-    if case == Path::new("-") {
-        reject_json_flp(flp.as_deref())?;
-        let source = read_source(case)?;
-        output::kraken::run_json_source_directory(
-            Path::new("stdin.json"),
-            &source,
-            &[],
-            output,
-            solver.map(Into::into),
-            format.into(),
-            max_output_bytes,
+) -> Result<(), RunError> {
+    let input = load(case, flp, solver)?;
+    let output = output.unwrap_or_else(|| {
+        PathBuf::from(
+            input
+                .path()
+                .file_stem()
+                .unwrap_or_else(|| std::ffi::OsStr::new("kraken")),
         )
-    } else if is_json(case) {
-        reject_json_flp(flp.as_deref())?;
-        run_json_directory(
-            case,
-            output,
-            solver.map(Into::into),
-            format.into(),
-            max_output_bytes,
-        )
-    } else {
-        run_legacy_directory(
-            case,
-            &flp.unwrap_or_else(|| case.with_extension("flp")),
-            output,
-            solver.unwrap_or(Solver::Kraken).into(),
-            format.into(),
-            max_output_bytes,
-        )
-    }
+    });
+    let summary = run_directory(&input, &output, format.into(), max_output_bytes)?;
+    println!("{}", summary_line(&output, &summary));
+    Ok(())
 }
 
 fn summary_line(output: &Path, summary: &RunSummary) -> String {
@@ -187,15 +179,7 @@ fn located(error: &RunError) -> Vec<kraken::Diagnostic> {
             frequency_index,
             frequency_hz: _,
             report,
-        } => report
-            .diagnostics()
-            .iter()
-            .cloned()
-            .map(|mut d| {
-                d.field = format!("frequencies[{frequency_index}].{}", d.field);
-                d
-            })
-            .collect(),
+        } => report.in_frequency(*frequency_index),
         RunError::Output(message) => vec![kraken::Diagnostic::new(
             "KR0402", message, "output", "<output>", 1, 1,
         )],
@@ -230,72 +214,37 @@ impl crate::many::Model for Many {
     }
 
     fn load(&self, case: &Path) -> Result<Box<dyn crate::many::Loaded + '_>, crate::many::Outcome> {
-        let input = if is_json(case) {
-            output::kraken::read_source(case).map(Input::Json)
-        } else {
-            kraken::input::load_legacy(
-                case,
-                &case.with_extension("flp"),
-                self.solver.unwrap_or(Solver::Kraken).into(),
-            )
-            .map(Input::Legacy)
-            .map_err(RunError::Input)
-        };
-        match input {
-            Ok(input) => Ok(Box::new(Loaded {
-                case: case.to_path_buf(),
-                input,
-                many: self,
-            })),
-            Err(error) => Err(outcome(case, Err(error))),
+        // A JSON file that was read keeps its fingerprint even when it then fails.
+        match kraken::input::load(case, None, self.solver.map(Into::into)) {
+            Err(failure) if failure.snapshot().is_none() => {
+                Err(outcome(case, Err(input_failure(failure))))
+            }
+            input => Ok(Box::new(Loaded { input, many: self })),
         }
     }
 }
 
-enum Input {
-    Json(String),
-    Legacy(kraken::input::FieldInput),
-}
-
 struct Loaded<'a> {
-    case: PathBuf,
-    input: Input,
+    input: Result<FieldInput, InputError>,
     many: &'a Many,
 }
 
 impl crate::many::Loaded for Loaded<'_> {
     fn inputs(&self) -> Vec<&[u8]> {
         match &self.input {
-            Input::Json(source) => vec![source.as_bytes()],
-            Input::Legacy(input) => input
-                .snapshots()
-                .iter()
-                .map(|snapshot| snapshot.source().as_bytes())
-                .collect(),
+            Ok(input) => input.snapshots(),
+            Err(failure) => failure.snapshot().map_or(&[][..], std::slice::from_ref),
         }
+        .iter()
+        .map(|snapshot| snapshot.source().as_bytes())
+        .collect()
     }
 
-    // `run_json_directory` and `run_legacy_directory`, after their reads.
     fn run(self: Box<Self>, output: &Path) -> crate::many::Outcome {
         let many = self.many;
-        let result = match &self.input {
-            Input::Json(source) => output::kraken::run_json_source_directory(
-                &self.case,
-                source,
-                &[&self.case],
-                output,
-                many.solver.map(Into::into),
-                many.format.into(),
-                many.max_output_bytes,
-            ),
-            Input::Legacy(input) => output::kraken::run_legacy_input_directory(
-                &self.case,
-                input,
-                output,
-                many.format.into(),
-                many.max_output_bytes,
-            ),
-        };
+        let result = self.input.map_err(input_failure).and_then(|input| {
+            run_directory(&input, output, many.format.into(), many.max_output_bytes)
+        });
         outcome(output, result)
     }
 }
@@ -318,11 +267,12 @@ fn outcome(output: &Path, result: Result<RunSummary, RunError>) -> crate::many::
     }
 }
 
-fn validate(path: &Path, flp: Option<PathBuf>, solver: Option<Solver>) -> Result<(), RunError> {
-    let cases = load_cases(path, flp, solver)?;
+fn validate(path: &Path, flp: Option<&Path>, solver: Option<Solver>) -> Result<(), RunError> {
+    let input = load(path, flp, solver)?;
+    let cases = input.cases();
     println!(
         "valid 2D KRAKEN case: {} ({:?}; frequencies={}, profiles={})",
-        source_path(path).display(),
+        input.path().display(),
         cases[0].profiles()[0].mode_solver,
         cases.len(),
         cases[0].profiles().len()
@@ -330,103 +280,19 @@ fn validate(path: &Path, flp: Option<PathBuf>, solver: Option<Solver>) -> Result
     Ok(())
 }
 
-fn source_path(path: &Path) -> &Path {
-    if path == Path::new("-") {
-        Path::new("stdin.json")
-    } else {
-        path
-    }
-}
-
-fn report(path: &Path, code: &'static str, message: &str, field: &str) -> kraken::DiagnosticReport {
-    kraken::DiagnosticReport::one(kraken::Diagnostic::new(code, message, field, path, 1, 1))
-}
-
-fn read_source(path: &Path) -> Result<String, RunError> {
-    let mut source = String::new();
-    let input: Box<dyn Read> = if path == Path::new("-") {
-        Box::new(std::io::stdin())
-    } else {
-        Box::new(
-            std::fs::File::open(path)
-                .map_err(|e| RunError::Input(report(path, "KR0001", &e.to_string(), "input")))?,
-        )
-    };
-    input
-        .take(kraken::legacy::MAX_INPUT_BYTES + 1)
-        .read_to_string(&mut source)
-        .map_err(|e| {
-            RunError::Input(report(source_path(path), "KR0001", &e.to_string(), "input"))
-        })?;
-    Ok(source)
-}
-
-fn is_json(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|extension| extension == "json")
-}
-
-fn reject_json_flp(flp: Option<&Path>) -> Result<(), RunError> {
-    if flp.is_some() {
-        Err(RunError::Input(report(
-            Path::new("<case>"),
-            "KR0202",
-            "--flp is invalid for self-contained JSON",
-            "flp",
-        )))
-    } else {
-        Ok(())
-    }
-}
-
-fn load_cases(
-    path: &Path,
-    flp: Option<PathBuf>,
-    solver: Option<Solver>,
-) -> Result<Vec<kraken::FieldCase>, RunError> {
-    if is_json(path) || path == Path::new("-") {
-        reject_json_flp(flp.as_deref())?;
-        let source = read_source(path)?;
-        let cases = kraken::json::load_case_document_named(source.as_bytes(), source_path(path))
-            .map_err(RunError::Input)?;
-        check_solver(path, solver, &cases)?;
-        Ok(cases)
-    } else {
-        kraken::legacy::load_field_cases(
-            path,
-            flp.unwrap_or_else(|| path.with_extension("flp")),
-            solver.unwrap_or(Solver::Kraken).into(),
-        )
-        .map_err(RunError::Input)
-    }
-}
-
-fn check_solver(
-    path: &Path,
-    solver: Option<Solver>,
-    cases: &[kraken::FieldCase],
-) -> Result<(), RunError> {
-    if solver.is_some_and(|solver| {
-        kraken::ModeSolver::from(solver) != cases[0].profiles()[0].mode_solver
-    }) {
-        return Err(RunError::Input(report(
-            source_path(path),
-            "KR0202",
-            "--solver must match the JSON document",
-            "kraken.solver",
-        )));
-    }
-    Ok(())
-}
-
-fn export(path: &Path, flp: Option<PathBuf>, solver: Option<Solver>) -> Result<(), RunError> {
-    let bytes = exported(path, flp, solver)?;
+fn export(path: &Path, flp: Option<&Path>, solver: Option<Solver>) -> Result<(), RunError> {
+    let input = load(path, flp, solver)?;
+    let bytes = exported(&input)?;
     if bytes.len() as u64 > kraken::legacy::MAX_INPUT_BYTES {
-        return Err(RunError::Input(report(
-            source_path(path),
-            "KR0101",
-            "exported JSON exceeds 1 MiB",
-            "json",
+        return Err(RunError::Input(kraken::DiagnosticReport::one(
+            kraken::Diagnostic::new(
+                "KR0101",
+                "exported JSON exceeds 1 MiB",
+                "json",
+                input.path(),
+                1,
+                1,
+            ),
         )));
     }
     std::io::stdout()
@@ -436,31 +302,10 @@ fn export(path: &Path, flp: Option<PathBuf>, solver: Option<Solver>) -> Result<(
 }
 
 /// The self-contained JSON that `export` prints, before its size check.
-fn exported(
-    path: &Path,
-    flp: Option<PathBuf>,
-    solver: Option<Solver>,
-) -> Result<Vec<u8>, RunError> {
-    let document = if is_json(path) || path == Path::new("-") {
-        reject_json_flp(flp.as_deref())?;
-        let source = read_source(path)?;
-        let document = kraken::json::decode_case_document(source.as_bytes(), source_path(path))
-            .map_err(RunError::Input)?;
-        let cases = document.cases(source_path(path)).map_err(RunError::Input)?;
-        check_solver(path, solver, &cases)?;
-        document
-    } else {
-        kraken::input::load_legacy(
-            path,
-            &flp.unwrap_or_else(|| path.with_extension("flp")),
-            solver.unwrap_or(Solver::Kraken).into(),
-        )
-        .map_err(RunError::Input)?
-        .document()
-        .map_err(RunError::Input)?
-    };
+fn exported(input: &FieldInput) -> Result<Vec<u8>, RunError> {
+    let document = input.document().map_err(RunError::Input)?;
     // Serialize completely before touching stdout: invalid/oversized exports emit no partial document.
-    let mut bytes = kraken::json::encode_case_document(&document, source_path(path))
+    let mut bytes = kraken::json::encode_case_document(&document, input.path())
         .map_err(RunError::Input)?
         .into_bytes();
     bytes.push(b'\n');

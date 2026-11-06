@@ -171,7 +171,7 @@ def run_manifest(args, variants, items, path):
                                build=build_identity(digest, supplied))
     def git(*command):
         return subprocess.check_output(["git", *command], cwd=ROOT)
-    files = {"tools/perf/run.py", "tools/perf/src/main.rs", "tools/perf/Cargo.toml",
+    files = {"tools/perf/run.py", "tools/perf/bellhop_cli.py", "tools/perf/src/main.rs", "tools/perf/Cargo.toml",
              "tools/perf/Cargo.lock", "tools/perf/cases.json", "tools/perf/pairings.json",
              "tools/perf/README.md", "Cargo.lock"}
     if args.cases:
@@ -187,7 +187,7 @@ def run_manifest(args, variants, items, path):
                           for name in ("results.jsonl", "inventory.json", "summary.json")]
     environment = dict(os.environ)
     visible_environment = {key: value for key, value in environment.items()
-                           if key in ("PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "SDKROOT", "MACOSX_DEPLOYMENT_TARGET",
+                           if key in ("LANG", "SDKROOT", "MACOSX_DEPLOYMENT_TARGET",
                                       "RUSTFLAGS", "RUSTDOCFLAGS", "RUSTUP_TOOLCHAIN", "RUSTUP_HOME", "CARGO_HOME",
                                       "CARGO_TARGET_DIR", "CARGO_ENCODED_RUSTFLAGS", "RUSTC", "RUSTC_WRAPPER")
                            or key.startswith(("LC_", "DYLD_", "LD_", "OMP_"))}

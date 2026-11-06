@@ -123,7 +123,7 @@ fn resolves_top_and_bottom_reflection_tables() {
     let input = bellhop::legacy::load_case_with_inputs(&environment).unwrap();
     assert_eq!(input.auxiliary_sources(), [table, table]);
     let (outcome, source, paths) = input.into_parts();
-    assert_eq!(source.as_bytes(), expected_source);
+    assert_eq!(source, expected_source);
     assert_eq!(
         paths,
         [
@@ -135,7 +135,7 @@ fn resolves_top_and_bottom_reflection_tables() {
     let case = load_case(&environment).unwrap().value;
     assert_eq!(outcome.value, case);
     fs::write(&environment, b"changed after parsing").unwrap();
-    assert_eq!(source.as_bytes(), expected_source);
+    assert_eq!(source, expected_source);
     assert_eq!(case.bottom_reflection.as_ref().unwrap().points.len(), 2);
     assert_eq!(case.top_reflection.as_ref().unwrap().points.len(), 2);
 }

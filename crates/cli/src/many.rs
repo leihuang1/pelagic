@@ -73,7 +73,9 @@ fn parse_shard(value: &str) -> Result<Shard, String> {
 pub(crate) trait Model: Sync {
     /// The model's options that change its results, recorded with each case.
     fn options(&self) -> serde_json::Value;
-    /// Read a case as `run` does; a failure is the case's outcome.
+    /// Read a case as `run` does. An `Err` is the case's outcome, recorded without
+    /// an input hash; a rejected input that keeps its hash instead returns a
+    /// [`Loaded`] whose `run` reports the rejection.
     fn load(&self, case: &Path) -> Result<Box<dyn Loaded + '_>, Outcome>;
 }
 

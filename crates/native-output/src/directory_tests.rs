@@ -47,7 +47,8 @@ fn ownership_failures_and_writer_failures_preserve_entire_groups() {
             b"new result"
         )
         .map_err(|e| e.to_string()))
-        .is_err()
+        .unwrap_err()
+        .contains("result directory exceeds 1 bytes")
     );
     assert_eq!(snapshot(&out), old);
     assert!(
@@ -119,6 +120,48 @@ fn installation_and_rollback_failures_keep_recoverable_data() {
         b"new result"
     );
     assert!(out.join(".pelagic-lock").is_dir());
+    fs::remove_dir_all(parent).unwrap();
+}
+
+#[test]
+fn destinations_appearing_during_a_run_are_refused_and_kept() {
+    let parent = root("late");
+    let out = parent.join("results");
+    // While the writer runs, in a directory this run created: seen by the install checks.
+    let error = publish::<(), String>(&out, &[], None, |scratch| {
+        fs::write(out.join("a.txt"), b"arrived during writing").unwrap();
+        fs::write(scratch.join("a.txt"), b"new result").map_err(|e| e.to_string())
+    })
+    .unwrap_err();
+    assert!(error.contains("unowned artifact conflict"));
+    assert_eq!(
+        snapshot(&out),
+        BTreeMap::from([("a.txt".to_owned(), b"arrived during writing".to_vec())])
+    );
+    fs::remove_file(out.join("a.txt")).unwrap();
+    write(&out, "a.txt", b"old result").unwrap();
+    let old = snapshot(&out);
+    // After those checks: only exclusive installation can refuse it.
+    {
+        let mut transaction = Transaction::begin(&out, &[]).unwrap();
+        fs::write(transaction.stage.join("a.txt"), b"new result").unwrap();
+        fs::write(transaction.stage.join("b.txt"), b"new result").unwrap();
+        transaction.before_install = Some(|t| {
+            fs::write(t.output.join("b.txt"), b"arrived before install").unwrap();
+        });
+        let error = transaction.install(&[], None).unwrap_err();
+        assert!(error.contains("unable to install b.txt"));
+        assert!(error.contains("previous results restored"));
+    }
+    assert_eq!(
+        fs::read(out.join("b.txt")).unwrap(),
+        b"arrived before install"
+    );
+    fs::remove_file(out.join("b.txt")).unwrap();
+    assert_eq!(snapshot(&out), old);
+    write(&out, "b.txt", b"retry").unwrap();
+    assert_eq!(fs::read(out.join("b.txt")).unwrap(), b"retry");
+    assert!(!out.join("a.txt").exists());
     fs::remove_dir_all(parent).unwrap();
 }
 

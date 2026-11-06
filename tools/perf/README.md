@@ -80,6 +80,36 @@ copy of the baseline binary under another label when an effect is small; that
 shows how much difference the machine alone produces. Tiny cases (under a
 millisecond) can be bimodal on a desktop.
 
+## BELLHOP end-to-end experiments
+
+`bellhop_cli.py` complements the solver timer with complete CLI invocations,
+including loading, legacy serialization, safe publication and process exit.
+It uses macOS `/usr/bin/time -l` for peak RSS, writes to fresh temporary output
+directories, and checks every output artifact against baseline bytes. No extra
+Python packages are required. Defaults reproduce the M4 experiment (1 and 14
+threads); pass `--threads` explicitly on other machines.
+
+```sh
+python3 tools/perf/bellhop_cli.py --self-test
+python3 tools/perf/bellhop_cli.py \
+  --binary baseline=/tmp/cli-base/release/pelagic \
+  --binary control=/tmp/cli-base/release/pelagic \
+  --binary new=/tmp/cli-new/release/pelagic \
+  --cases tools/perf/bellhop-cases.json --threads 1 14 --rounds 21 \
+  --output /tmp/bellhop-cli.jsonl
+```
+
+Labels must be unique and include `baseline`; use a second baseline label to
+measure noise. At least five rounds are required. Wall time includes the time
+wrapper, but excludes output hashing and cleanup. The `.summary.json` reports
+medians, p10/p90, paired bootstrap intervals and RSS. Like `run.py`, it accepts
+`--build-provenance FILE`. Solver-only timing remains portable via `run.py`.
+
+See the [experiment report](../../docs/history/bellhop-performance-experiments.md)
+for frozen workloads, isolated candidates, exact-result checks, results,
+limitations and reproduction commands. Its raw evidence, numerical snapshots and
+build products are kept locally, not checked in.
+
 ## Measure memory
 
 ```sh

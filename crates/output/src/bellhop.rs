@@ -11,7 +11,6 @@ use sha2::{Digest, Sha256};
 use super::hdf5::{
     hdf5_error, write_scalar_attribute, write_string_array_attribute, write_string_attribute,
 };
-use super::publication;
 
 pub const SCHEMA_VERSION: u32 = 3;
 
@@ -19,6 +18,9 @@ pub const SCHEMA_VERSION: u32 = 3;
 ///
 /// `input_bytes` must be the exact bytes supplied by the caller. They are not
 /// embedded, but their byte length and SHA-256 digest are recorded at the root.
+///
+/// This creates or truncates `path` with no publication safeguards, so the path
+/// must be private to the caller. CLI results go through [`write_directory`].
 ///
 /// # Errors
 ///
@@ -34,27 +36,7 @@ pub fn write_hdf5(
     write_hdf5_contents(&file, input_filename, input_bytes, result, warnings)
 }
 
-/// Write BELLHOP schema v3 and publish it with the same local file-safety policy
-/// as KRAKEN: protect consumed input paths/aliases, exclusively reserve scratch,
-/// close and sync before installing, and never clobber without `overwrite`.
-/// No KRAKEN byte quota is imposed on BELLHOP.
-/// # Errors
-/// Returns metadata, HDF5 or filesystem errors; preserves existing files on failure.
-pub fn write_hdf5_atomic(
-    path: &Path,
-    input_filename: &str,
-    input_bytes: &[u8],
-    result: &SimulationResult,
-    warnings: &[Diagnostic],
-    input_paths: &[&Path],
-    overwrite: bool,
-) -> Result<(), String> {
-    publication::publish(path, input_paths, overwrite, None, "BH0402", |file, _| {
-        write_hdf5_contents(file, input_filename, input_bytes, result, warnings)
-    })
-}
-
-/// Publish CLI artifacts in a result directory. Does not affect HTTP single-file publication.
+/// Publish CLI artifacts in a result directory. HTTP writes a private file with [`write_hdf5`].
 /// # Errors
 /// Returns serialization, ownership, input protection or recoverable publication errors.
 #[allow(clippy::too_many_arguments)]
@@ -480,7 +462,8 @@ mod tests {
     use hdf5::File;
     use hdf5::types::VarLenUnicode;
 
-    use super::write_hdf5;
+    use super::{write_directory, write_hdf5};
+    use native_output::directory::Format;
 
     #[test]
     fn writes_versioned_flattened_ray_schema() {
@@ -654,6 +637,58 @@ mod tests {
         assert_eq!(
             file.dataset("field/pressure_real").unwrap().shape(),
             vec![33]
+        );
+        drop(file);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn failed_hdf5_write_keeps_the_previous_result_and_allows_a_retry() {
+        let directory =
+            std::env::temp_dir().join(format!("bellhop-hdf5-retry-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let input = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../bellhop/tests/fixtures/golden/GeoHat_arrival.env");
+        let bytes = fs::read(&input).unwrap();
+        let case = bellhop::legacy::load_case(&input).unwrap().value;
+        let result = run(&case, SimulationLimits::default()).unwrap();
+        let output = directory.join("result");
+        let write = |filename: &str, source: &[u8]| {
+            write_directory(
+                &output,
+                "case",
+                &case,
+                filename,
+                source,
+                &result,
+                &[],
+                &[input.as_path()],
+                Format::Hdf5,
+            )
+        };
+        write("case.env", &bytes).unwrap();
+        let previous = fs::read(output.join("case.h5")).unwrap();
+        // A NUL cannot be stored as a string attribute, so this fails with the file open.
+        let error = write("a\0b", &bytes).unwrap_err();
+        assert!(error.contains("invalid metadata string"), "{error}");
+        assert_eq!(fs::read(output.join("case.h5")).unwrap(), previous);
+        assert!(fs::read_dir(&output).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".pelagic-")
+        }));
+        write("retry.env", &bytes).unwrap();
+        let file = File::open(output.join("case.h5")).unwrap();
+        assert_eq!(
+            file.attr("input_filename")
+                .unwrap()
+                .read_scalar::<VarLenUnicode>()
+                .unwrap()
+                .as_str(),
+            "retry.env"
         );
         drop(file);
         fs::remove_dir_all(directory).unwrap();

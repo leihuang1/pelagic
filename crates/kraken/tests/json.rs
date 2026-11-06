@@ -327,3 +327,11 @@ fn encoding_rejects_documents_that_outgrow_the_input_limit() {
         serde_json::to_string(&small).unwrap()
     );
 }
+
+#[test]
+fn a_solve_diagnostic_is_located_under_its_frequency_block() {
+    let located = |field| kraken::Diagnostic::new("KR0301", "failed", field, "<solver>", 2, 3);
+    let report = kraken::DiagnosticReport::one(located("modes"));
+    assert_eq!(report.in_frequency(7), [located("frequencies[7].modes")]);
+    assert_eq!(report.diagnostics(), [located("modes")]);
+}

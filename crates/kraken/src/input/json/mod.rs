@@ -13,12 +13,12 @@ use num_complex::Complex64;
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::material::{Elastic, Fluid, HalfSpace, Materials};
+use super::material::{self, Elastic, FiniteMedium, Fluid, Materials, RowFault, Stack};
 use crate::attenuation::VolumeLoss;
 use crate::{
-    Boundary, Case, CaseDefinition, Diagnostic, DiagnosticReport, FieldCase, FieldPropagation,
+    Boundary, CaseDefinition, Diagnostic, DiagnosticReport, FieldCase, FieldPropagation,
     ImpedancePoint, Interpolation, MAX_MODE_LIMIT, MAX_VECTOR_LENGTH, ModeAddition, ModeSolver,
-    ReflectionPoint, SoundSpeedPoint, SourceGeometry, SourcePatternPoint,
+    ReflectionPoint, SourceGeometry, SourcePatternPoint,
 };
 
 pub mod grid;
@@ -594,17 +594,9 @@ impl CaseDocument {
             let mut profiles = Vec::with_capacity(templates.len());
             for ((template, materials, layout), environment) in templates.iter().zip(&environments)
             {
-                let definition = materials.case_definition(template, frequency);
-                let case = Case::from_definition(definition)
-                    .and_then(|case| {
-                        if case.mesh_reference_frequency_hz.is_some() {
-                            case.mesh_points_at(1)?;
-                        }
-                        Ok(case)
-                    })
-                    .map_err(|report| {
-                        relocate(report, path, environment, layout, &frequencies, frequency)
-                    })?;
+                let case = materials.case(template, frequency).map_err(|report| {
+                    relocate(report, path, environment, layout, &frequencies, frequency)
+                })?;
                 profiles.push(case);
             }
             let case =
@@ -717,7 +709,6 @@ impl CaseDocument {
 
     /// The geometry/options template and raw materials of one environment,
     /// with its layer layout and input-value count.
-    #[allow(clippy::too_many_lines, clippy::float_cmp)]
     fn template(
         &self,
         environment: &Environment<'_>,
@@ -728,21 +719,16 @@ impl CaseDocument {
         let solver = self.kraken.solver;
         let (materials, surface_boundary, bottom_boundary, interface_roughness_m, layout) =
             build_materials(environment, solver, frequencies, problems)?;
-        // Depths are single precision; samples at a fluid interface keep the exact interface.
-        #[allow(clippy::cast_possible_truncation)]
-        let boundaries = [materials.fluid_bottom(), materials.fluid_top()]
-            .map(|depth| (f64::from(depth as f32), depth));
-        let snap = |depths: &mut [f64]| snap_to_interfaces(depths, &boundaries);
         let mut source_depths = field.source_depths.clone();
         let mut receiver_depths = field.receiver_depths.clone();
-        snap(&mut source_depths);
-        snap(&mut receiver_depths);
+        materials.snap_to_interfaces(&mut source_depths);
+        materials.snap_to_interfaces(&mut receiver_depths);
         let mode_sample_depths_m = if let Some(grid) = environment.mode_depths {
             let mut depths = grid.expand_single().unwrap_or_else(|message| {
                 problems.push(environment.path("kraken.mode_depths"), message);
                 Vec::new()
             });
-            snap(&mut depths);
+            materials.snap_to_interfaces(&mut depths);
             depths
         } else {
             let mut depths = source_depths.clone();
@@ -787,33 +773,8 @@ impl CaseDocument {
             receiver_ranges_m: field.receiver_ranges_m.clone(),
             receiver_offsets_m: field.receiver_offsets_m.clone(),
         };
-        let table_values = match &template.bottom_boundary {
-            Boundary::Reflection(points) => points.len(),
-            Boundary::Impedance { points, .. } => points.len(),
-            _ => 0,
-        } + match &template.surface_boundary {
-            Boundary::Reflection(points) => points.len(),
-            _ => 0,
-        };
-        let values = materials.input_values()
-            + template.interface_roughness_m.len()
-            + table_values
-            + 2 * template.source_pattern.len()
-            + template.mode_sample_depths_m.len()
-            + template.source_depths_m.len()
-            + template.receiver_depths_m.len()
-            + template.receiver_ranges_m.len()
-            + template.receiver_offsets_m.len();
+        let values = materials.input_values(&template);
         Some((template, materials, layout, values))
-    }
-}
-
-pub(crate) fn snap_to_interfaces(depths: &mut [f64], boundaries: &[(f64, f64); 2]) {
-    #[allow(clippy::float_cmp)]
-    for depth in depths {
-        if let Some(&(_, exact)) = boundaries.iter().find(|(rounded, _)| *depth == *rounded) {
-            *depth = exact;
-        }
     }
 }
 
@@ -902,8 +863,7 @@ fn build_materials(
         _ => [0.0; 6],
     };
 
-    let mut water: Option<Fluid> = None;
-    let (mut additional, mut top_layers, mut bottom_layers) = (Vec::new(), Vec::new(), Vec::new());
+    let mut stack = Stack::default();
     let mut interface_roughness_m = vec![surface.roughness()];
     let mut top = 0.0;
     let mut profile_points = 0_usize;
@@ -948,47 +908,16 @@ fn build_materials(
             return None;
         }
         top = bottom;
-        if points.first().is_some_and(|point| point[2] > 0.0) {
-            let layer = Elastic {
-                bottom_depth_m: bottom,
-                points,
-                mesh_points: medium.mesh,
-                power_law: power,
-            };
-            if water.is_none() {
-                top_layers.push(layer);
-            } else {
-                bottom_layers.push(layer);
-            }
-        } else {
-            if !bottom_layers.is_empty() {
-                problems.push(
-                    &field,
-                    "finite fluids must be contiguous; solids between fluids are unsupported",
-                );
-            }
-            let layer = Fluid {
-                bottom_depth_m: bottom,
-                density_g_cm3: points.first().map_or(1.0, |point| point[3]),
-                mesh_points: medium.mesh,
-                points: points
-                    .iter()
-                    .map(|point| SoundSpeedPoint {
-                        depth_m: point[0],
-                        sound_speed_mps: point[1],
-                    })
-                    .collect(),
-                attenuation: points.iter().map(|point| point[4]).collect(),
-                power_law: power,
-            };
-            if water.is_none() {
-                water = Some(layer);
-            } else {
-                additional.push(layer);
-            }
+        let finite = FiniteMedium::new(bottom, medium.mesh, points, power);
+        if stack.splits_fluids(&finite) {
+            problems.push(
+                &field,
+                "finite fluids must be contiguous; solids between fluids are unsupported",
+            );
         }
+        stack.push(finite);
     }
-    let Some(water) = water else {
+    let Some(finite_media) = stack.into_media() else {
         problems.push(&media_path, "requires at least one finite fluid medium");
         return None;
     };
@@ -1019,11 +948,7 @@ fn build_materials(
     let surface_boundary = match surface {
         BoundaryDocument::Vacuum { .. } => Boundary::Vacuum,
         BoundaryDocument::Rigid { .. } => Boundary::Rigid,
-        BoundaryDocument::Halfspace { cs, .. } if *cs > 0.0 => Boundary::ElasticHalfSpace {
-            shear_sound_speed_mps: *cs,
-            shear_attenuation_db_per_wavelength: 0.0,
-        },
-        BoundaryDocument::Halfspace { .. } => Boundary::FluidHalfSpace,
+        BoundaryDocument::Halfspace { .. } => material::half_space_boundary(&surface_values),
         BoundaryDocument::Reflection { table, .. } => {
             tabulated(problems, &surface_path);
             reflection_boundary(table, &surface_path, problems)
@@ -1050,14 +975,7 @@ fn build_materials(
             bottom_values = [top, *cp, *cs, *rho, *ap, *as_];
             check_half_space(&bottom_values, &bottom_path, problems);
             bottom_power = power_law(*law, format!("{bottom_path}.power_law"), problems);
-            if *cs > 0.0 {
-                Boundary::ElasticHalfSpace {
-                    shear_sound_speed_mps: *cs,
-                    shear_attenuation_db_per_wavelength: 0.0,
-                }
-            } else {
-                Boundary::FluidHalfSpace
-            }
+            material::half_space_boundary(&bottom_values)
         }
         BoundaryDocument::Reflection { table, .. } => {
             tabulated(problems, &bottom_path);
@@ -1103,27 +1021,18 @@ fn build_materials(
         }
     };
     let layout = Layout {
-        top: top_layers.len(),
-        additional: additional.len(),
-    };
-    let materials = Materials {
-        surface_half_space: HalfSpace {
-            values: surface_values,
-            power_law: water.power_law,
-        },
-        bottom_half_space: HalfSpace {
-            values: bottom_values,
-            power_law: bottom_power,
-        },
-        water,
-        additional,
-        top: top_layers,
-        bottom: bottom_layers,
-        unit,
-        volume,
+        top: finite_media.top.len(),
+        additional: finite_media.additional.len(),
     };
     Some((
-        materials,
+        Materials::new(
+            finite_media,
+            surface_values,
+            bottom_values,
+            bottom_power,
+            unit,
+            volume,
+        ),
         surface_boundary,
         bottom_boundary,
         interface_roughness_m,
@@ -1153,7 +1062,7 @@ fn power_law(
             (reference, 1.0, reference)
         }
         (true, Some([beta, transition])) => {
-            if beta < 0.0 || transition <= 0.0 {
+            if material::invalid_power_law(beta, transition) {
                 problems.push(field, "require beta >= 0 and transition frequency > 0");
             }
             (reference, beta, transition)
@@ -1184,24 +1093,18 @@ fn medium_points(
         }
         current[..row.len()].copy_from_slice(row);
         let point = current;
-        if point[0] < top || point[0] > bottom || points.last().is_some_and(|p| point[0] <= p[0]) {
+        if let Some(fault) = material::row_fault(&points, &point, top, bottom) {
             problems.push(
                 row_field,
-                "depths must increase within each medium, from its top to `to`",
+                match fault {
+                    RowFault::Depth => {
+                        "depths must increase within each medium, from its top to `to`"
+                    }
+                    RowFault::Material => {
+                        "requires constant-density fluid (no shear loss), or positive elastic shear speed throughout the medium; nonnegative absorption"
+                    }
+                },
             );
-            return points;
-        }
-        if (points.is_empty() && point[0] != top)
-            || point[2] < 0.0
-            || point[4] < 0.0
-            || point[5] < 0.0
-            || (point[2] == 0.0 && point[5] != 0.0)
-            || points.first().is_some_and(|p| {
-                (p[2] == 0.0 && (point[3] != p[3] || point[2] != 0.0))
-                    || (p[2] > 0.0 && point[2] == 0.0)
-            })
-        {
-            problems.push(row_field, "requires constant-density fluid (no shear loss), or positive elastic shear speed throughout the medium; nonnegative absorption");
             return points;
         }
         points.push(point);
@@ -1212,15 +1115,8 @@ fn medium_points(
     points
 }
 
-#[allow(clippy::float_cmp)]
 fn check_half_space(values: &[f64; 6], field: &str, problems: &mut Problems<'_>) {
-    if values[1] <= 0.0
-        || values[2] < 0.0
-        || values[3] <= 0.0
-        || values[4] < 0.0
-        || values[5] < 0.0
-        || (values[2] == 0.0 && values[5] != 0.0)
-    {
+    if material::invalid_half_space(values) {
         problems.push(
             field,
             "require positive cp and rho, nonnegative cs and losses, and no shear loss for a fluid",
@@ -1247,7 +1143,6 @@ fn reflection_boundary(table: &[[f64; 3]], field: &str, problems: &mut Problems<
     boundary
 }
 
-#[allow(clippy::float_cmp)]
 fn volume_loss(volume: &VolumeAttenuation, field: &str, problems: &mut Problems<'_>) -> VolumeLoss {
     match volume {
         VolumeAttenuation::None => VolumeLoss::None,
@@ -1258,24 +1153,24 @@ fn volume_loss(volume: &VolumeAttenuation, field: &str, problems: &mut Problems<
             ph,
             depth,
         } => {
-            if temperature <= -273.0 || salinity < 0.0 || !(0.0..=14.0).contains(&ph) || depth < 0.0
-            {
+            let parameters = [temperature, salinity, ph, depth];
+            if material::invalid_francois_garrison(&parameters) {
                 problems.push(
                     format!("{field}.volume"),
                     "require temperature > -273, salinity >= 0, 0 <= pH <= 14 and depth >= 0",
                 );
             }
-            VolumeLoss::FrancoisGarrison([temperature, salinity, ph, depth])
+            VolumeLoss::FrancoisGarrison(parameters)
         }
         VolumeAttenuation::Biological { layers } => {
-            if layers.len() > 200 {
+            if layers.len() > material::MAX_BIOLOGICAL_LAYERS {
                 problems.push(
                     format!("{field}.volume.layers"),
                     "at most 200 biological layers",
                 );
             }
-            for (index, p) in layers.iter().enumerate() {
-                if p[0] < 0.0 || p[1] < p[0] || p[2] <= 0.0 || p[3] <= 0.0 || p[4] < 0.0 {
+            for (index, layer) in layers.iter().enumerate() {
+                if material::invalid_biological_layer(layer) {
                     problems.push(
                         format!("{field}.volume.layers[{index}]"),
                         "require 0 <= top <= bottom, positive resonance/Q and nonnegative a0",
@@ -1439,10 +1334,10 @@ impl EnvironmentParts {
                 power_law: law(layer.power_law),
             }
         };
-        media.extend(materials.top.iter().map(elastic));
-        media.push(fluid(&materials.water));
-        media.extend(materials.additional.iter().map(fluid));
-        media.extend(materials.bottom.iter().map(elastic));
+        media.extend(materials.media.top.iter().map(elastic));
+        media.push(fluid(&materials.media.water));
+        media.extend(materials.media.additional.iter().map(fluid));
+        media.extend(materials.media.bottom.iter().map(elastic));
         for (index, medium) in media.iter_mut().enumerate().skip(1) {
             medium.roughness = roughness(index);
         }

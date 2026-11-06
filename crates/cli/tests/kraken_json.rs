@@ -196,6 +196,75 @@ fn json_cli_exports_and_runs_relocated_documents_without_auxiliary_files() {
 }
 
 #[test]
+fn a_solver_mismatch_reports_one_field_through_every_command() {
+    let root = directory("solver-field");
+    let document = root.join("case.json");
+    fs::write(
+        &document,
+        invoke("export", &fixture("PekerisBroadband"), &[]).stdout,
+    )
+    .unwrap();
+    let pelagic = |args: &[&dyn AsRef<std::ffi::OsStr>], stdin: bool| {
+        let mut process = Command::new(env!("CARGO_BIN_EXE_pelagic"));
+        process.args(["--diagnostics", "json", "kraken"]);
+        process.args(args.iter().map(AsRef::as_ref));
+        process.stdin(if stdin {
+            std::process::Stdio::from(fs::File::open(&document).unwrap())
+        } else {
+            std::process::Stdio::null()
+        });
+        process.output().unwrap()
+    };
+    let check = |diagnostic: &serde_json::Value, path: &str| {
+        assert_eq!(
+            diagnostic,
+            &serde_json::json!({
+                "code": "KR0202",
+                "severity": "error",
+                "field": "kraken.solver",
+                "message": "--solver must match the JSON document",
+                "source": {"path": path, "line": 1, "column": 1},
+            })
+        );
+    };
+    let output = root.join("result");
+    let file = document.to_str().unwrap();
+    for (input, path, stdin) in [(file, file, false), ("-", "stdin.json", true)] {
+        for command in ["validate", "export", "run"] {
+            let mut args: Vec<&dyn AsRef<std::ffi::OsStr>> =
+                vec![&command, &input, &"--solver", &"krakenc"];
+            if command == "run" {
+                args.extend([&"--output" as &dyn AsRef<std::ffi::OsStr>, &output]);
+            }
+            let process = pelagic(&args, stdin);
+            assert_eq!(process.status.code(), Some(2), "{command} {input}");
+            assert_eq!(process.stdout, [] as [u8; 0], "{command} {input}");
+            let stderr: serde_json::Value = serde_json::from_slice(&process.stderr).unwrap();
+            check(&stderr["diagnostics"][0], path);
+        }
+    }
+    assert!(!output.exists());
+    let process = pelagic(
+        &[
+            &"run-many",
+            &document,
+            &"--solver",
+            &"krakenc",
+            &"--output",
+            &output,
+        ],
+        false,
+    );
+    assert_eq!(process.status.code(), Some(2));
+    let stderr: serde_json::Value = serde_json::from_slice(&process.stderr).unwrap();
+    check(&stderr["diagnostics"][0], file);
+    let status = fs::read_to_string(output.join("status.ndjson")).unwrap();
+    let record: serde_json::Value = serde_json::from_str(status.trim_end()).unwrap();
+    check(&record["diagnostics"][0], file);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn json_failures_preserve_outputs_and_protect_input_aliases() {
     let root = directory("failures");

@@ -16,8 +16,8 @@ bellhop, kraken        ──> (no workspace dependencies)
 
 | Crate | Owns |
 | --- | --- |
-| `bellhop`, `kraken` | Input parsing, validation into immutable Cases, solvers, results, diagnostics |
-| `native-output` | Toolbox-format writers (`.ray`, `.arr`, `.shd`, `.mod`) and result-directory publication. No HDF5 |
+| `bellhop`, `kraken` | Case intake, input parsing, validation into immutable Cases, solvers, results, diagnostics |
+| `native-output` | Toolbox-format writers (`.ray`, `.arr`, `.shd`, `.mod`), the KRAKEN frequency-block stream and result-directory publication. No HDF5 |
 | `output` | BELLHOP HDF5 v3 and KRAKEN HDF5 v1 writers. Re-exports the directory API |
 | `cli` | The `pelagic` program: argument handling per model, behind one dispatch |
 | `server` | The BELLHOP-only HTTP adapter |
@@ -40,6 +40,14 @@ Outside `crates/`:
 - **Adapters add no physics.** The CLI, server, Python and MATLAB move cases in
   and results out. Validation happens once, in the solver crate. See the
   [interface contract](interface-contract.md#adapter-architecture).
+- **Adapters load through the Case intake.** `kraken::input` and `bellhop::input`
+  take a file path or a reader and return one value: cases, snapshots and consumed
+  inputs. The library never touches process stdin; the CLI maps `-` to the reader
+  entry in one small helper. Three paths stay outside it. The server, which already
+  holds bytes, parses them with `bellhop::json::load_case_document`, in the one
+  request extractor that every `/v1/` route takes. Python's
+  `from_json`, which has no file, keeps the name `request.json`. `pg.bellhop.load`
+  of a JSON file keeps its own read and parse, so that its diagnostics stay unchanged.
 - **Results are serialized as they are.** Writers never re-solve, interpolate,
   pad or reconstruct inputs.
 
@@ -54,7 +62,7 @@ crates/{bellhop,kraken}/src/
   case.rs         validation and immutable Case invariants
   diagnostic.rs   diagnostics
   result.rs       numerical products
-  input/          legacy and JSON parsing, auxiliary-file acquisition
+  input/          Case intake, legacy and JSON parsing, auxiliary-file acquisition
   solver/         the numerical implementation
 ```
 
@@ -69,15 +77,30 @@ the [porting map](porting-map.md) links Rust modules to the Fortran sources.
 - `native-output/src/{bellhop,kraken}.rs` write the native products. `native.rs`
   shares only record and primitive I/O.
 - `native-output/src/directory.rs` publishes a file group: verified ownership,
-  exclusive lock and scratch, and rollback on handled errors. The single-file
-  publisher remains for Rust callers. The rules are in
+  exclusive lock and scratch, and rollback on handled errors. The rules are in
   [native output](../guide/native-output.md#ownership-quota-and-failure-contract).
 - BELLHOP's `result::FieldGrid` yields pressure depth-major for native SHD and
   Python, without changing the range-major solver/HDF5 layout.
-- KRAKEN writes each frequency block in both formats before dropping it. The
-  solver state that carries across frequencies is kept.
+- `native-output/src/kraken/stream.rs` owns the KRAKEN frequency-block stream:
+  one solve iterator and, for each block, the HDF5 block writer's write, the
+  native pair, the report lines and their flush, the directory quota, then the
+  writer's check. The order decides which diagnostic wins and what a failure leaves, so its
+  tests live there, without HDF5.
+  Each block is written, then dropped, before the next result is taken from the
+  iterator, which may already have solved it; the solver state that carries across
+  frequencies is kept.
+- `output::kraken` is the stream's HDF5 block writer. Its header precedes the stream,
+  which creates the report, and its totals follow the last block. Its check
+  flushes again after the block's group closes, which can grow the file.
+  Python writes native files from finished results, so it calls `stream::block_name`
+  and not the stream.
 - HTTP writes private HDF5 files and keeps its own protocol. It does not use the
-  CLI's directory publication.
+  CLI's directory publication. Its response types are also the schemas that
+  `/openapi.json` publishes; the arrival and field types are views over the solver
+  result, so serializing them copies no arrays. A test checks a response for every
+  published route and status against that document. The `/v1/run` and `/v1/field`
+  500s are the exception: no request in the test reaches them, so it checks
+  constructed error bodies.
 
 ## Concurrency and cancellation
 
@@ -123,9 +146,10 @@ thread:
   and amplitude tables hold about a million modal terms at most, in blocks of
   ranges and sources.
   Range-dependent FIELD reuses each profile's receiver-depth brackets.
-- **KRAKEN frequency blocks and profiles** carry the previous mode count forward,
-  but only real elastic searches read it: finite elastic layers and an elastic
-  surface half-space. Those sequences run in order, and so does any sequence
+- **KRAKEN frequency blocks and profiles** carry the previous mode count forward.
+  Real KRAKEN's searches with finite elastic layers read it as their first root
+  limit, so those sequences run in order. So do those with an elastic surface
+  half-space, although that search replaces the count unread, and any sequence
   below eight threads, where one solve's own parallelism beats solving side by
   side. Otherwise the first item solves alone, with every thread, and then up to
   four items per thread together. Results are consumed in order, so diagnostics,
@@ -135,7 +159,8 @@ thread:
   result can be larger, and solver scratch is separate.
 
 `tests/parallelism.rs` in both crates compares every fixture and example, and
-BELLHOP resource-limit failures, across thread counts. Independent cases may
+BELLHOP resource-limit failures, across thread counts; KRAKEN's include eight, where
+solves first run side by side. Independent cases may
 also run concurrently, through Python's `run_many` or the CLI's `run-many`,
 which publishes each case through the same code as `run`. Cancellation is a
 thread-scoped token that the solvers check inside ray tracing, influence,

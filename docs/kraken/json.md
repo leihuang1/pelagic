@@ -153,7 +153,12 @@ pelagic kraken run case.json --output results/case --format both
 `.trc`/`.brc`/`.irc`/`.sbp` files they use. It keeps the loss recipe and writes
 only what differs from the defaults and, for each profile, from the top level.
 The cases it builds are identical to the `.env` path. Every curated fixture is
-tested for this.
+tested for this. The exception is a large range-dependent `.env`. JSON charges a
+loss value for every sound-speed row, even a lossless one, so the exported document
+can exceed the 5,000,000-value limit below and fail to load with KR0201 while the
+`.env` stays well within it. `export` does not reload what it writes, so it will not
+warn you. The `.env` still runs from the CLI, but Python rejects it, because Python
+loads a `.env` through this document.
 
 ## Limits
 

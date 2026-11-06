@@ -72,8 +72,8 @@ retained profile sample per frequency. Both P/S node-loss arrays count toward th
 existing aggregate loss-storage bound. Root work counts
 five compound-component steps per solid node against the existing 2.5B KRAKEN /
 300M KRAKENC limits. These are logical work/storage bounds, not wall-time or native
-HDF5 descriptor guarantees. Atomic publication/quota/input-protection contracts
-remain unchanged.
+HDF5 descriptor guarantees. Publication/quota/input-protection contracts remain
+unchanged.
 
 ## Complete reference evidence
 

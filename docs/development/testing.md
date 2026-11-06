@@ -73,6 +73,9 @@ not current suite-size or hosted-runner guarantees.
 - **Failure safety:** later-frequency/profile failure, resource/alias protection,
   scratch ownership, rollback and preservation of existing outputs. Resource
   rejection is protection evidence, not a numerical pass.
+- **KRAKEN block order:** `crates/native-output/tests/kraken_stream.rs` states the
+  frequency-block stream's order, naming, quota and report at its interface,
+  without HDF5, through a block writer that inspects the directory as it runs.
 - **Reference integrity:** hashes and manifests cover every committed numerical
   artifact. Corruption controls exercise coordinates, records, loss, shapes,
   pressure and material metadata. Tool guards reject empty/ambiguous test

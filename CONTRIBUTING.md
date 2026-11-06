@@ -14,7 +14,7 @@ fixes and code are all welcome.
 | Path | Contents |
 | --- | --- |
 | `crates/bellhop`, `crates/kraken` | The two independent solvers: input parsing, validation, numerics |
-| `crates/native-output` | Toolbox-format writers and safe result-directory publication (no HDF5) |
+| `crates/native-output` | Toolbox-format writers, the KRAKEN frequency-block stream and safe result-directory publication (no HDF5) |
 | `crates/output` | HDF5 writers |
 | `crates/cli` | The `pelagic` program |
 | `crates/server` | The BELLHOP-only `pelagic-server` HTTP service |

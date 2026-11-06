@@ -63,6 +63,17 @@ pub(crate) fn solve_modes(case: &Case, root_limit: usize) -> Result<ModeSet, Dia
     }
 }
 
+/// Whether [`solve_modes`] carries the mode count forward as its root limit, so that
+/// a sequence of such solves runs in order. KRAKENC takes no root limit. The rule is
+/// conservative: an elastic top without finite layers replaces the carried count
+/// before reading it, so such sequences could solve side by side.
+pub(crate) fn carries_mode_count(case: &Case) -> bool {
+    match case.mode_solver {
+        crate::ModeSolver::Kraken => modes::elastic_search(case),
+        crate::ModeSolver::Krakenc => false,
+    }
+}
+
 fn synthesize_field(case: &Case, mode_set: &ModeSet) -> Result<PressureField, DiagnosticReport> {
     tabulate_field(case, mode_set, PHASE_TABLE_VALUES)
 }

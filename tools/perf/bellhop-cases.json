@@ -1,0 +1,6 @@
+[
+  {"key":"bh-arr-small","model":"bellhop","path":"examples/cases/bellhop/munk-arrivals/munk-arrivals.json"},
+  {"key":"bh-tl-medium","model":"bellhop","path":"examples/cases/bellhop/munk-tl/munk-tl.json"},
+  {"key":"bh-tl-big","model":"bellhop","path":"tools/perf/bench/bh-tl-big.json"},
+  {"key":"bh-arr-big","model":"bellhop","path":"tools/perf/bench/bh-arr-big.json"}
+]

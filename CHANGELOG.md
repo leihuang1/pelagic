@@ -7,12 +7,37 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster BELLHOP geometric-Gaussian fields.** On a 14-CPU Apple M4 Pro,
+  `pelagic bellhop run` on field cases is about 1.4 times faster on one thread and
+  1.2 to 1.3 times faster on 14, end to end. Arrival runs take about the same time.
+  Results were bit-for-bit unchanged on that machine. See the
+  [experiment record](docs/history/bellhop-performance-experiments.md).
 - **Explicit real-KRAKEN mode reuse in Rust.** Prepare an immutable modal
   solution once, then synthesize range-independent fields at new receiver
   ranges and horizontal offsets without repeating the modal solve. All other
   inputs remain frozen, including `max_range_m`, so choose it for the farthest
   range you will query. Queries use the existing arithmetic and limits. See
   [mode reuse](docs/kraken/prepared-modes.md). Existing solve APIs are unchanged.
+- **Unused single-file HDF5 functions removed from Rust.** Nothing in this
+  repository called `output::bellhop::write_hdf5_atomic`, `output::kraken::run_legacy`
+  or `output::kraken::run_json`; the CLI already publishes through result
+  directories, and its behaviour does not change.
+
+**Compatibility**
+
+- KRAKEN `run` and `run-many` now report a JSON solver mismatch under the field
+  `kraken.solver`, the JSON path, as `validate` and `export` already did. It was
+  `mode_solver`.
+- KRAKEN `validate`, `export` and `run -` now word a read failure as
+  `unable to read input: ...`, as `run FILE` already did.
+- Python `pg.kraken.load` of a JSON file now reports what the CLI does.
+  Diagnostics name the real path instead of `request.json`. A solver mismatch has
+  the field `kraken.solver`, the CLI's message and a source location, and is
+  reported before the 1 MiB check on the case's canonical form. A file that cannot
+  be opened was already `KR0001`, but a failure after opening it, such as non-UTF-8
+  content, was `PG0001` and is now `KR0001` too. Both now have a source location and
+  the `unable to read input:` prefix. The `flp` rejection has the CLI's message and
+  a source location.
 
 ## 0.6.1 — 2026-11-02
 
