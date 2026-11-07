@@ -20,11 +20,11 @@ use num_complex::{Complex32, Complex64};
 use reflection::reflect_2d;
 use ssp::{SegmentState, SoundSpeedModel};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-/// Rays evaluated ahead per thread before the calling thread applies them in order.
+/// Rays evaluated ahead of the next to apply, per thread.
 const RAYS_PER_THREAD: usize = 4;
-/// Recorded ray products held at once; a batch ends when it reaches this size.
+/// Recorded ray products waiting to be applied; no ray starts while they hold more.
 const BATCH_BYTES: usize = 256 << 20;
 /// Influence a worker records for one ray; a larger ray is given up and applied
 /// by the calling thread instead.
@@ -234,13 +234,9 @@ fn run_inner(
         buffers: Mutex::new(Vec::new()),
         oversized: AtomicBool::new(false),
     };
-    // Workers trace and evaluate a batch of rays; this thread then applies them in
-    // launch order, so every sum, merge, limit and error is that of one thread.
+    // Workers trace and evaluate rays ahead; this thread applies them in launch
+    // order, so every sum, merge, limit and error is that of one thread.
     let threads = crate::parallelism::threads();
-    let batch_len = match threads {
-        1 => 1,
-        threads => threads.saturating_mul(RAYS_PER_THREAD),
-    };
     let angles = selected_angles(case);
     for &source_depth_m in &case.environment.positions.source_depths_m {
         let mut rays = Vec::with_capacity(angles.len());
@@ -260,26 +256,24 @@ fn run_inner(
             Vec::new()
         };
         let mut source_speed_mps = 0.0;
-        let mut start = 0;
-        while start < angles.len() {
-            let batch = &angles[start..angles.len().min(start.saturating_add(batch_len))];
-            let points_before = total_points;
-            let evaluated = crate::parallelism::map_prefix(
-                batch.len(),
-                BATCH_BYTES,
-                |ray: &Result<EvaluatedRay, _>| ray.as_ref().map_or(0, EvaluatedRay::bytes),
-                |index| {
-                    evaluate_ray(
-                        &inputs,
-                        source_depth_m,
-                        batch[index],
-                        points_before,
-                        threads > 1,
-                    )
-                },
-            );
-            start += evaluated.len();
-            for (&launch_angle_degrees, ray) in batch.iter().zip(evaluated) {
+        // At most the ray points of the rays before any ray still being evaluated.
+        let applied_points = AtomicUsize::new(total_points);
+        crate::parallelism::for_each_ordered(
+            angles.len(),
+            threads.saturating_mul(RAYS_PER_THREAD),
+            BATCH_BYTES,
+            |ray: &Result<EvaluatedRay, _>| ray.as_ref().map_or(0, EvaluatedRay::bytes),
+            |index| {
+                evaluate_ray(
+                    &inputs,
+                    source_depth_m,
+                    angles[index],
+                    applied_points.load(Ordering::Relaxed),
+                    threads > 1,
+                )
+            },
+            |index, ray| {
+                let launch_angle_degrees = angles[index];
                 crate::cancellation::check().map_err(|m| resource_report(case, m))?;
                 let ray = ray.map_err(|message| {
                     report(Diagnostic::error(
@@ -304,6 +298,7 @@ fn run_inner(
                         ),
                     ));
                 }
+                applied_points.store(total_points, Ordering::Relaxed);
                 match ray.product {
                     RayProduct::OverLimit => unreachable!("the ray-point check rejects this ray"),
                     RayProduct::Trajectory(trajectory) => rays.push(trajectory),
@@ -347,8 +342,9 @@ fn run_inner(
                         outcome.map_err(|message| resource_report(case, message))?;
                     }
                 }
-            }
-        }
+                Ok(())
+            },
+        )?;
         match case.environment.run.kind {
             RunKind::Rays => sources.push(SourceRaySet {
                 source_depth_m,
@@ -486,7 +482,7 @@ enum RayProduct {
 }
 
 /// Trace one ray and, when `record`, record its influence without applying it.
-/// `points_before` is the ray-point total of the rays before this batch.
+/// `points_before` is at most the ray-point total of the rays before this one.
 fn evaluate_ray(
     inputs: &RayInputs<'_>,
     source_depth_m: f64,
