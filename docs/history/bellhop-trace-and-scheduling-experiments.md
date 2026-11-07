@@ -2,7 +2,7 @@
 
 ## Result
 
-Two changes were retained; five candidates were measured and rejected. Every
+Two changes were retained; six candidates were measured and rejected. Every
 retained change leaves results byte-identical: all 62 BELLHOP inputs of the
 perf kit's original inventory match `main` (`4bf17ec`) at 1, 2, 4 and 14 threads,
 on aarch64-apple-darwin only.
