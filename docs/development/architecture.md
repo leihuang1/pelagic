@@ -118,13 +118,16 @@ an estimate of its total work and stays on the calling thread when that is too
 small to repay starting workers. Order-dependent work stays on the calling
 thread:
 
-- **BELLHOP** traces a batch of rays in parallel. Each ray's influence is
+- **BELLHOP** traces rays in parallel. Each ray's influence is
   recorded as `Effects`: single-precision field contributions, arrival
-  candidates or eigenray hits. The calling thread then applies each ray in
+  candidates or eigenray hits. The calling thread applies each ray in
   launch order. Pressure sums, arrival merging, resource limits and error
   precedence are therefore those of one thread. With one thread, each ray is
-  applied as it is evaluated, as before. Otherwise a batch ends at 4 rays per
-  thread or 256 MiB of records, whichever comes first. A worker gives up a ray
+  applied as it is evaluated, as before. Otherwise the workers stay up for the
+  whole source depth and keep evaluating while the calling thread applies, which
+  it does whenever the next ray is ready, evaluating a ray itself otherwise. No
+  ray starts 4 rays per thread or more ahead of the next to apply, or while the
+  rays waiting to be applied hold 256 MiB of records or more. A worker gives up a ray
   whose records reach 32 MiB; the calling thread then applies that ray, and
   every later one, as it evaluates it, so memory stays bounded on any grid. A
   ray beyond the ray-point limit is rejected before its influence is

@@ -7,6 +7,14 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster BELLHOP ray tracing and multi-threaded runs.** On a 14-CPU Apple M4
+  Pro, arrival and eigenray runs solve about 1.5 times faster on one thread, and
+  hat-beam fields about 1.2 times. With several threads, workers keep tracing
+  while results are applied, so runs solve 1.2 to 2 times faster on 4 threads and
+  1.4 to 2.4 times on 10. End to end, `pelagic bellhop run` on the benchmark cases
+  is up to 1.34 times faster on one thread and 1.1 to 1.35 times on 14. Peak
+  memory is unchanged. Results were bit-for-bit unchanged on that machine. See the
+  [experiment record](docs/history/bellhop-trace-and-scheduling-experiments.md).
 - **Faster BELLHOP geometric-Gaussian fields.** On a 14-CPU Apple M4 Pro,
   `pelagic bellhop run` on field cases is about 1.4 times faster on one thread and
   1.2 to 1.3 times faster on 14, end to end. Arrival runs take about the same time.
