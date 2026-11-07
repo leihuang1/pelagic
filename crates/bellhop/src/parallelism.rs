@@ -243,7 +243,10 @@ impl<T, C: Fn(&T) -> usize, W: Fn(usize) -> T> Pipeline<T, C, W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::any::Any;
+    use std::panic::AssertUnwindSafe;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Duration;
 
     fn collect(threads: usize, count: usize, window: usize, budget: usize) -> Vec<(usize, usize)> {
         let mut applied = Vec::new();
@@ -337,26 +340,87 @@ mod tests {
         }
     }
 
+    /// Run `body` on a thread of its own, and fail instead of hanging if the
+    /// pipeline never lets it return.
+    fn within_a_minute<T: Send + 'static>(body: impl FnOnce() -> T + Send + 'static) -> T {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(std::panic::catch_unwind(AssertUnwindSafe(body)));
+        });
+        receiver
+            .recv_timeout(Duration::from_secs(60))
+            .expect("the pipeline's threads stop within a minute")
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    }
+
+    /// Run `for_each_ordered` on 4 threads, expecting it to panic, and check that
+    /// the caller's thread scope survives the unwind.
+    fn panic_on_four_threads(run: impl FnOnce() -> Result<(), ()>) -> Box<dyn Any + Send> {
+        with_threads(NonZeroUsize::new(4).unwrap(), || {
+            let panic = std::panic::catch_unwind(AssertUnwindSafe(run))
+                .expect_err("the panic reaches the caller");
+            assert_eq!(threads(), 4, "the caller's scope is restored");
+            panic
+        })
+    }
+
+    fn message(panic: &(dyn Any + Send)) -> Option<&str> {
+        panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+    }
+
     #[test]
     fn resumes_a_worker_panic() {
-        let panic = std::panic::catch_unwind(|| {
-            with_threads(NonZeroUsize::new(4).unwrap(), || {
+        // Only workers panic, and the caller's own item waits for one to, so a
+        // worker always fails an item the caller must then never wait for.
+        let panic = within_a_minute(|| {
+            let caller = std::thread::current().id();
+            let worker_panicked = AtomicBool::new(false);
+            panic_on_four_threads(|| {
                 for_each_ordered(
                     100,
                     8,
                     usize::MAX,
                     |()| 0,
-                    |i| assert!(i != 50, "item fifty"),
-                    |_, ()| Ok::<(), ()>(()),
+                    |_| {
+                        if std::thread::current().id() == caller {
+                            while !worker_panicked.load(Ordering::SeqCst) {
+                                std::thread::yield_now();
+                            }
+                        } else {
+                            worker_panicked.store(true, Ordering::SeqCst);
+                            panic!("a worker's item");
+                        }
+                    },
+                    |_, ()| Ok(()),
                 )
             })
-        })
-        .expect_err("the panic reaches the caller");
-        let message = panic
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| panic.downcast_ref::<&str>().copied());
-        assert_eq!(message, Some("item fifty"));
+        });
+        assert_eq!(message(&*panic), Some("a worker's item"));
+    }
+
+    #[test]
+    fn resumes_an_apply_panic() {
+        // While the caller applies item 37, the workers can claim no further than
+        // item 45 of 1000, so they stop only if the caller's panic stops them.
+        let panic = within_a_minute(|| {
+            panic_on_four_threads(|| {
+                for_each_ordered(
+                    1000,
+                    8,
+                    usize::MAX,
+                    |_| 0,
+                    |i| i,
+                    |index, _| {
+                        assert!(index != 37, "applying item 37");
+                        Ok(())
+                    },
+                )
+            })
+        });
+        assert_eq!(message(&*panic), Some("applying item 37"));
     }
 
     #[test]

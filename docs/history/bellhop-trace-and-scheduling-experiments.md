@@ -108,8 +108,10 @@ Peak RSS at 14 threads stayed within 2 MiB of the first change: `bh-tl-big`
 
 A first version hung when the calling thread panicked: nothing woke the workers
 waiting for room in the window, and the thread scope waited for them. A guard now
-stops the pipeline however the calling thread leaves; a unit test panics on an
-item that either thread may evaluate.
+stops the pipeline however the calling thread leaves, and a worker that panics
+stops it too. Two unit tests force each case, a panic in a worker's item and a
+panic while the calling thread applies one, and fail after a minute instead of
+hanging; with either guard removed, its test fails.
 
 ## Rejected
 
@@ -163,8 +165,8 @@ process start take about 6–9 ms per run here, most of a small case's time.
 
 - BELLHOP crate: all tests pass, including thread invariance with 1-byte and
   4,096-byte ray records, limits, cancellation and the new pipeline tests (order,
-  window and budget, first error, worker panic, cancellation); the pipeline tests
-  also passed 300 repeated runs.
+  window and budget, first error, worker panic, apply panic, cancellation); the
+  pipeline tests also passed 300 repeated runs.
 - `run.py check`: 248 of 248 configurations match `main` for each retained commit.
 - Workspace: `cargo test --locked --workspace --all-features` passed 379 tests,
   with 12 ignored; formatting, workspace Clippy with `-D warnings` and
