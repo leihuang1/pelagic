@@ -312,6 +312,7 @@ impl Mesh<'_> {
                 start,
             )
         }) {
+            crate::cancellation::check()?;
             roots.extend(result?);
         }
         Ok(roots)

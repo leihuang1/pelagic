@@ -109,15 +109,24 @@ previous release solved at 97% of that limit, then failed with `KR0302`.
 The previous fluid bisection never charged its actual work. Before searching,
 it charged a fixed 64 steps plus the shape allowance per mode and mesh point.
 The new search now pays exactly that charge, in the same place, before either
-search runs. So the work limit admits the same problems as before, at every
-refinement mesh, and its own step caps bound the faster search's work. The
-reviewed case solves again at 1, 2 and 4 threads. A unit test checks the charge
+search runs. So every refinement mesh is charged as before, and the faster
+search's own work is bounded by its step caps. The reviewed case solves again
+at 1, 2 and 4 threads. A unit test checks the charge
 and the exact admission boundary on a case of several eight-mode groups. The
 fix changes no arithmetic: the full inventory at 1, 2, 4 and 14 threads
 (3,268 configurations) matches the reviewed build's snapshots exactly.
+
+The review then built a second case, tuned to Richardson extrapolation's
+stopping test: 10 kHz in 10 m of water, with `max_range_m` set to ten
+significant digits so that the previous roots stop at 0.99999998 of the
+threshold. The new roots give 1.00000002 there and request a third mesh, which
+exceeds the limit. Any change in the roots can move such a decision, in either
+direction, so it is recorded here rather than prevented. Mode counts are
+unaffected.
 
 Raw snapshots, timings, all-cell metrics and acceptance logs remain local in the
 root-search scratch directory and this worktree's `target/acceptance/`. Native
 x86 performance and separately installed Python/MATLAB applications were not
 measured in this campaign; the shared solver and existing adapter regression
-checks were used. A clean-commit full acceptance is still required before release.
+checks were used. After the work-accounting fix, a clean-commit full acceptance
+passed all 27 stages.

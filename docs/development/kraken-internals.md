@@ -110,10 +110,13 @@ leaves the affected mode to the original 64-step full-interval bisection, not a
 partial bracket or a guessed root. This includes the rounded rigid/rigid plane
 endpoint. Cancellation and the 2.5-billion mesh-work limit remain errors, never
 fallback triggers. The search pays the original bisection's fixed charge before
-it starts, 64 steps plus the shape allowance per mode, so the work limit admits
-exactly the problems it did before. Its isolation, refinement and fallback steps
-are each capped, which bounds its own work. Fixed groups of eight always run in
-parallel; neither their membership nor their arithmetic depends on worker count.
+it starts, 64 steps plus the shape allowance per mode, so each mesh costs what it
+did before. That charge measures admission, not the search's own operations,
+which its isolation, refinement and fallback step caps bound. Because the roots
+differ slightly, a solve right at the extrapolation's stopping threshold can
+need one mesh more or fewer than before, and so meet the limit differently.
+Fixed groups of eight always go through the same ordered parallel map; neither
+their membership nor their arithmetic depends on the worker count.
 There are no adapter-specific paths or runtime numerical selectors.
 
 This invariant is specific to the fluid recurrence, not a floating-point

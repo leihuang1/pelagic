@@ -137,8 +137,8 @@ thread:
   signed fluid dispersion in fixed groups of eight using safeguarded Illinois
   steps. Groups run in parallel, but their membership never depends on the
   worker count. Invalid brackets or count checks fall back per mode to the
-  original full-interval bisection. The search pays the original bisection's
-  fixed work charge, so the work limit admits the same problems. Elastic KRAKEN and
+  original full-interval bisection. Each mesh pays the original bisection's
+  fixed work charge. Elastic KRAKEN and
   KRAKENC retain their separate searches; elastic counts need not be monotonic.
   See [fluid root search](kraken-internals.md#fluid-root-search) for the invariant,
   tolerance and fallback. First-mesh mode shapes run in parallel too, also in root order. Real fluid
