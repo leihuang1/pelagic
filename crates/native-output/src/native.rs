@@ -102,8 +102,14 @@ impl Direct {
         bytes.resize(self.bytes, 0);
         self.file.write_all(&bytes)
     }
-    pub(crate) fn finish(mut self) -> io::Result<()> {
+    pub(crate) fn remaining(&mut self, remaining: u64) {
+        self.maximum = self.written.saturating_add(remaining);
+    }
+    pub(crate) fn flush(&mut self) -> io::Result<()> {
         self.file.flush()
+    }
+    pub(crate) fn finish(mut self) -> io::Result<()> {
+        self.flush()
     }
 }
 
@@ -120,7 +126,40 @@ pub(crate) fn shd(
     pressure: impl Iterator<Item = (f32, f32)>,
     maximum: u64,
 ) -> io::Result<()> {
+    let mut file = shd_header(
+        path,
+        title,
+        &[frequency],
+        sources,
+        depths,
+        ranges,
+        irregular,
+        maximum,
+    )?;
+    shd_pressure(
+        &mut file,
+        sources.len(),
+        depths.len(),
+        ranges.len(),
+        irregular,
+        pressure,
+    )?;
+    file.finish()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn shd_header(
+    path: &Path,
+    title: &str,
+    frequencies: &[f64],
+    sources: &[f64],
+    depths: &[f64],
+    ranges: &[f64],
+    irregular: bool,
+    maximum: u64,
+) -> io::Result<Direct> {
     let words = 41
+        .max(2 * frequencies.len())
         .max(2 * ranges.len())
         .max(depths.len())
         .max(sources.len());
@@ -130,23 +169,41 @@ pub(crate) fn shd(
     file.record(header)?;
     file.record(text(if irregular { "irregular" } else { "rectilin" }, 10))?;
     let mut dimensions = Vec::new();
-    for n in [1, 1, 1, 1, sources.len(), depths.len(), ranges.len()] {
+    for n in [
+        frequencies.len(),
+        1,
+        1,
+        1,
+        sources.len(),
+        depths.len(),
+        ranges.len(),
+    ] {
         dimensions.extend(count(n)?);
     }
-    dimensions.extend(frequency.to_le_bytes());
+    dimensions.extend(frequencies[0].to_le_bytes());
     dimensions.extend(0_f64.to_le_bytes());
     file.record(dimensions)?;
-    file.record(doubles(&[frequency]))?;
+    file.record(doubles(frequencies))?;
     for _ in 0..3 {
         file.record(doubles(&[0.0]))?;
     }
     file.record(singles(sources)?)?;
     file.record(singles(depths)?)?;
     file.record(doubles(ranges))?;
-    let mut pressure = pressure;
-    for _ in 0..sources.len() * if irregular { 1 } else { depths.len() } {
-        let mut row = Vec::with_capacity(8 * ranges.len());
-        for _ in ranges {
+    Ok(file)
+}
+
+pub(crate) fn shd_pressure(
+    file: &mut Direct,
+    sources: usize,
+    depths: usize,
+    ranges: usize,
+    irregular: bool,
+    mut pressure: impl Iterator<Item = (f32, f32)>,
+) -> io::Result<()> {
+    for _ in 0..sources * if irregular { 1 } else { depths } {
+        let mut row = Vec::with_capacity(8 * ranges);
+        for _ in 0..ranges {
             let (real, imaginary) = pressure
                 .next()
                 .ok_or_else(|| io::Error::other("incomplete native pressure grid"))?;
@@ -161,5 +218,5 @@ pub(crate) fn shd(
     if pressure.next().is_some() {
         return Err(io::Error::other("trailing native pressure values"));
     }
-    file.finish()
+    Ok(())
 }

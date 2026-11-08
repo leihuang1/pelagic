@@ -513,9 +513,44 @@ fn repeated_frequencies_offsets_and_profiles_remain_native_readable() {
     let output = root.join("results");
     run("kraken", &path, &output, Some("both"));
     native::kraken(&output, &path);
-    for i in 0..3 {
-        assert!(output.join(format!("different.f{i:04}.mod")).is_file());
+    for index in 0..3 {
+        assert!(output.join(format!("different.f{index:04}.mod")).is_file());
+        assert!(output.join(format!("different.f{index:04}.shd")).is_file());
     }
+    assert!(!output.join("different.mod").exists());
+    assert!(!output.join("different.shd").exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn multi_profile_broadband_env_keeps_indexed_native_pairs() {
+    let root = directory("broadband-profiles");
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../kraken/tests/fixtures/ProfilesAd.env");
+    let mut source = fs::read_to_string(&fixture)
+        .unwrap()
+        .replace("'NVN'", "'NVN  B'");
+    for depth in [80, 100, 120] {
+        source = source.replace(
+            &format!("0.0 {depth}.0 /\n"),
+            &format!("0.0 {depth}.0 /\n3\n75.0 50.0 62.5 /\n"),
+        );
+    }
+    let input = root.join("profiles.env");
+    fs::write(&input, source).unwrap();
+    fs::copy(fixture.with_extension("flp"), input.with_extension("flp")).unwrap();
+    let loaded = kraken::input::load(&input, None, None).unwrap();
+    assert_eq!(loaded.cases().len(), 3);
+    assert!(loaded.cases().iter().all(|case| case.profiles().len() == 4));
+    let output = root.join("results");
+    run("kraken", &input, &output, Some("both"));
+    native::kraken(&output, &input);
+    for index in 0..3 {
+        assert!(output.join(format!("profiles.f{index:04}.mod")).is_file());
+        assert!(output.join(format!("profiles.f{index:04}.shd")).is_file());
+    }
+    assert!(!output.join("profiles.mod").exists());
+    assert!(!output.join("profiles.shd").exists());
     fs::remove_dir_all(root).unwrap();
 }
 

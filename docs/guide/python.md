@@ -132,8 +132,11 @@ result.write_native("results/run1")
 This writes the Toolbox-format files for the result (`case.shd`, `case.ray`,
 `case.arr` or `case.mod`), plus `case.json` (the exact case), a `case.prt`
 report and a `pelagic-manifest.json`. It saves the result you already have; it
-does not solve again. KRAKEN cases with several frequencies use
-`case.f0000.mod`, `case.f0001.mod`, and so on.
+does not solve again. Single-profile KRAKEN cases with several frequencies and
+common native headers/grids share `case.mod` and `case.shd`, just as in the CLI.
+Multi-profile runs or incompatible headers/grids retain `case.f0000.mod/.shd`,
+`case.f0001.mod/.shd`, and so on;
+see the [layout rule](native-output.md#file-selection-and-ordering).
 
 Writing again to the same directory updates the files Pelagic wrote earlier.
 Other files are left alone, and a file you have edited is never overwritten:

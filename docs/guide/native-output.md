@@ -33,14 +33,29 @@ lossily displayed; control characters/backslashes become underscores and
 reserved `.pelagic-` stems get a `case-` prefix. Input paths/snapshots themselves
 are not changed.
 
-KRAKEN emits a **separate native pair per ordered frequency block** when there
-is more than one: `CASE.f0000.mod/.shd`, `CASE.f0001.mod/.shd`, etc. Each MOD
-contains one frequency and all its profiles in input order. This preserves
-repeated/descending frequencies and the already accepted JSON contract in which
-blocks can have different profile counts, sample grids and FIELD geometry;
-a shared native frequency grid cannot represent that contract. No frequency
-result collection is retained. The `.prt` report maps indices, frequencies,
-profile ranges and counts. HDF5 remains one `CASE.h5` with all indexed blocks.
+KRAKEN writes **one `CASE.mod` and one `CASE.shd` for all frequencies** when
+every block has **exactly one profile**, with the same title, solver, sampled
+depths, fluid-layer tops and densities, source depths, receiver depths and
+receiver ranges across blocks. Every accepted single-profile broadband `.env`
+qualifies. Mode counts and half-space properties may vary by frequency.
+Frequency order, including descending and repeated values, is preserved, just
+as in Fortran. Toolbox MATLAB readers selecting by frequency value select the
+first closest occurrence; index-based readers can read repeats. The MATLAB MOD
+reader also advances too few records after a zero-mode block. The serializer
+keeps the correct Fortran zero-mode layout rather than mimicking that bug;
+current production solvers reject empty spectra.
+
+Otherwise the whole run uses **separate pairs per ordered block**:
+`CASE.f0000.mod/.shd`, `CASE.f0001.mod/.shd`, etc., each holding all that block's
+profiles. **Multi-profile runs keep these indexed single-frequency pairs**
+because the pinned FIELD and MATLAB mode readers cannot step through MOD files
+containing both multiple profiles and multiple frequencies. Keeping the existing
+layout preserves access through those unmodified tools. The rule depends on
+profile count and shared headers, not the input extension; it never pads
+mismatched grids or discards results. The manifest lists the actual names.
+Single-frequency names and bytes are unchanged. No frequency result collection
+is retained. The `.prt` report maps indices, frequencies, native stems, profile
+ranges and counts. HDF5 remains one `CASE.h5` with all indexed blocks.
 Native MOD does not store profile ranges or FIELD offsets; use the original FLP
 for those, or the report/HDF5 metadata, just as an original MOD reader needs FLP
 geometry to synthesize FIELD. No reconstructed inputs or debug files are emitted.
@@ -78,14 +93,18 @@ the original `irregular` plot flag and one pressure row per source.
   80-byte title, 10-byte plot type, seven dimensions, float64 nominal frequency
   and attenuation, frequency/bearing/source-x/source-y vectors (float64),
   source/receiver depths (float32), and ranges (float64). Pressure is complex32,
-  source then depth then range; each depth row occupies one record. BELLHOP's
+  frequency then source then depth then range; each depth row occupies one record. BELLHOP's
   range-major result/HDF5 arrays are transposed at this adapter, not in the solver.
 - MOD has five descriptive records per profile (length/title/dimensions,
   first-mesh fluid intervals and 8-byte `ACOUSTIC` tags, layer top/density,
-  float64 frequency, float32 sampled depths). Then come mode count, packed
-  top/bottom half-space properties, one complex32 pressure-shape record per
-  mode, and folded complex32 wavenumbers (rad/m). Record length is constant
-  across profiles and even, preventing complex-value splits. All modes are
+  float64 frequency vector, float32 sampled depths). Within each profile, each
+  frequency then has a mode count, packed top/bottom half-space properties,
+  one complex32 pressure-shape record per mode, and folded complex32 wavenumbers
+  (rad/m). Mesh intervals in a shared header describe the **first frequency**,
+  as in Fortran, not later frequency-scaled meshes. Record length is constant
+  across profiles and even, preventing complex-value splits. A long shared
+  frequency vector can increase the padded record size: fewer files need not
+  mean fewer bytes, and the physical output quota still applies. All modes are
   written, including those above the FIELD cap. Shapes remain fluid pressure,
   not unimplemented solid displacements. Half-space sound speeds use pinned
   `AttenMod::CRCI`'s **positive** imaginary part from canonical dB/wavelength,
@@ -120,7 +139,8 @@ KRAKEN keeps the positive `--max-output-bytes` default of 256 MiB: the known
 FIELD payload is admitted before solving, HDF5 payload/flush checks remain, and
 the cumulative physical size of all selected products, report and manifest is
 checked. A running physical-byte total counts closed native files once and
-refreshes the growing report/HDF5 files at the same check points; installation
+refreshes growing MOD/SHD, report and HDF5 files at the block check points;
+shared MOD/SHD blocks are flushed before their sizes are refreshed. Installation
 still scans the entire stage. Native direct-record writers also check remaining
 bytes before each write. As before, HDF5 has no byte-limited VFD, so a bounded
 header/frequency write can temporarily exceed its physical quota before a

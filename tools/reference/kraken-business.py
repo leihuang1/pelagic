@@ -239,7 +239,8 @@ def main():
                             break
                         if not business.check_test(readback, "actual_cli_native_layouts_match_all_hdf5_values", directory / f"{label}-native.log", product_vars, args.timeout):
                             break
-                        actual = [pressures(destination / ("case.shd" if len(reference) == 1 else f"case.f{i:04}.shd"))[0] for i in range(len(reference))]
+                        actual = (pressures(destination / "case.shd") if (destination / "case.shd").exists() else
+                                  [pressures(destination / f"case.f{i:04}.shd")[0] for i in range(len(reference))])
                         result[label + "_metrics"] = [field_metrics(a, b) for a, b in zip(reference, actual)]
                     else:
                         result.update(status="PASS", stage="complete")

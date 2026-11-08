@@ -167,6 +167,25 @@ impl<F: FnMut(Step) -> Result<(), String>> BlockWriter for Recorder<'_, F> {
     }
 }
 
+// Exercise the per-block fallback even though the ENV fixture itself now combines.
+fn separate_headers(input: &FieldInput) -> Vec<FieldCase> {
+    input
+        .cases()
+        .iter()
+        .enumerate()
+        .map(|(index, block)| {
+            let mut case = block.profiles()[0].clone().into_definition();
+            write!(case.title, " block {index}").unwrap();
+            FieldCase::new(
+                vec![kraken::Case::from_definition(case).unwrap()],
+                vec![0.0],
+                kraken::FieldPropagation::RangeIndependent,
+            )
+            .unwrap()
+        })
+        .collect()
+}
+
 fn recorded(
     input: &FieldInput,
     root: &Path,
@@ -176,7 +195,7 @@ fn recorded(
 ) -> (Result<RunSummary, RunError>, Vec<Seen>) {
     let mut recorder = Recorder::new(root, act);
     let result = stream::run(
-        input.cases(),
+        &separate_headers(input),
         input.snapshots(),
         root,
         "case",
@@ -266,7 +285,14 @@ fn native_pairs_and_report_use_the_block_names() {
     assert_eq!(names(&single), ["case.mod", "case.prt", "case.shd"]);
     assert!(report(&single).contains("frequency[0] 75 Hz; native_stem=case; profiles=1 "));
 
-    let several = run(input.cases(), &scratch.root("several"));
+    let combined = run(input.cases(), &scratch.root("combined"));
+    assert_eq!(names(&combined), ["case.mod", "case.prt", "case.shd"]);
+    for (index, frequency) in PEKERIS_FREQUENCIES.iter().enumerate() {
+        assert!(report(&combined).contains(&format!(
+            "frequency[{index}] {frequency} Hz; native_stem=case; "
+        )));
+    }
+    let several = run(&separate_headers(&input), &scratch.root("several"));
     assert_eq!(
         names(&several),
         [
@@ -549,6 +575,65 @@ fn quota_counts_what_the_writer_wrote_and_precedes_its_check_step() {
     );
     assert_eq!(steps(&seen), then(complete(1), Written(1)));
     assert!(has_block(report(&on_disk(&root)), 1));
+}
+
+#[test]
+fn combined_files_flush_each_block_and_enforce_the_cumulative_quota() {
+    let scratch = Scratch::new("combined-quota");
+    let input = scratch.pekeris();
+    let root = scratch.padded_root("measured");
+    let mut writer = Recorder::new(&root, |_| Ok(()));
+    stream::run(
+        input.cases(),
+        input.snapshots(),
+        &root,
+        "case",
+        Format::Legacy,
+        MEASURING_LIMIT,
+        &mut writer,
+    )
+    .unwrap();
+    assert_eq!(steps(&writer.seen), complete(3));
+    for block in 0..3 {
+        let before = &writer.seen[2 * block].files;
+        let after = &writer.seen[2 * block + 1].files;
+        for name in ["case.mod", "case.shd"] {
+            assert!(after[name].len() > before.get(name).map_or(0, Vec::len));
+        }
+        assert!(has_block(report(after), block));
+    }
+    let limit = total(&writer.seen[3].files) - 1;
+    let limited = scratch.padded_root("limited");
+    let mut writer = Recorder::new(&limited, |_| Ok(()));
+    let result = stream::run(
+        input.cases(),
+        input.snapshots(),
+        &limited,
+        "case",
+        Format::Legacy,
+        limit,
+        &mut writer,
+    );
+    assert_eq!(
+        output_error(result),
+        format!("result directory exceeds {limit} bytes")
+    );
+    assert_eq!(steps(&writer.seen), then(complete(1), Written(1)));
+    assert!(!has_block(report(&on_disk(&limited)), 2));
+
+    let limit = total(&writer.seen[2].files) + 1;
+    let limited = scratch.padded_root("native-limited");
+    let result = stream::run(
+        input.cases(),
+        input.snapshots(),
+        &limited,
+        "case",
+        Format::Legacy,
+        limit,
+        &mut (),
+    );
+    assert_eq!(output_error(result), "native file exceeds output quota");
+    assert!(!has_block(report(&on_disk(&limited)), 1));
 }
 
 #[test]
