@@ -7,6 +7,12 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Optional Linux x86-64-v3 CLI for clusters.** A separate `linux-x64-v3`
+  archive is built for CPUs with AVX2, FMA and BMI2. On an AMD EPYC 7B13,
+  one-thread solver runs are about 1.02 to 1.47 times faster, with
+  byte-identical results across the measured inventory. Existing archives, Python wheels and MATLAB's
+  bundled CLIs are unchanged. Older CPUs must use the baseline archive; see
+  [CPU checks and source builds](docs/guide/cluster.md#choose-a-linux-x86-64-build).
 - **Faster KRAKEN FIELD on Apple silicon.** Range-independent FIELD now sums
   16 ranges per loop instead of 8. On one thread of a 14-CPU Apple M4 Pro,
   solver-only runs are about 1.5 times faster for the large Munk benchmark,

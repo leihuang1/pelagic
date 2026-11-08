@@ -19,6 +19,7 @@ def module(name):
 
 
 changes = module("changes")
+planning = module("plan")
 shards = module("pytest-shard")
 coverage = module("check-shards")
 results = module("check-results")
@@ -26,6 +27,50 @@ artifacts = module("wait-artifacts")
 
 
 class PlanningTests(unittest.TestCase):
+    def test_v3_is_separate_from_baseline_wheels_and_matlab(self):
+        for event in ("pull_request", "push", "release", "workflow_dispatch"):
+            plan = planning.plan(event)
+            platforms = ["linux-x64", "linux-arm64", "macos-arm64", "macos-x64", "windows-x64"]
+            if event == "pull_request":
+                platforms.remove("macos-x64")
+            wheels = plan["wheels"]["include"]
+            self.assertEqual([w["platform"] for w in wheels], platforms)
+            self.assertEqual(plan["platforms"].split(), platforms)
+            self.assertEqual(plan["v3"], {"include": [{"os": "ubuntu-22.04",
+                "target": "x86_64-unknown-linux-gnu", "platform": "linux-x64-v3"}]})
+            self.assertTrue(all("rustflags" not in w for w in wheels))
+            self.assertEqual(plan["shards"], {p: 2 if p in ("macos-x64", "windows-x64") else 1
+                                              for p in platforms})
+            others = [w for w in wheels if w["platform"] not in ("linux-x64", "windows-x64")]
+            self.assertEqual(plan["others"], {"include": others})
+            self.assertEqual(plan["tests"], {"include": [dict(w, shard=i, count=plan["shards"][w["platform"]])
+                for w in others for i in range(plan["shards"][w["platform"]])]})
+
+    def test_planner_writes_github_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            subprocess.run([sys.executable, str(Path(__file__).with_name("plan.py"))], check=True,
+                           env={**os.environ, "EVENT": "release", "GITHUB_OUTPUT": str(output)})
+            actual = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            decoded = {key: value if key == "platforms" else json.loads(value) for key, value in actual.items()}
+            self.assertEqual(decoded, planning.plan("release"))
+
+    def test_aggregate_requires_v3_or_an_explicit_docs_skip(self):
+        needs = {"plan": {"result": "success", "outputs": {"full": "true"}},
+                 "windows-check": {"result": "success"}, "cli-v3": {"result": "success"}}
+        results.check(needs)
+        for state in ("failure", "cancelled", "skipped"):
+            needs["cli-v3"]["result"] = state
+            with self.assertRaises(AssertionError):
+                results.check(needs)
+        needs["plan"]["outputs"]["full"] = "false"
+        needs["cli-v3"]["result"] = "skipped"
+        results.check(needs)
+        for state in ("failure", "cancelled", "success"):
+            needs["cli-v3"]["result"] = state
+            with self.assertRaises(AssertionError):
+                results.check(needs)
+
     def test_artifacts_are_pinned_to_latest_successful_producer(self):
         sha = "a" * 40
         job = {"name": "windows-wheel", "run_id": 123, "head_sha": sha,

@@ -106,7 +106,18 @@ Download the archive for your platform from
 | macOS, Apple silicon | `pelagic-vX.Y.Z-macos-arm64.tar.gz` |
 | macOS, Intel | `pelagic-vX.Y.Z-macos-x64.tar.gz` |
 | Linux x86-64 (glibc 2.35+) | `pelagic-vX.Y.Z-linux-x64.tar.gz` |
+| Linux x86-64-v3 (glibc 2.35+, v3 CPU required) | `pelagic-vX.Y.Z-linux-x64-v3.tar.gz` |
 | Linux ARM64 (glibc 2.39+) | `pelagic-vX.Y.Z-linux-arm64.tar.gz` |
+
+The optional Linux `x86-64-v3` CLI can be faster on recent x86 cluster CPUs.
+Keep the baseline `linux-x64` archive for older or unknown CPUs; Python wheels
+and MATLAB's bundled CLIs are unchanged. Before choosing v3, check each
+compute node with `/lib64/ld-linux-x86-64.so.2 --help | grep x86-64-v3`
+(glibc 2.33+): the line must say `(supported, searched)`, not just list v3.
+The v3 program has no safe startup guard and can fail with `Illegal instruction`
+on an incompatible CPU. See [choosing a cluster build](guide/cluster.md#choose-a-linux-x86-64-build)
+for CPU checks, indicative EPYC gains and source builds with
+`RUSTFLAGS='-C target-cpu=native'` or `x86-64-v3`.
 
 On macOS or Linux:
 
