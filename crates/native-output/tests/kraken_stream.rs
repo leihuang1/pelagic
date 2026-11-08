@@ -157,6 +157,14 @@ impl<F: FnMut(Step) -> Result<(), String>> BlockWriter for Recorder<'_, F> {
         };
         self.record(Checked(index))
     }
+
+    fn refresh_quota(&self, quota: &mut native_output::directory::Quota) -> Result<(), String> {
+        let path = self.root.join("case.h5");
+        if path.exists() {
+            quota.refresh(&path)?;
+        }
+        Ok(())
+    }
 }
 
 fn recorded(

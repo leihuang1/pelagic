@@ -7,6 +7,14 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster CLI result publication.** In interleaved local measurements on a
+  14-CPU Apple M4 Pro, KRAKEN broadband runs are about 2 times faster end to end,
+  and Gulf runs on 14 threads about 1.5 times. Sweeps of 200 Pekeris cases on
+  14 workers are about 2.2 to 2.5 times faster with native output and 1.6 to 1.9
+  times with HDF5. Sweeps of 50 surface-duct cases on 14 workers are about 1.6 to
+  1.8 times faster. Durability, input protection, quotas and rollback are
+  unchanged. Results and native output bytes are unchanged; HDF5 datasets and
+  attributes are unchanged (its container bytes already vary between runs).
 - **Faster BELLHOP ray tracing and multi-threaded runs.** On a 14-CPU Apple M4
   Pro, arrival and eigenray runs solve about 1.5 times faster on one thread, and
   hat-beam fields about 1.2 times. With several threads, workers keep tracing

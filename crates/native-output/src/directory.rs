@@ -1,5 +1,5 @@
 //! Recoverable file-group publication. Not a concurrent-reader snapshot or crash journal.
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -101,12 +101,14 @@ pub fn publish<T, E: From<String>>(
 ) -> Result<T, E> {
     let mut transaction = Transaction::begin(output, inputs).map_err(E::from)?;
     let result = write(&transaction.stage)?;
-    transaction.install(inputs, maximum).map_err(E::from)?;
+    transaction.install(maximum).map_err(E::from)?;
     Ok(result)
 }
 
 struct Transaction {
     output: PathBuf,
+    resolved_output: Option<PathBuf>,
+    inputs: Vec<PathBuf>,
     stage: PathBuf,
     backup: PathBuf,
     lock: PathBuf,
@@ -115,6 +117,12 @@ struct Transaction {
     retain: bool,
     #[cfg(test)]
     before_install: Option<fn(&Self)>,
+    #[cfg(test)]
+    sync: fn(&File, bool) -> std::io::Result<()>,
+    #[cfg(test)]
+    install_file: fn(&Path, &Path) -> std::io::Result<bool>,
+    #[cfg(test)]
+    after_install: Option<fn(&Self, &str)>,
 }
 
 impl Transaction {
@@ -124,7 +132,11 @@ impl Transaction {
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or(Path::new("."));
         fs::create_dir_all(parent).map_err(message)?;
-        protect(output, inputs)?;
+        let inputs = inputs
+            .iter()
+            .map(|input| fs::canonicalize(input).map_err(message))
+            .collect::<Result<Vec<_>, _>>()?;
+        protect(output, &inputs, fs::canonicalize(parent).ok().as_deref())?;
         let created_output = match fs::symlink_metadata(output) {
             Ok(m) if m.file_type().is_symlink() || !m.is_dir() => {
                 return Err("output must be a real result directory, not a file or symlink".into());
@@ -136,16 +148,19 @@ impl Transaction {
             }
             Err(e) => return Err(message(e)),
         };
+        let resolved_output = fs::canonicalize(output).ok();
         for name in [
             MANIFEST,
             ".pelagic-lock",
             ".pelagic-stage",
             ".pelagic-backup",
         ] {
-            protect(&output.join(name), inputs)?;
+            protect(&output.join(name), &inputs, resolved_output.as_deref())?;
         }
         let mut this = Self {
             output: output.to_path_buf(),
+            resolved_output,
+            inputs,
             stage: output.join(".pelagic-stage"),
             backup: output.join(".pelagic-backup"),
             lock: output.join(".pelagic-lock"),
@@ -154,6 +169,12 @@ impl Transaction {
             retain: false,
             #[cfg(test)]
             before_install: None,
+            #[cfg(test)]
+            sync: sync_file,
+            #[cfg(test)]
+            install_file,
+            #[cfg(test)]
+            after_install: None,
         };
         fs::create_dir(&this.lock).map_err(|e| {
             format!(
@@ -180,7 +201,7 @@ impl Transaction {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn install(&mut self, inputs: &[&Path], maximum: Option<u64>) -> Result<(), String> {
+    fn install(&mut self, maximum: Option<u64>) -> Result<(), String> {
         let mut names = BTreeSet::new();
         for entry in fs::read_dir(&self.stage).map_err(message)? {
             let entry = entry.map_err(message)?;
@@ -212,18 +233,18 @@ impl Transaction {
         let old_artifacts = old.as_ref().map_or(&[][..], |old| old.artifacts.as_slice());
         for artifact in old_artifacts {
             verify(&self.output.join(&artifact.name), artifact, true)?;
-            protect(&self.output.join(&artifact.name), inputs)?;
+            self.protect(&self.output.join(&artifact.name))?;
         }
         for name in &names {
             let target = self.output.join(name);
-            protect(&target, inputs)?;
+            self.protect(&target)?;
             if fs::symlink_metadata(&target).is_ok()
                 && !old_artifacts.iter().any(|a| &a.name == name)
             {
                 return Err(format!("unowned artifact conflict: {}", target.display()));
             }
         }
-        protect(&old_path, inputs)?;
+        self.protect(&old_path)?;
         let bytes = serde_json::to_vec_pretty(&manifest).map_err(message)?;
         if bytes.len() > 1024 * 1024 {
             return Err("artifact manifest exceeds 1 MiB".into());
@@ -234,14 +255,23 @@ impl Transaction {
             .open(self.stage.join(MANIFEST))
             .and_then(|mut f| f.write_all(&bytes))
             .map_err(message)?;
+        let new_manifest = Artifact {
+            name: MANIFEST.into(),
+            size_bytes: bytes.len() as u64,
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
+        };
         check_quota(&self.stage, maximum)?;
+        #[cfg(test)]
+        let sync = self.sync;
+        #[cfg(not(test))]
+        let sync = sync_file;
         for name in names.iter().map(String::as_str).chain([MANIFEST]) {
             // Windows FlushFileBuffers requires write access.
             fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .open(self.stage.join(name))
-                .and_then(|f| f.sync_all())
+                .and_then(|f| sync(&f, name == MANIFEST))
                 .map_err(message)?;
         }
         // All validation happens before moving any previous product. Recheck at each move.
@@ -252,7 +282,7 @@ impl Transaction {
         let installation: Result<(), String> = (|| {
             for artifact in old_artifacts.iter().chain(old_manifest.iter()) {
                 let target = self.output.join(&artifact.name);
-                protect(&target, inputs)?;
+                self.protect(&target)?;
                 if verify(&target, artifact, true)? {
                     fs::rename(&target, self.backup.join(&artifact.name)).map_err(message)?;
                     moved.push(artifact.name.as_str());
@@ -262,12 +292,21 @@ impl Transaction {
             if let Some(hook) = self.before_install {
                 hook(self);
             }
-            for name in names.iter().map(String::as_str).chain([MANIFEST]) {
-                protect(&self.output.join(name), inputs)?;
+            #[cfg(test)]
+            let install = self.install_file;
+            #[cfg(not(test))]
+            let install = install_file;
+            for artifact in manifest.artifacts.iter().chain([&new_manifest]) {
+                let name = &artifact.name;
+                self.protect(&self.output.join(name))?;
                 // Exclusive installation refuses late destinations, never truncates them.
-                fs::hard_link(self.stage.join(name), self.output.join(name))
+                let renamed = install(&self.stage.join(name), &self.output.join(name))
                     .map_err(|e| format!("unable to install {name}: {e}"))?;
-                installed.push(name);
+                installed.push((artifact, renamed));
+                #[cfg(test)]
+                if let Some(hook) = self.after_install {
+                    hook(self, name);
+                }
             }
             Ok(())
         })();
@@ -296,13 +335,26 @@ impl Transaction {
         Ok(())
     }
 
-    fn rollback(&self, installed: &[&str], moved: &[&str]) -> Result<(), String> {
+    fn protect(&self, target: &Path) -> Result<(), String> {
+        // Inputs and the real parent are fixed under our lock; recheck each destination and its
+        // current file identity at every move, so even late symlink/hard-link aliases are refused.
+        protect(target, &self.inputs, self.resolved_output.as_deref())
+    }
+
+    fn rollback(&self, installed: &[(&Artifact, bool)], moved: &[&str]) -> Result<(), String> {
         let mut errors = Vec::new();
-        for name in installed.iter().rev() {
-            let expected = fingerprint(&self.stage.join(name), name)?;
-            match verify(&self.output.join(name), &expected, false)
-                .and_then(|_| fs::remove_file(self.output.join(name)).map_err(message))
-            {
+        for (expected, renamed) in installed.iter().rev() {
+            let target = self.output.join(&expected.name);
+            // Rename consumed the stage copy. Verify against its pre-install fingerprint by
+            // reading the destination, then put it back exclusively before restoring old files.
+            match verify(&target, expected, false).and_then(|_| {
+                if *renamed
+                    && install_file(&target, &self.stage.join(&expected.name)).map_err(message)?
+                {
+                    return Ok(());
+                }
+                fs::remove_file(&target).map_err(message)
+            }) {
                 Ok(()) => {}
                 Err(e) => errors.push(e),
             }
@@ -341,6 +393,67 @@ impl Drop for Transaction {
             let _ = fs::remove_dir(&self.output);
         }
     }
+}
+
+/// True when rename consumed the source; false when the hard-link fallback retained it.
+fn install_file(source: &Path, target: &Path) -> std::io::Result<bool> {
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    {
+        install_file_with(source, target, |source, target| {
+            use rustix::fs::{CWD, RenameFlags, renameat_with};
+            // renameatx_np(RENAME_EXCL) on Apple, renameat2(RENAME_NOREPLACE) on Linux.
+            renameat_with(CWD, source, CWD, target, RenameFlags::NOREPLACE)
+        })
+    }
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
+    fs::hard_link(source, target).map(|()| false)
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+fn install_file_with(
+    source: &Path,
+    target: &Path,
+    rename: impl FnOnce(&Path, &Path) -> rustix::io::Result<()>,
+) -> std::io::Result<bool> {
+    use rustix::io::Errno;
+    match rename(source, target) {
+        Ok(()) => Ok(true),
+        // Unsupported syscall/flag/filesystem: retain the original exclusive hard-link path.
+        // Do not retry conflicts, permissions or I/O errors as a different operation.
+        Err(e)
+            if [
+                Errno::INVAL,
+                Errno::NOSYS,
+                Errno::NOTSUP,
+                Errno::OPNOTSUPP,
+                Errno::XDEV,
+            ]
+            .contains(&e) =>
+        {
+            fs::hard_link(source, target).map(|()| false)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+#[cfg(target_vendor = "apple")]
+fn sync_file(file: &File, last: bool) -> std::io::Result<()> {
+    // Match std's sync_all retry on interrupted syscalls.
+    rustix::io::retry_on_intr(|| rustix::fs::fsync(file))?;
+    if last {
+        // Apple's fsync(2) sends each file to the drive; fcntl(2)'s F_FULLFSYNC flushes ALL
+        // drive buffers. These files share the stage's device: one full flush, on the manifest
+        // last, makes every artifact stable before any old product moves (not group commit).
+        // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fsync.2.html
+        // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fcntl.2.html
+        rustix::io::retry_on_intr(|| rustix::fs::fcntl_fullfsync(file))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn sync_file(file: &File, _last: bool) -> std::io::Result<()> {
+    file.sync_all()
 }
 
 fn valid_name(name: &str) -> Result<(), String> {
@@ -452,20 +565,65 @@ pub fn check_quota(path: &Path, maximum: Option<u64>) -> Result<u64, String> {
     Ok(total)
 }
 
-fn protect(target: &Path, inputs: &[&Path]) -> Result<(), String> {
+/// Physical sizes in exclusively owned writer scratch. Closed artifacts need no further stats;
+/// writers refresh only files they grow. Publication still scans the whole directory at install.
+pub struct Quota {
+    sizes: HashMap<PathBuf, u64>,
+    total: u64,
+    maximum: u64,
+}
+
+impl Quota {
+    /// Inventory existing files without enforcing the limit ahead of the writer's check points.
+    /// # Errors
+    /// Returns filesystem or size-overflow errors.
+    pub fn new(root: &Path, maximum: u64) -> Result<Self, String> {
+        let mut quota = Self {
+            sizes: HashMap::new(),
+            total: 0,
+            maximum,
+        };
+        for entry in fs::read_dir(root).map_err(message)? {
+            quota.refresh(&entry.map_err(message)?.path())?;
+        }
+        Ok(quota)
+    }
+
+    /// Account for a newly closed artifact or the current physical size of a growing file.
+    /// This does not flush buffers or check the limit: their ordering belongs to the writer.
+    /// # Errors
+    /// Returns filesystem or size-overflow errors.
+    pub fn refresh(&mut self, path: &Path) -> Result<(), String> {
+        let size = fs::metadata(path).map_err(message)?.len();
+        let previous = self.sizes.get(path).copied().unwrap_or(0);
+        self.total = (self.total - previous)
+            .checked_add(size)
+            .ok_or("output size overflow")?;
+        self.sizes.insert(path.to_path_buf(), size);
+        Ok(())
+    }
+
+    /// Enforce the directory limit at the same point as a full quota scan.
+    /// # Errors
+    /// Returns a quota error when the accounted physical total exceeds the limit.
+    pub fn remaining(&self) -> Result<u64, String> {
+        self.maximum
+            .checked_sub(self.total)
+            .ok_or_else(|| format!("result directory exceeds {} bytes", self.maximum))
+    }
+}
+
+fn protect(target: &Path, inputs: &[PathBuf], parent: Option<&Path>) -> Result<(), String> {
+    if inputs.is_empty() {
+        return Ok(());
+    }
     let existing = fs::canonicalize(target).ok();
-    let parent = target
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let destination = fs::canonicalize(parent)
-        .ok()
-        .and_then(|p| target.file_name().map(|name| p.join(name)));
+    let destination = parent.and_then(|p| target.file_name().map(|name| p.join(name)));
+    let is_file = fs::metadata(target).is_ok_and(|m| m.is_file());
     for input in inputs {
-        let input = fs::canonicalize(input).map_err(message)?;
-        let mut alias = existing.as_ref() == Some(&input) || destination.as_ref() == Some(&input);
-        if fs::metadata(target).is_ok_and(|m| m.is_file()) {
-            alias |= same_file::is_same_file(target, &input).map_err(message)?;
+        let mut alias = existing.as_ref() == Some(input) || destination.as_ref() == Some(input);
+        if is_file {
+            alias |= same_file::is_same_file(target, input).map_err(message)?;
         }
         if alias {
             return Err("output must not replace an input file or its alias".into());

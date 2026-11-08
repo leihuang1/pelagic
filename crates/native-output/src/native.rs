@@ -78,7 +78,11 @@ impl Direct {
             return Err(io::Error::other("native record exceeds output quota"));
         }
         Ok(Self {
-            file: create(path)?,
+            // Batch binary records without changing the report buffer's quota checkpoints.
+            file: BufWriter::with_capacity(
+                64 * 1024,
+                OpenOptions::new().write(true).create_new(true).open(path)?,
+            ),
             bytes,
             written: 0,
             maximum,
