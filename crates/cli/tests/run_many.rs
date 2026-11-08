@@ -732,6 +732,71 @@ fn resume_continues_after_a_first_record_cut_short() {
 }
 
 #[test]
+fn resume_after_an_interrupted_parallel_batch_checks_records_and_retained_locks() {
+    let root = directory("interrupted-batch");
+    let cases = root.join("cases");
+    fs::create_dir(&cases).unwrap();
+    for name in ["a", "b", "c", "d"] {
+        fs::copy(
+            example("kraken", "pekeris", "json"),
+            cases.join(format!("{name}.json")),
+        )
+        .unwrap();
+    }
+    let output = root.join("results");
+    let run = || {
+        pelagic(&[
+            &"kraken",
+            &"run-many",
+            &cases,
+            &"--output",
+            &output,
+            &"--workers",
+            &"4",
+            &"--threads",
+            &"1",
+            &"--resume",
+        ])
+    };
+    assert!(run().status.success());
+    let status = output.join("status.ndjson");
+    let previous = fs::read_to_string(&status).unwrap();
+    let a = previous
+        .lines()
+        .find(|line| line.contains("\"stem\":\"a\""))
+        .unwrap();
+    // a was recorded; b finished installation but lost its record; c died before lock
+    // cleanup; d had not yet published. The native-output crash tests produce these states.
+    fs::write(&status, format!("{a}\n{{\"status_version\":")).unwrap();
+    fs::create_dir(output.join("c/.pelagic-lock")).unwrap();
+    fs::remove_dir_all(output.join("d")).unwrap();
+    assert_eq!(run().status.code(), Some(4));
+    let last = outcomes(&output);
+    assert_eq!(
+        last,
+        BTreeMap::from([
+            ("a".into(), "skipped".into()),
+            ("b".into(), "ok".into()),
+            ("c".into(), "failed".into()),
+            ("d".into(), "ok".into()),
+        ])
+    );
+    assert!(
+        output.join("c/.pelagic-lock").is_dir(),
+        "resume never adopts retained work"
+    );
+    // After the owner has inspected/recovered the interrupted transaction, resume can retry it.
+    fs::remove_dir(output.join("c/.pelagic-lock")).unwrap();
+    assert!(run().status.success());
+    let last = outcomes(&output);
+    assert_eq!(last["c"], "ok");
+    for name in ["a", "b", "d"] {
+        assert_eq!(last[name], "skipped");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn resume_reruns_a_kraken_case_whose_output_quota_changed() {
     let root = directory("quota");
     let case = root.join("p.json");
@@ -772,5 +837,52 @@ fn resume_reruns_a_kraken_case_whose_output_quota_changed() {
     assert_eq!(run("1").status.code(), Some(4));
     assert_eq!(resume("1").status.code(), Some(4));
     assert_eq!(outcomes(&output)["p"], "failed");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Concurrent result-file syncs must fit wherever one-at-a-time syncs did: a pool that fits
+/// under a tight open-file limit still publishes every case, and leaves no staging behind.
+#[cfg(unix)]
+#[test]
+fn a_full_pool_under_a_tight_open_file_limit_publishes_every_case() {
+    let root = directory("open-files");
+    let cases = root.join("cases");
+    fs::create_dir(&cases).unwrap();
+    // 101 frequencies at a short range: about 200 files to sync per case, for little solving.
+    let mut case: Value =
+        serde_json::from_slice(&fs::read(example("kraken", "broadband", "json")).unwrap()).unwrap();
+    case["kraken"]["max_range"] = 5000.0.into();
+    for index in 0..24 {
+        fs::write(cases.join(format!("c{index:02}.json")), case.to_string()).unwrap();
+    }
+    let output = root.join("results");
+    // `sh` sets both the soft and hard limits, so the CLI cannot raise its own. Before helpers
+    // left room for every worker's open files, most runs lost a case here. One-at-a-time
+    // syncing needs between 48 and 56 open files for this sweep on macOS.
+    let run = Command::new("sh")
+        .arg("-c")
+        .arg(r#"ulimit -n 64 && exec "$0" "$@""#)
+        .arg(env!("CARGO_BIN_EXE_pelagic"))
+        .args(["kraken", "run-many"])
+        .arg(&cases)
+        .arg("--output")
+        .arg(&output)
+        .args(["--workers", "24", "--threads", "1", "--format", "both"])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    let outcomes = outcomes(&output);
+    assert_eq!(outcomes.len(), 24, "{stderr}");
+    assert!(
+        outcomes.values().all(|outcome| outcome == "ok"),
+        "{outcomes:?}\n{stderr}"
+    );
+    assert!(run.status.success(), "{stderr}");
+    let controls: Vec<_> = fs::read_dir(&output)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .filter(|name| name.to_string_lossy().starts_with(".pelagic-"))
+        .collect();
+    assert!(controls.is_empty(), "{controls:?}");
     fs::remove_dir_all(root).unwrap();
 }

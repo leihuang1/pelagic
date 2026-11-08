@@ -7,6 +7,23 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster durable CLI output, especially on Linux.** A result's files are now
+  synced concurrently, up to 16 at a time, instead of one after another, in
+  single `run` and in `run-many`. Each file still gets its own sync, so the
+  durability guarantee is unchanged. Sync helpers only use open files that a
+  sweep's own workers do not need: under a tight `ulimit -n`, each worker syncs
+  one file at a time, as before. The CLI also raises its soft open-file limit
+  to the hard limit at startup. Indicative measurements at one solver thread
+  per case, with legacy output into fresh result directories, on an AMD EPYC
+  7B13 Linux VM (overlay filesystem): 100 separate Pekeris runs, one after
+  another, were 2.3 times faster; `run-many` sweeps of 200 Pekeris cases 1.5 to
+  3.2 times faster at 1 to 24 workers; and one broadband run 3.8 times faster.
+  On a 14-CPU Apple M4 Pro, `run-many` workers that finish together share one
+  drive flush: Pekeris sweeps on 8 and 14 workers were 1.2 and 1.4 times
+  faster. These figures were measured against `9d42664`, before the open-file
+  limit for helpers existed. New result directories on Linux and macOS are
+  staged beside the destination and renamed into place in one step. See
+  [publication and interrupted batches](docs/guide/native-output.md#run-many-barriers-and-interrupted-batches).
 - **Faster KRAKEN FIELD on Apple silicon.** Range-independent FIELD now sums
   16 ranges per loop instead of 8. On one thread of a 14-CPU Apple M4 Pro,
   solver-only runs are about 1.5 times faster for the large Munk benchmark,

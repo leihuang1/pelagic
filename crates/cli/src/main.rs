@@ -109,6 +109,8 @@ fn main() -> ExitCode {
             return ExitCode::from(if error.use_stderr() { 2 } else { 0 });
         }
     };
+    // Leave room for concurrent result-file syncs beside a large worker pool.
+    output::directory::raise_open_file_limit();
     let threads = cli
         .threads
         .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
