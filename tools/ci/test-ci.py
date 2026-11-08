@@ -62,6 +62,28 @@ class PlanningTests(unittest.TestCase):
         self.assertTrue(artifacts.producer_name({"name": "wheels (macos-15, aarch64-apple-darwin, macos-arm64)"}, "macos-arm64"))
         self.assertFalse(artifacts.producer_name({"name": "wheel-tests (macos-15, aarch64-apple-darwin, macos-arm64)"}, "macos-arm64"))
 
+    def test_artifact_wait_retries_only_transient_api_failures(self):
+        from http.client import RemoteDisconnected
+        from urllib.error import HTTPError, URLError
+        def failing(*errors):
+            pending = list(errors)
+            def call():
+                if pending:
+                    raise pending.pop(0)
+                return "ok"
+            return call
+        def status(code):
+            return HTTPError("https://api.github.com/repos/x/y", code, "status", {}, None)
+        never = float("inf")
+        flaky = failing(status(502), status(429), URLError("reset"), RemoteDisconnected("eof"), TimeoutError())
+        self.assertEqual(artifacts.retrying(flaky, never, pause=0), "ok")
+        for fatal in (status(404), status(401), status(302), ValueError("mismatch")):
+            with self.assertRaises(type(fatal)):
+                artifacts.retrying(failing(fatal), never, pause=0)
+        # Past the deadline, even a transient failure is final.
+        with self.assertRaises(HTTPError):
+            artifacts.retrying(failing(status(502)), 0, pause=0)
+
     def test_aggregate_accepts_only_explicit_documentation_skips(self):
         needs = {"plan": {"result": "success", "outputs": {"full": "false"}},
                  "windows-check": {"result": "success"}, "wheel-tests": {"result": "skipped"}}

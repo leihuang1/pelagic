@@ -3,17 +3,21 @@
 
 Only successful producers from the exact current attempt are accepted.
 Use Re-run all jobs rather than Re-run failed jobs: an earlier attempt
-can never satisfy a producer in the current attempt.
+can never satisfy a producer in the current attempt. Throttling, 5xx
+responses and network errors are retried until the timeout.
 """
 import argparse
 from datetime import datetime
+from http.client import HTTPException
 import json
 import os
 import re
 import time
+from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 PLATFORMS = {"linux-x64", "linux-arm64", "macos-arm64", "macos-x64", "windows-x64"}
+TRANSIENT_STATUS = {429, 500, 502, 503, 504}
 
 
 def producer_name(job, platform):
@@ -96,6 +100,24 @@ class API:
         raise ValueError("unexpectedly large workflow run")
 
 
+def transient(error):
+    if isinstance(error, HTTPError):
+        return error.code in TRANSIENT_STATUS
+    return isinstance(error, (URLError, HTTPException, ConnectionError, TimeoutError))
+
+
+def retrying(call, deadline, pause=10):
+    """Return call(), retrying transient API failures until the deadline."""
+    while True:
+        try:
+            return call()
+        except (URLError, HTTPException, ConnectionError, TimeoutError) as error:
+            if not transient(error) or time.monotonic() >= deadline:
+                raise
+            print(f"Transient GitHub API failure ({error}); retrying...", flush=True)
+            time.sleep(pause)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platforms", choices=sorted(PLATFORMS), nargs="+", required=True)
@@ -107,13 +129,13 @@ def main():
     attempt = int(os.environ["GITHUB_RUN_ATTEMPT"])
     head_sha = os.environ["EXPECTED_HEAD_SHA"]
     api = API(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"])
-    run = api.get(f"/actions/runs/{run_id}/attempts/{attempt}")
+    deadline = time.monotonic() + args.timeout
+    run = retrying(lambda: api.get(f"/actions/runs/{run_id}/attempts/{attempt}"), deadline)
     if run["head_sha"] != head_sha or run["run_attempt"] != attempt:
         raise ValueError("workflow run/attempt/commit mismatch")
-    deadline = time.monotonic() + args.timeout
     while True:
-        jobs = api.pages(f"/actions/runs/{run_id}/attempts/{attempt}/jobs", "jobs")
-        artifacts = api.pages(f"/actions/runs/{run_id}/artifacts", "artifacts")
+        jobs = retrying(lambda: api.pages(f"/actions/runs/{run_id}/attempts/{attempt}/jobs", "jobs"), deadline)
+        artifacts = retrying(lambda: api.pages(f"/actions/runs/{run_id}/artifacts", "artifacts"), deadline)
         selected = select(artifacts, jobs, args.platforms, run_id, head_sha, attempt)
         if selected is not None:
             for artifact, producer in selected:
