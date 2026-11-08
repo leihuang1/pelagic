@@ -7,6 +7,12 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster KRAKEN FIELD on Apple silicon.** Range-independent FIELD now sums
+  16 ranges per loop instead of 8. On one thread of a 14-CPU Apple M4 Pro,
+  solver-only runs are about 1.5 times faster for the large Munk benchmark,
+  1.2 times for surface duct and layered seabed, and 1.15 times for elastic
+  sediment. On an AMD EPYC 7B13 they take about the same time. Results are
+  bit-for-bit unchanged.
 - **Faster CLI result publication.** In interleaved local measurements on a
   14-CPU Apple M4 Pro, KRAKEN broadband runs are about 2 times faster end to end,
   and Gulf runs on 14 threads about 1.5 times. Sweeps of 200 Pekeris cases on
