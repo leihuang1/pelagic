@@ -16,20 +16,17 @@ pub fn write(
     stem: &str,
     sequence: &FieldCase,
     result: &ProfileSimulationResult,
-    maximum: u64,
+    quota: &mut crate::directory::Quota,
 ) -> Result<(), String> {
-    let remaining = maximum - crate::directory::check_quota(root, Some(maximum))?;
-    modes(
-        &root.join(format!("{stem}.mod")),
-        sequence,
-        result,
-        remaining,
-    )
-    .map_err(|e| e.to_string())?;
-    let remaining = maximum - crate::directory::check_quota(root, Some(maximum))?;
+    let remaining = quota.remaining()?;
+    let mod_path = root.join(format!("{stem}.mod"));
+    modes(&mod_path, sequence, result, remaining).map_err(|e| e.to_string())?;
+    quota.refresh(&mod_path)?;
+    let remaining = quota.remaining()?;
     let field = &result.field;
+    let shd_path = root.join(format!("{stem}.shd"));
     native::shd(
-        &root.join(format!("{stem}.shd")),
+        &shd_path,
         &sequence.profiles()[0].title,
         sequence.profiles()[0].frequency_hz,
         &field.source_depths_m,
@@ -39,7 +36,8 @@ pub fn write(
         field.pressure.iter().map(|p| (p.re as f32, p.im as f32)),
         remaining,
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    quota.refresh(&shd_path)
 }
 
 fn modes(

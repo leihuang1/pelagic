@@ -113,19 +113,28 @@ are never authorized for replacement, even by a manifest.
 A cooperating writer exclusively reserves `.pelagic-lock` and `.pelagic-stage`
 inside the result directory. Existing scratch/locks/backups are never adopted,
 truncated or removed. New artifacts are completely written, closed, hashed and
-file-synced before installation. KRAKEN keeps the positive `--max-output-bytes`
-default of 256 MiB: the known FIELD payload is admitted before solving, HDF5
-payload/flush checks remain, and the cumulative physical size of all selected
-products, report and manifest is checked. Native direct-record writers also
-check remaining bytes before each write. As before, HDF5 has no byte-limited
-VFD, so a bounded header/frequency write can temporarily exceed its physical
-quota before a flush/check. BELLHOP does not inherit KRAKEN's byte quota.
-Numerical mesh/mode/shape/FIELD work budgets are unchanged.
+file-synced before installation. On Apple targets each file is `fsync`ed, then
+one `F_FULLFSYNC` on the manifest flushes the shared drive cache before any
+previous product moves; other targets retain per-file `sync_all`.
+KRAKEN keeps the positive `--max-output-bytes` default of 256 MiB: the known
+FIELD payload is admitted before solving, HDF5 payload/flush checks remain, and
+the cumulative physical size of all selected products, report and manifest is
+checked. A running physical-byte total counts closed native files once and
+refreshes the growing report/HDF5 files at the same check points; installation
+still scans the entire stage. Native direct-record writers also check remaining
+bytes before each write. As before, HDF5 has no byte-limited VFD, so a bounded
+header/frequency write can temporarily exceed its physical quota before a
+flush/check. BELLHOP does not inherit KRAKEN's byte quota. Numerical
+mesh/mode/shape/FIELD work budgets are unchanged.
 
 After all frequencies succeed, verified previous artifacts are moved into
-`.pelagic-backup`; new files are exclusively hard-linked into place, with the
-manifest installed last. Stale owned products are removed on success (for
-example `.h5` after switching to legacy), without deleting unrelated files.
+`.pelagic-backup`; new files are exclusively renamed into place on Apple and
+Linux targets, with the manifest installed last. Filesystems/kernels without
+no-replace rename support fall back to exclusive hard links; other targets keep
+the hard-link path. Rollback reads installed files against their pre-install
+fingerprints and returns renamed files to scratch before restoring old
+artifacts. Stale owned products are removed on success (for example `.h5` after
+switching to legacy), without deleting unrelated files.
 An installation error restores the previous group. A rollback error is an
 explicit output failure naming backup/stage/lock locations; recoverable data
 and the lock are retained for manual recovery. Never delete a retained backup

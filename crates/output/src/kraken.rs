@@ -132,6 +132,10 @@ impl stream::BlockWriter for Blocks<'_> {
         // out of write_block: the native and directory quotas must see the file before that growth.
         check_file(self.file, self.path, self.budget.maximum)
     }
+
+    fn refresh_quota(&self, quota: &mut super::directory::Quota) -> Result<(), String> {
+        quota.refresh(self.path)
+    }
 }
 
 struct Budget {

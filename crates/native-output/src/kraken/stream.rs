@@ -1,7 +1,7 @@
 //! The KRAKEN frequency-block stream: the one order in which a run solves and writes its blocks.
 //! The order is an interface, because on a failure it decides which diagnostic wins and what
 //! partial state exists. HDF5 plugs in as a [`BlockWriter`], which keeps this crate free of it.
-use crate::directory::{Format, check_quota};
+use crate::directory::{Format, Quota};
 use kraken::input::InputSnapshot;
 use kraken::{DiagnosticReport, FieldCase, ProfileSimulationResult};
 use sha2::{Digest, Sha256};
@@ -72,6 +72,11 @@ pub trait BlockWriter {
     /// # Errors
     /// Returns the format's quota or I/O error.
     fn check_block(&mut self) -> Result<(), String>;
+
+    /// Refresh the physical sizes of this writer's files, without flushing or enforcing a limit.
+    /// # Errors
+    /// Returns filesystem or size-overflow errors.
+    fn refresh_quota(&self, quota: &mut Quota) -> Result<(), String>;
 }
 
 impl BlockWriter for () {
@@ -85,6 +90,10 @@ impl BlockWriter for () {
     }
 
     fn check_block(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn refresh_quota(&self, _: &mut Quota) -> Result<(), String> {
         Ok(())
     }
 }
@@ -127,8 +136,8 @@ pub fn run(
     maximum: u64,
     writer: &mut impl BlockWriter,
 ) -> Result<RunSummary, RunError> {
-    let mut report = crate::create(&root.join(format!("{stem}.prt")))
-        .map_err(|e| RunError::Output(e.to_string()))?;
+    let report_path = root.join(format!("{stem}.prt"));
+    let mut report = crate::create(&report_path).map_err(|e| RunError::Output(e.to_string()))?;
     writeln!(report, "Pelagic {} KRAKEN run report (not the Fortran PRT format)\nreference: Acoustics Toolbox v2023.5\nformat: {format:?}\nmax_output_bytes: {maximum}", env!("CARGO_PKG_VERSION")).map_err(|e| e.to_string())?;
     for input in inputs {
         writeln!(
@@ -140,6 +149,7 @@ pub fn run(
         )
         .map_err(|e| e.to_string())?;
     }
+    let mut quota = Quota::new(root, maximum)?;
     let mut summary = RunSummary {
         frequency_count: cases.len(),
         ..RunSummary::default()
@@ -155,16 +165,19 @@ pub fn run(
             report,
         })?;
         writer.write_block(index, case, &result)?;
+        writer.refresh_quota(&mut quota)?;
+        quota.refresh(&report_path)?;
         let name = block_name(stem, index, cases.len());
         if format.legacy() {
-            super::write(root, &name, case, &result, maximum)?;
+            super::write(root, &name, case, &result, &mut quota)?;
         }
         writeln!(report, "frequency[{index}] {} Hz; native_stem={name}; profiles={} ranges_m={:?}; modes={:?}; pressures={}", case.profiles()[0].frequency_hz, case.profiles().len(), case.ranges_m(), result.modes.iter().map(|m| m.modes.len()).collect::<Vec<_>>(), result.field.pressure.len()).map_err(|e| e.to_string())?;
         for (profile, environment) in case.profiles().iter().enumerate() {
             writeln!(report, "  profile[{profile}] title={:?}; solver={:?}; mesh_reference_frequency_hz={}; source_geometry={:?}; mode_addition={:?}", environment.title, environment.mode_solver, environment.mesh_reference_frequency_hz.unwrap_or(environment.frequency_hz), environment.source_geometry, environment.mode_addition).map_err(|e| e.to_string())?;
         }
         report.flush().map_err(|e| e.to_string())?;
-        check_quota(root, Some(maximum))?;
+        quota.refresh(&report_path)?;
+        quota.remaining()?;
         summary.mode_count += result
             .modes
             .iter()
