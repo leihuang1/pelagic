@@ -13,12 +13,13 @@ use crate::{
 use num_complex::Complex64;
 use std::f64::consts::PI;
 
+mod fluid_roots;
+
 const MAX_SHAPES: usize = 5_000_000;
-// ponytail: 2.5b conservative work covers BroadBand/MunkK at 500 Hz (2.28b);
-// use measured root work or faster isolation if larger spectra are required.
+// Shared ceiling across refinement meshes, including shape-work allowances.
 const MAX_WORK: usize = 2_500_000_000;
 const ROOT_STEPS: usize = 64;
-// Modes bisected together; one mesh pass serves all of their Sturm counts.
+// Root lanes sharing one mesh pass for counts or fluid dispersion.
 const ROOT_LANES: usize = 8;
 // Modes whose inverse iterations share a pass over the mesh, for the same reason.
 const SHAPE_LANES: usize = 4;
@@ -915,6 +916,9 @@ impl<'a> Mesh<'a> {
         }
         if elastic_top {
             return self.bracketed_roots(low, high, above, count, work);
+        }
+        if !elastic && !crate::solver::elastic::has_layers(self.case) {
+            return self.fluid_roots(low, high, above, count, work);
         }
         *work = count
             .checked_mul(self.b1.len())

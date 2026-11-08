@@ -7,6 +7,20 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster fluid KRAKEN root search.** Fluid problems now isolate modes with
+  shared Sturm-count bisections and refine each one with a safeguarded secant
+  (Illinois) iteration, which Sturm counts then check. A mode that fails any
+  check uses the previous exact bisection. On one thread of a 14-CPU Apple M4
+  Pro, solver-only runs are about 1.3 times faster for surface duct, 1.4 times
+  for Gulf, 1.7 times for Munk and 1.9 times for broadband. Results are no
+  longer bit-for-bit those of the previous release. Across the changed examples,
+  the largest per-example 99th-percentile transmission-loss change is 0.0003 dB.
+  Single cells at pressure nulls (below 1e-10 of the field's peak) change by up
+  to 74 dB, and the largest such difference from the pinned Fortran reference
+  falls from 69.4 to 37.8 dB. Mode counts are unchanged, results are still
+  identical across thread counts, and elastic KRAKEN and KRAKENC keep their
+  existing search. See the
+  [measurement record](docs/history/kraken-fluid-roots.md).
 - **Faster KRAKEN FIELD on Apple silicon.** Range-independent FIELD now sums
   16 ranges per loop instead of 8. On one thread of a 14-CPU Apple M4 Pro,
   solver-only runs are about 1.5 times faster for the large Munk benchmark,

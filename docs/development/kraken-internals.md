@@ -92,6 +92,39 @@ vertical-wavenumber guesses; this avoids skipped rigid-top lossy Pekeris modes.
 Complex shape inverse iteration requires a polishing pass before accepting norm
 growth (at least two passes, within the existing three-pass ceiling).
 
+### Fluid root search
+
+Real KRAKEN without finite elastic layers or elastic half-spaces always uses
+`modes/fluid_roots.rs`. Its invariant is that the fluid positive-pivot count
+`C(x)` is nonincreasing in squared wavenumber, and an interval `[a, b]` owns
+exactly the root targets `C(b)..C(a)`. Shared bisections isolate one target per
+interval. The bottom-up fluid shooting function uses positive power-of-two
+rescaling, carrying the exponent into safeguarded secant/Illinois steps. Every
+eighth step bisects; refinement stops at relative bracket width `1e-13`, adjacent
+floats or a computed zero. Endpoint signs must oppose and be finite. Final
+Sturm counts must identify the same single target within one relative tolerance
+of the answer (clipped to its isolating interval).
+
+A failed count/sign/finiteness check, a stalled isolation or an iteration cap
+leaves the affected mode to the original 64-step full-interval bisection, not a
+partial bracket or a guessed root. This includes the rounded rigid/rigid plane
+endpoint. Cancellation and the 2.5-billion mesh-work limit remain errors, never
+fallback triggers. Work includes attempted isolation/refinement, padded lanes,
+the shape allowance and a full 64-step reservation per fallback. Fixed groups
+of eight run in parallel only when their worst-case work fits the remaining
+budget; otherwise they run serially with the same operations and shared budget.
+There are no adapter-specific paths or runtime numerical selectors.
+
+This invariant is specific to the fluid recurrence, not a floating-point
+monotonicity claim about elastic impedances. The regression witness in
+`ElasticHalfBottomC` has counts 3 then 4 at adjacent increasing squared
+wavenumbers (`f64::from_bits(4585822887773648427).next_down()` and that value).
+Elastic KRAKEN and KRAKENC searches are unchanged. See the
+[measurement record](../history/kraken-fluid-roots.md) for numerical changes,
+mode-count and thread-invariance checks, and indicative timings.
+
+### Modal refinement and FIELD
+
 `refinement.rs` owns **Modal refinement** behind `seed` and `accept`:
 
 - mesh multipliers remain 1, 2, 4, 8, 16;

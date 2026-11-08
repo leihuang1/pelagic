@@ -133,12 +133,15 @@ thread:
   ray beyond the ray-point limit is rejected before its influence is
   evaluated. Applied effect buffers are reused, because some allocators keep a
   freshly grown buffer per ray.
-- **KRAKEN** bisects every mode over the whole interval on its own, so modes
-  run in parallel. Up to eight modes share each pass over the mesh, which
-  evaluates all of their Sturm counts with each count's own operations. The
-  interior rows are written so that the compiler packs those operations into
-  vector divides; packed IEEE operations round each lane as scalar ones do.
-  First-mesh mode shapes run in parallel too, also in root order. Real fluid
+- **Fluid KRAKEN** shares Sturm-count bisections to isolate roots, then refines
+  signed fluid dispersion in fixed groups of eight using safeguarded Illinois
+  steps. Groups run in parallel, but their membership never depends on the
+  worker count. Invalid brackets or count checks fall back per mode to the
+  original full-interval bisection. Near the work ceiling, groups run serially
+  against the remaining budget, with the same arithmetic. Elastic KRAKEN and
+  KRAKENC retain their separate searches; elastic counts need not be monotonic.
+  See [fluid root search](kraken-internals.md#fluid-root-search) for the invariant,
+  tolerance and fallback. First-mesh mode shapes run in parallel too, also in root order. Real fluid
   modes share each pass in fours, each with its own pivots, stopping point and
   failure, as long as those batches' scratch stays within 64 MiB across all
   workers; otherwise, and for elastic media, a worker holds one mode at a time.
