@@ -18,8 +18,8 @@ in the [interface contract](docs/development/interface-contract.md).
   Single cells at pressure nulls (below 1e-10 of the field's peak) change by up
   to 74 dB, and the largest such difference from the pinned Fortran reference
   falls from 69.4 to 37.8 dB. Mode counts are unchanged, results are still
-  identical across thread counts, and elastic KRAKEN and KRAKENC keep their
-  existing search. See the
+  identical across thread counts, the work limit accepts the same problems, and
+  elastic KRAKEN and KRAKENC keep their existing search. See the
   [measurement record](docs/history/kraken-fluid-roots.md).
 - **Faster KRAKEN FIELD on Apple silicon.** Range-independent FIELD now sums
   16 ranges per loop instead of 8. On one thread of a 14-CPU Apple M4 Pro,

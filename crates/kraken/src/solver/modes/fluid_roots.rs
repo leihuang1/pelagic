@@ -5,7 +5,7 @@
 //! shooting function. Elastic impedance poles do not satisfy this invariant.
 //! Failed isolation, sign, finiteness or final count checks leave the affected
 //! targets to the original full-interval bisection, never to a guessed root.
-use super::{DiagnosticReport, MAX_WORK, Mesh, ROOT_LANES, ROOT_STEPS, error};
+use super::{DiagnosticReport, Mesh, ROOT_LANES, ROOT_STEPS};
 
 const RELATIVE_WIDTH: f64 = 1e-13;
 const REFINE_STEPS: usize = 160;
@@ -56,15 +56,6 @@ impl Value {
         let b = other.value * 2_f64.powi((other.power - power).max(-1074));
         a / (a - b)
     }
-}
-
-fn charge(work: &mut usize, amount: usize) -> Result<(), DiagnosticReport> {
-    crate::cancellation::check()?;
-    *work = work
-        .checked_add(amount)
-        .filter(|&n| n <= MAX_WORK)
-        .ok_or_else(|| error("KR0302", "modal mesh-work limit exceeded", "mesh_points"))?;
-    Ok(())
 }
 
 // Keep independent multiply/subtract chains visible to the vectorizer.
@@ -146,17 +137,13 @@ impl Mesh<'_> {
         })
     }
 
-    fn isolate_fluid(
-        &self,
-        whole: Interval,
-        work: &mut usize,
-    ) -> Result<Vec<Option<Interval>>, DiagnosticReport> {
+    fn isolate_fluid(&self, whole: Interval) -> Result<Vec<Option<Interval>>, DiagnosticReport> {
         let mut isolated = vec![None; whole.ca - whole.cb];
         let mut frontier = vec![whole];
         for _ in 0..ROOT_STEPS {
             let mut next = Vec::new();
             for chunk in frontier.chunks(ROOT_LANES) {
-                charge(work, ROOT_LANES * self.b1.len())?;
+                crate::cancellation::check()?;
                 let x = std::array::from_fn(|k| {
                     let interval = chunk[k.min(chunk.len() - 1)];
                     interval.a.midpoint(interval.b)
@@ -192,13 +179,12 @@ impl Mesh<'_> {
         &self,
         intervals: &[Option<Interval>],
         whole: Interval,
-        work: &mut usize,
     ) -> Result<[Option<f64>; K], DiagnosticReport> {
         let bracket: [Interval; K] =
             std::array::from_fn(|k| intervals[k.min(intervals.len() - 1)].unwrap_or(whole));
         let mut a = bracket.map(|i| i.a);
         let mut b = bracket.map(|i| i.b);
-        charge(work, 2 * K * self.b1.len())?;
+        crate::cancellation::check()?;
         let mut fa = self.fluid_dispersion(a);
         let mut fb = self.fluid_dispersion(b);
         let mut active = [false; K];
@@ -228,7 +214,6 @@ impl Mesh<'_> {
             if !active.contains(&true) {
                 break;
             }
-            charge(work, K * self.b1.len())?;
             let f = self.fluid_dispersion(x);
             for k in 0..intervals.len() {
                 if !active[k] {
@@ -267,7 +252,7 @@ impl Mesh<'_> {
                 let x = answer[k].unwrap_or(bracket[k].b);
                 (x + x.abs() * RELATIVE_WIDTH).min(bracket[k].b)
             });
-            charge(work, 2 * K * self.b1.len())?;
+            crate::cancellation::check()?;
             let ca = self.count_lanes::<K>(left);
             let cb = self.count_lanes::<K>(right);
             for k in 0..intervals.len() {
@@ -284,16 +269,13 @@ impl Mesh<'_> {
         intervals: &[Option<Interval>],
         whole: Interval,
         start: usize,
-        work: &mut usize,
     ) -> Result<Vec<f64>, DiagnosticReport> {
-        let answers = self.refine_fluid::<ROOT_LANES>(intervals, whole, work)?;
+        let answers = self.refine_fluid::<ROOT_LANES>(intervals, whole)?;
         let mut roots = Vec::with_capacity(intervals.len());
         for (k, answer) in answers.into_iter().take(intervals.len()).enumerate() {
             roots.push(if let Some(x) = answer {
                 x
             } else {
-                // Reserve the original cap, including fallback after attempted refinement.
-                charge(work, ROOT_STEPS * self.b1.len())?;
                 let mode = start + k;
                 self.bisect::<1>(whole.a, whole.b, whole.cb, mode..mode + 1)?[0]
             });
@@ -301,13 +283,15 @@ impl Mesh<'_> {
         Ok(roots)
     }
 
+    /// Roots in descending order. `roots` has already charged the original
+    /// bisection's fixed work, so this search adds no admission rule of its own;
+    /// its isolation, refinement and fallback steps are each capped.
     pub(super) fn fluid_roots(
         &self,
         low: f64,
         high: f64,
         above: usize,
         count: usize,
-        work: &mut usize,
     ) -> Result<Vec<f64>, DiagnosticReport> {
         let whole = Interval {
             a: low,
@@ -315,38 +299,19 @@ impl Mesh<'_> {
             ca: above + count,
             cb: above,
         };
-        // Endpoint counts already ran in roots; retain the shape-work allowance.
-        charge(work, (2 + 5 * count) * self.b1.len())?;
-        let isolated = self.isolate_fluid(whole, work)?;
-        let initial_work = *work;
+        let isolated = self.isolate_fluid(whole)?;
         let groups = count.div_ceil(ROOT_LANES);
-        let mut roots = Vec::with_capacity(count);
-        let maximum_work = groups
-            .saturating_mul(ROOT_LANES * (REFINE_STEPS + 4))
-            .saturating_add(count.saturating_mul(ROOT_STEPS))
-            .saturating_mul(self.b1.len());
-        if maximum_work > MAX_WORK - initial_work {
-            // Near the ceiling, share the remaining budget without speculative work.
-            // The same fixed groups still perform the same floating-point operations.
-            for (group, chunk) in isolated.chunks(ROOT_LANES).enumerate() {
-                roots.extend(self.fluid_group(chunk, whole, group * ROOT_LANES, work)?);
-            }
-            return Ok(roots);
-        }
         let estimated_work = count.saturating_mul(self.b1.len()).saturating_mul(32);
-        // Fixed groups: neither arithmetic nor charged work depends on worker splits.
-        for (result, used) in crate::parallelism::map(groups, estimated_work, |group| {
+        let mut roots = Vec::with_capacity(count);
+        // Fixed groups: neither membership nor arithmetic depends on worker splits.
+        for result in crate::parallelism::map(groups, estimated_work, |group| {
             let start = group * ROOT_LANES;
-            let mut local_work = initial_work;
-            let result = self.fluid_group(
+            self.fluid_group(
                 &isolated[start..count.min(start + ROOT_LANES)],
                 whole,
                 start,
-                &mut local_work,
-            );
-            (result, local_work - initial_work)
+            )
         }) {
-            charge(work, used)?;
             roots.extend(result?);
         }
         Ok(roots)
@@ -356,6 +321,7 @@ impl Mesh<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::solver::modes::MAX_WORK;
     use crate::{BottomBoundary, SurfaceBoundary, solver::modes::Meshes};
     use std::path::Path;
 
@@ -416,7 +382,7 @@ mod tests {
             for multiplier in [1, 2, 4] {
                 let mesh = Mesh::new(&meshes, multiplier).unwrap();
                 let whole = interval(&mesh);
-                let isolated = mesh.isolate_fluid(whole, &mut 0).unwrap();
+                let isolated = mesh.isolate_fluid(whole).unwrap();
                 for (mode, bracket) in isolated.iter().enumerate() {
                     let bracket = bracket.expect("separated fixture root");
                     assert_eq!(bracket.ca, whole.cb + mode + 1);
@@ -426,9 +392,7 @@ mod tests {
                 }
                 let mut refined = 0;
                 for (group, chunk) in isolated.chunks(ROOT_LANES).enumerate() {
-                    let fast = mesh
-                        .refine_fluid::<ROOT_LANES>(chunk, whole, &mut 0)
-                        .unwrap();
+                    let fast = mesh.refine_fluid::<ROOT_LANES>(chunk, whole).unwrap();
                     for (k, x) in fast.into_iter().take(chunk.len()).enumerate() {
                         if let Some(x) = x {
                             refined += 1;
@@ -461,15 +425,13 @@ mod tests {
             cb: whole.cb,
         };
         let answers = mesh
-            .refine_fluid::<ROOT_LANES>(&[Some(wrong)], whole, &mut 0)
+            .refine_fluid::<ROOT_LANES>(&[Some(wrong)], whole)
             .unwrap();
         assert!(answers[0].is_none());
         for brackets in [[None], [Some(wrong)]] {
-            let mut work = 0;
-            let actual = mesh.fluid_group(&brackets, whole, 0, &mut work).unwrap();
+            let actual = mesh.fluid_group(&brackets, whole, 0).unwrap();
             let exact = mesh.bisect::<1>(whole.a, whole.b, whole.cb, 0..1).unwrap();
             assert_eq!(actual[0].to_bits(), exact[0].to_bits());
-            assert!(work >= (ROOT_STEPS + 2 * ROOT_LANES) * mesh.b1.len());
         }
     }
 
@@ -479,10 +441,10 @@ mod tests {
         let meshes = Meshes::new(&case).unwrap();
         let mut mesh = Mesh::new(&meshes, 1).unwrap();
         let whole = interval(&mesh);
-        let isolated = mesh.isolate_fluid(whole, &mut 0).unwrap();
+        let isolated = mesh.isolate_fluid(whole).unwrap();
         let bracket = isolated[0].unwrap();
         assert!(
-            mesh.refine_fluid::<ROOT_LANES>(&[Some(bracket)], whole, &mut 0)
+            mesh.refine_fluid::<ROOT_LANES>(&[Some(bracket)], whole)
                 .unwrap()[0]
                 .is_some()
         );
@@ -492,13 +454,13 @@ mod tests {
             ..bracket
         };
         assert!(
-            mesh.refine_fluid::<ROOT_LANES>(&[Some(wrong)], whole, &mut 0)
+            mesh.refine_fluid::<ROOT_LANES>(&[Some(wrong)], whole)
                 .unwrap()[0]
                 .is_none()
         );
         mesh.b1[1] = f64::INFINITY;
         assert!(
-            mesh.refine_fluid::<ROOT_LANES>(&[Some(bracket)], whole, &mut 0)
+            mesh.refine_fluid::<ROOT_LANES>(&[Some(bracket)], whole)
                 .unwrap()[0]
                 .is_none()
         );
@@ -510,62 +472,52 @@ mod tests {
         let meshes = Meshes::new(&case).unwrap();
         let mesh = Mesh::new(&meshes, 1).unwrap();
         let whole = interval(&mesh);
-        let isolated = mesh.isolate_fluid(whole, &mut 0).unwrap();
+        let isolated = mesh.isolate_fluid(whole).unwrap();
         assert!(
-            mesh.refine_fluid::<ROOT_LANES>(&isolated[..1], whole, &mut 0)
+            mesh.refine_fluid::<ROOT_LANES>(&isolated[..1], whole)
                 .unwrap()[0]
                 .is_none()
         );
         let roots = mesh
-            .fluid_roots(whole.a, whole.b, whole.cb, whole.ca - whole.cb, &mut 0)
+            .fluid_roots(whole.a, whole.b, whole.cb, whole.ca - whole.cb)
             .unwrap();
         let exact = mesh.bisect::<1>(whole.a, whole.b, whole.cb, 0..1).unwrap();
         assert_eq!(roots[0].to_bits(), exact[0].to_bits());
     }
 
     #[test]
-    fn fluid_work_limit_and_cancellation_include_refinement_and_fallback() {
-        let case = load("Pekeris");
+    fn fluid_search_pays_and_is_admitted_like_the_original_bisection() {
+        // Several groups of eight, so concurrent groups meet the boundary too.
+        let case = load("MunkLossless");
         let meshes = Meshes::new(&case).unwrap();
         let mesh = Mesh::new(&meshes, 1).unwrap();
         let whole = interval(&mesh);
-        for threads in [1, 2, 4] {
-            crate::parallelism::with_threads(std::num::NonZeroUsize::new(threads).unwrap(), || {
-                let mut work = MAX_WORK;
-                let report = mesh
-                    .fluid_roots(whole.a, whole.b, whole.cb, whole.ca - whole.cb, &mut work)
-                    .unwrap_err();
-                assert_eq!(report.diagnostics()[0].code, "KR0302");
-            });
-        }
+        let count = whole.ca - whole.cb;
+        assert!(count > 2 * ROOT_LANES, "only {count} modes");
+        // The fixed charge the original bisection made, however its search went.
+        let original = count * mesh.b1.len() * (ROOT_STEPS + 5);
+        let bits = |roots: &[f64]| roots.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
         let mut used = 0;
-        let expected = mesh
-            .fluid_roots(whole.a, whole.b, whole.cb, whole.ca - whole.cb, &mut used)
-            .unwrap();
+        let expected = mesh.roots(&mut used).unwrap();
+        assert_eq!(used, original);
         for threads in [1, 2, 4] {
             crate::parallelism::with_threads(std::num::NonZeroUsize::new(threads).unwrap(), || {
-                let mut work = MAX_WORK - used;
-                let actual = mesh
-                    .fluid_roots(whole.a, whole.b, whole.cb, whole.ca - whole.cb, &mut work)
-                    .unwrap();
-                assert_eq!(
-                    actual.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
-                    expected.iter().map(|x| x.to_bits()).collect::<Vec<_>>()
-                );
+                let mut work = MAX_WORK - original;
+                assert_eq!(bits(&mesh.roots(&mut work).unwrap()), bits(&expected));
                 assert_eq!(work, MAX_WORK);
-                let mut work = MAX_WORK - used + 1;
-                let error = mesh
-                    .fluid_roots(whole.a, whole.b, whole.cb, whole.ca - whole.cb, &mut work)
-                    .unwrap_err();
+                let mut work = MAX_WORK - original + 1;
+                let error = mesh.roots(&mut work).unwrap_err();
                 assert_eq!(error.diagnostics()[0].code, "KR0302");
             });
         }
-        let mut work = MAX_WORK - 2 * ROOT_LANES * mesh.b1.len();
-        let error = mesh.fluid_group(&[None], whole, 0, &mut work).unwrap_err();
-        assert_eq!(error.diagnostics()[0].code, "KR0302");
         let token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let error = crate::cancellation::with_token(std::sync::Arc::clone(&token), || {
+            mesh.isolate_fluid(whole)
+        })
+        .unwrap_err();
+        assert_eq!(error.diagnostics()[0].code, "KR0304");
         let error = crate::cancellation::with_token(token, || {
-            mesh.refine_fluid::<ROOT_LANES>(&[Some(whole)], whole, &mut 0)
+            mesh.refine_fluid::<ROOT_LANES>(&[Some(whole)], whole)
         })
         .unwrap_err();
         assert_eq!(error.diagnostics()[0].code, "KR0304");

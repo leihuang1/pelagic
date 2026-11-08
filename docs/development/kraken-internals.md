@@ -109,10 +109,11 @@ A failed count/sign/finiteness check, a stalled isolation or an iteration cap
 leaves the affected mode to the original 64-step full-interval bisection, not a
 partial bracket or a guessed root. This includes the rounded rigid/rigid plane
 endpoint. Cancellation and the 2.5-billion mesh-work limit remain errors, never
-fallback triggers. Work includes attempted isolation/refinement, padded lanes,
-the shape allowance and a full 64-step reservation per fallback. Fixed groups
-of eight run in parallel only when their worst-case work fits the remaining
-budget; otherwise they run serially with the same operations and shared budget.
+fallback triggers. The search pays the original bisection's fixed charge before
+it starts, 64 steps plus the shape allowance per mode, so the work limit admits
+exactly the problems it did before. Its isolation, refinement and fallback steps
+are each capped, which bounds its own work. Fixed groups of eight always run in
+parallel; neither their membership nor their arithmetic depends on worker count.
 There are no adapter-specific paths or runtime numerical selectors.
 
 This invariant is specific to the fluid recurrence, not a floating-point

@@ -94,10 +94,27 @@ physical accuracy. These data do not promise a uniform all-cell TL bound.
   fixture meshes with the exact root path.
 - Tests exercise isolating brackets, refinement accuracy, failed sign/final
   count/nonfinite checks, exact fallback, the rigid plane endpoint, cancellation,
-  budget exhaustion and the adjacent-float elastic count reversal.
+  the work-limit boundary and the adjacent-float elastic count reversal.
 - All 27 full-acceptance stages passed with unchanged tolerances and references,
   using `--allow-dirty`: diagnostic numerical evidence, **not clean-commit
   release acceptance**. No committed golden was regenerated.
+
+## Independent review and work accounting
+
+An independent review reproduced one regression. The search first charged its
+attempted isolation, refinement and fallback work against the 2.5-billion
+mesh-work limit. A 35-mode fluid case on a million-interval mesh, which the
+previous release solved at 97% of that limit, then failed with `KR0302`.
+
+The previous fluid bisection never charged its actual work. Before searching,
+it charged a fixed 64 steps plus the shape allowance per mode and mesh point.
+The new search now pays exactly that charge, in the same place, before either
+search runs. So the work limit admits the same problems as before, at every
+refinement mesh, and its own step caps bound the faster search's work. The
+reviewed case solves again at 1, 2 and 4 threads. A unit test checks the charge
+and the exact admission boundary on a case of several eight-mode groups. The
+fix changes no arithmetic: the full inventory at 1, 2, 4 and 14 threads
+(3,268 configurations) matches the reviewed build's snapshots exactly.
 
 Raw snapshots, timings, all-cell metrics and acceptance logs remain local in the
 root-search scratch directory and this worktree's `target/acceptance/`. Native

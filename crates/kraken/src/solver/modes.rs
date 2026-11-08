@@ -917,15 +917,17 @@ impl<'a> Mesh<'a> {
         if elastic_top {
             return self.bracketed_roots(low, high, above, count, work);
         }
-        if !elastic && !crate::solver::elastic::has_layers(self.case) {
-            return self.fluid_roots(low, high, above, count, work);
-        }
+        // Both searches below pay the original bisection's fixed charge, so the
+        // fluid search admits exactly the problems that bisection did.
         *work = count
             .checked_mul(self.b1.len())
             .and_then(|n| n.checked_mul(ROOT_STEPS + 5))
             .and_then(|n| n.checked_add(*work))
             .filter(|n| *n <= MAX_WORK)
             .ok_or_else(|| error("KR0302", "modal mesh-work limit exceeded", "mesh_points"))?;
+        if !elastic && !crate::solver::elastic::has_layers(self.case) {
+            return self.fluid_roots(low, high, above, count);
+        }
         // Each mode bisects the whole interval on its own, so groups of modes
         // may run concurrently. Fill every thread before widening the groups.
         let size = count
