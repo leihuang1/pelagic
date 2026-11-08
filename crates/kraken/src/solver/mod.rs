@@ -34,7 +34,9 @@ pub(crate) const MAX_FIELD_WORK: usize = 550_000_000;
 const PHASE_TABLE_VALUES: usize = 1 << 20;
 // Ranges whose modal sums share a loop, one running total per range, so the
 // compiler can pack them. Each range still adds its modes in order.
-const FIELD_RANGE_LANES: usize = 8;
+const FIELD_RANGE_LANES: usize = 16;
+// Fewer ranges than half a lane group would mostly sum padding.
+const MIN_LANE_RANGES: usize = FIELD_RANGE_LANES / 2;
 
 struct RangePhaseLanes {
     re: [f32; FIELD_RANGE_LANES],
@@ -176,8 +178,7 @@ fn tabulate_field_query(
     let receiver_count = case.receiver_depths_m.len();
     let range_count = receiver_ranges_m.len();
     let range_capacity = table_values / mode_count.max(1);
-    // Fewer than eight ranges would mostly sum padding.
-    let range_lanes = range_count >= FIELD_RANGE_LANES && range_capacity >= FIELD_RANGE_LANES;
+    let range_lanes = range_count >= MIN_LANE_RANGES && range_capacity >= FIELD_RANGE_LANES;
     // Round capacity, not the range count, so padding never exceeds the table budget.
     let block_len = if range_lanes {
         range_capacity / FIELD_RANGE_LANES * FIELD_RANGE_LANES
@@ -188,7 +189,7 @@ fn tabulate_field_query(
     let source_batch = range_capacity.max(1);
     let mut pressure = vec![Complex64::new(0.0, 0.0); sample_count];
     for (block_index, ranges) in receiver_ranges_m.chunks(block_len).enumerate() {
-        let phases = if range_lanes && ranges.len() >= FIELD_RANGE_LANES {
+        let phases = if range_lanes && ranges.len() >= MIN_LANE_RANGES {
             FieldPhases::RangeLanes(crate::parallelism::map(
                 ranges.len().div_ceil(FIELD_RANGE_LANES),
                 ranges.len().saturating_mul(mode_count),
@@ -583,7 +584,7 @@ mod field_range_lane_tests {
 
     #[test]
     fn tabulate_field_range_lanes_match_scalar_bytes() {
-        for range_count in [1, 3, 7, 8, 9, 15, 16, 17, 33, 129] {
+        for range_count in [1, 3, 7, 8, 9, 15, 16, 17, 23, 24, 31, 32, 33, 129] {
             let (base, modes) = field_case(range_count);
             for geometry in [
                 SourceGeometry::Line,
@@ -605,7 +606,11 @@ mod field_range_lane_tests {
                         7 * mode_count + 1,
                         8 * mode_count,
                         9 * mode_count + 1,
+                        15 * mode_count + 1,
+                        16 * mode_count,
                         16 * mode_count + 1,
+                        17 * mode_count + 1,
+                        32 * mode_count + 1,
                         PHASE_TABLE_VALUES,
                     ] {
                         let actual = tabulate_field(&case, &modes, table_values).unwrap();
