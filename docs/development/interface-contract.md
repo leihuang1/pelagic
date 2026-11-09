@@ -41,9 +41,15 @@ acceptance baseline, and is out of scope for ordinary releases.
 **Package version** (`X.Y.Z`, one number for the CLI, Python, MATLAB and the
 server):
 
-- Before 1.0, a minor release (`0.Y.0`) may change public interfaces, and lists
-  every such change under **Compatibility**.
-- A patch release (`0.Y.Z`) only fixes bugs, and changes no public interface.
+- Before 1.0, a minor release (`0.Y.0`) may change or remove public interfaces.
+- A patch release (`0.Y.Z`) fixes bugs, and may add to a public interface.
+  Examples are a new CLI flag, a new optional Python or MATLAB argument, and a
+  new optional schema field that needs no new version (see below). Every
+  existing use must keep working as before: the same inputs are accepted, with
+  the same defaults, exit codes and diagnostic codes. Any other change to a
+  public interface waits for a minor release.
+- Both list every change to a public interface, additions included, under
+  **Compatibility**.
 
 **Schema versions** (case JSON, HDF5, manifest, diagnostics protocol):
 
