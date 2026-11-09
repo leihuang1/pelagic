@@ -119,25 +119,40 @@ primary run the identical v3 broadband copies differ by 0.9871 [0.9245,
 ### Machine code
 
 Each timed binary was disassembled with `objdump`, and the base and candidate
-were compared function by function, ignoring addresses. With the default build
-3,198 of 3,285 base functions match; with v3, 3,190 of 3,271 match. The rest
-are the changed coupled FIELD code and functions in unrelated modules, such as
-`FieldCase::new` and layer construction.
+were compared function by function, ignoring addresses. The comparison covers
+instructions, not constant data, and it does not trace which functions run.
+With the default build 3,198 of 3,285 base functions match; with v3, 3,190 of
+3,271 match. The rest are the changed coupled FIELD code and functions in
+unrelated modules, such as `FieldCase::new` and layer construction.
 
-Every hot function of large Munk and KRAKENC is identical with both builds:
+The numerical kernels of large Munk and KRAKENC are identical with both builds:
 fluid root search, shooting, Sturm counts, mode shapes, and KRAKENC's secant
-search and mode functions. One hot function differs: `tabulate_field_query`,
-range-independent FIELD, has different register assignments and stack
-offsets, and with the default build a 16-byte larger stack frame. Its source
-is unchanged, it calls the same functions, and its mode and range loops, which
-compile as separate functions, are identical.
+search and mode functions. Nine other functions on these paths differ with
+each build:
 
-Cross-compiling the `kraken` library for `x86_64-unknown-linux-gnu` reproduces
-this. The release profile splits the crate into 16 codegen units, and the new
-coupled code moves `tabulate_field_query` from unit 12 to unit 05. With
-`codegen-units = 1` it compiles identically in base and candidate, with both
-builds. The difference comes from how the compiler splits the crate, not from
-anything this change does on the range-independent path.
+- Eight are the `parallelism::with_threads` and `cancellation::with_token`
+  instances that run a parallel map's items on several threads, for root
+  search, mode shapes, KRAKENC and range-independent FIELD. Each changes by 1
+  to 28 instructions. A map on one thread takes a different instance, so the
+  one-thread timings never run them.
+- The ninth is `tabulate_field_query`, range-independent FIELD itself. It has
+  different register assignments and stack offsets, and with the default build
+  a 16-byte larger stack frame. Its source is unchanged, it calls the same
+  functions, and its mode and range loops, which compile as separate
+  functions, are identical.
+
+Local cross-builds of the `kraken` library for `x86_64-unknown-linux-gnu`, with
+the same toolchain and release profile, show where these differences come
+from. The profile splits the crate into 16 codegen units, and the new coupled
+code moves `tabulate_field_query` from unit 12 to unit 05. With
+`codegen-units = 1`, at both builds, the only functions whose instructions
+differ are coupled FIELD and its generic helpers. `tabulate_field_query` and
+the row maps of range-independent and adiabatic FIELD keep identical
+instructions; only the names of a few call targets change, to a coupled FIELD
+closure's new number. The script and
+its output are kept with the evidence, outside the repository, in
+`pelagic-wt-kprof-scratch/rdfield-2/cgu/` (`run.sh`, `compare.py` and
+`results.txt`).
 
 ### Full-result identity
 
@@ -150,8 +165,17 @@ are identical across builds and thread counts.
 
 ### Tests
 
-On `0d294b7`, `cargo test -p kraken` passed 219 tests with 6 ignored, and
-workspace clippy and rustfmt were clean.
+`cargo test -p kraken` passes 220 tests with 6 ignored, and workspace clippy
+and rustfmt are clean. The independent review found that the new tests only
+compared the grouped march with itself: changing its `while` loop over profile
+midpoints to an `if` still passed them all. A further test,
+`coupled_field_matches_the_sequential_march_when_receivers_skip_profiles`,
+compares coupled FIELD bit for bit with a test-only copy of the `57f55a3`
+march, which takes one range at a time. Its receiver grids skip profiles: one
+receiver beyond every midpoint, receivers exactly at the midpoints, and scalar
+and lane groups with the middle profiles empty. It runs with all three source
+geometries, with 0, 1 and all modes, and with four table budgets, and it fails
+with that `while`-to-`if` change.
 
 ### Resources
 
@@ -202,7 +226,7 @@ Adverse comparisons, primary and rerun kept separate:
 Large Munk and this one-profile KRAKENC input take the range-independent path,
 whose source the change leaves alone. This experiment could not tell a
 code-generation or layout effect from added work, so it was not approved. On `57f55a3` neither example has an adverse comparison, and their
-hot functions compile identically.
+numerical kernels compile identically.
 
 ### Threshold and adiabatic prototype
 
