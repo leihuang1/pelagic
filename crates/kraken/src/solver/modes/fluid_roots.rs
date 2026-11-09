@@ -58,15 +58,39 @@ impl Value {
     }
 }
 
+// Rare, so out of line and by value: the hot loop then keeps every lane in registers. Rescaling
+// in line, or through references, spilled the lanes to memory on x86-64.
+#[cold]
+#[inline(never)]
+fn rescale<const K: usize>(
+    mut previous: [f64; K],
+    mut current: [f64; K],
+    mut older: [f64; K],
+    mut power: [i32; K],
+) -> ([f64; K], [f64; K], [f64; K], [i32; K]) {
+    for k in 0..K {
+        if current[k].abs() > 1e100 {
+            current[k] *= 2_f64.powi(-256);
+            previous[k] *= 2_f64.powi(-256);
+            older[k] *= 2_f64.powi(-256);
+            power[k] += 256;
+        }
+    }
+    (previous, current, older, power)
+}
+
 // Keep independent multiply/subtract chains visible to the vectorizer.
 #[inline(never)]
 fn shoot_interior<const K: usize>(
     rows: &[f64],
     shift: [f64; K],
-    previous: &mut [f64; K],
-    current: &mut [f64; K],
-    power: &mut [i32; K],
+    previous_out: &mut [f64; K],
+    current_out: &mut [f64; K],
+    power_out: &mut [i32; K],
 ) -> [f64; K] {
+    let mut previous = *previous_out;
+    let mut current = *current_out;
+    let mut power = *power_out;
     let mut older = [0.0; K];
     for &b in rows.iter().rev() {
         let mut diagonal = [0.0; K];
@@ -80,20 +104,20 @@ fn shoot_interior<const K: usize>(
         for k in 0..K {
             next[k] -= previous[k];
         }
-        older = *previous;
-        *previous = *current;
-        *current = next;
-        if current.iter().any(|v| v.abs() > 1e100) {
-            for k in 0..K {
-                if current[k].abs() > 1e100 {
-                    current[k] *= 2_f64.powi(-256);
-                    previous[k] *= 2_f64.powi(-256);
-                    older[k] *= 2_f64.powi(-256);
-                    power[k] += 256;
-                }
-            }
+        older = previous;
+        previous = current;
+        current = next;
+        // One combined test per row, where a short-circuiting `any` branched per lane.
+        if current
+            .iter()
+            .fold(false, |need, v| need | (v.abs() > 1e100))
+        {
+            (previous, current, older, power) = rescale(previous, current, older, power);
         }
     }
+    *previous_out = previous;
+    *current_out = current;
+    *power_out = power;
     older
 }
 
@@ -351,6 +375,104 @@ mod tests {
             b,
             ca: mesh.count(a),
             cb: mesh.count(b),
+        }
+    }
+
+    /// The original shooting kernel, one lane at a time.
+    fn shoot_lane(
+        rows: &[f64],
+        shift: f64,
+        previous: &mut f64,
+        current: &mut f64,
+        power: &mut i32,
+    ) -> f64 {
+        let mut older = 0.0;
+        for &b in rows.iter().rev() {
+            let next = (shift - b) * *current - *previous;
+            older = *previous;
+            *previous = *current;
+            *current = next;
+            if current.abs() > 1e100 {
+                *current *= 2_f64.powi(-256);
+                *previous *= 2_f64.powi(-256);
+                older *= 2_f64.powi(-256);
+                *power += 256;
+            }
+        }
+        older
+    }
+
+    #[test]
+    fn shooting_kernel_matches_every_lane_of_the_original_bit_for_bit() {
+        fn same(a: f64, b: f64) -> bool {
+            a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan())
+        }
+        fn check<const K: usize>(
+            rows: &[f64],
+            shift: [f64; K],
+            start: [(f64, f64); K],
+        ) -> [i32; K] {
+            let mut previous = start.map(|(p, _)| p);
+            let mut current = start.map(|(_, c)| c);
+            let mut power = [0; K];
+            let older = shoot_interior(rows, shift, &mut previous, &mut current, &mut power);
+            for k in 0..K {
+                let (mut p, mut c) = start[k];
+                let mut w = 0;
+                let o = shoot_lane(rows, shift[k], &mut p, &mut c, &mut w);
+                assert!(
+                    same(older[k], o)
+                        && same(previous[k], p)
+                        && same(current[k], c)
+                        && power[k] == w,
+                    "lane {k} of {K}: ({}, {}, {}, {}) vs ({o}, {p}, {c}, {w})",
+                    older[k],
+                    previous[k],
+                    current[k],
+                    power[k]
+                );
+            }
+            power
+        }
+        // Real duct coefficients: oscillating inside the duct, growing past 1e100 outside it.
+        let case = load("SductTrapped");
+        let meshes = Meshes::new(&case).unwrap();
+        let mesh = Mesh::new(&meshes, 4).unwrap();
+        let rows = &mesh.b1[..];
+        let (low, high) = rows
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), &b| {
+                (l.min(b), h.max(b))
+            });
+        let middle = low.midpoint(high);
+        let shift = [
+            middle,
+            high + 8.0,
+            rows[rows.len() - 1], // an exact zero on the first row
+            high + 8.0,           // a padded lane repeats its neighbour
+            f64::NAN,
+            f64::INFINITY,
+            middle,
+            low - 8.0,
+        ];
+        let start = [
+            (1.0, 0.5),
+            (-2.0, 3.0),
+            (1.0, 0.5),
+            (-2.0, 3.0),
+            (1.0, 0.5),
+            (1.0, 0.5),
+            (0.0, 0.0), // zero stays zero
+            (0.25, -1.0),
+        ];
+        let power = check::<ROOT_LANES>(rows, shift, start);
+        assert!(power[1] > 0 && power[7] > 0 && power[6] == 0, "{power:?}");
+        for k in 0..ROOT_LANES {
+            check::<1>(rows, [shift[k]], [start[k]]);
+        }
+        // Short rows, as in thin layers, including none at all.
+        for length in [0, 1, 2, 3] {
+            check::<ROOT_LANES>(&rows[..length], shift, start);
         }
     }
 

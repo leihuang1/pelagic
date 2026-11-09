@@ -99,7 +99,11 @@ Real KRAKEN without finite elastic layers or elastic half-spaces always uses
 `C(x)` is nonincreasing in squared wavenumber, and an interval `[a, b]` owns
 exactly the root targets `C(b)..C(a)`. Shared bisections isolate one target per
 interval. The bottom-up fluid shooting function uses positive power-of-two
-rescaling, carrying the exponent into safeguarded secant/Illinois steps. Every
+rescaling, carrying the exponent into safeguarded secant/Illinois steps. Its
+lane kernel keeps the recurrence in registers, tests every lane with one
+combined comparison per row and rescales in a cold, out-of-line function. Each
+lane performs exactly the scalar recurrence's operations, so results do not
+depend on the lane width; a unit test checks this bit for bit. Every
 eighth step bisects; refinement stops at relative bracket width `1e-13`, adjacent
 floats or a computed zero. Endpoint signs must oppose and be finite. Final
 Sturm counts must identify the same single target within one relative tolerance
