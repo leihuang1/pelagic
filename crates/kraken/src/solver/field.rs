@@ -1141,6 +1141,170 @@ mod range_lane_tests {
             }
         }
     }
+
+    /// The coupled field as `57f55a3` computed it, one receiver range at a time,
+    /// crossing every profile midpoint below a range first. It shares only the
+    /// unchanged helpers with `coupled`, so it checks the grouped march itself.
+    #[allow(clippy::float_cmp)]
+    fn sequential_coupled(case: &FieldCase, modes: &[ModeSet], samples: usize) -> Vec<Complex64> {
+        let first = &case.profiles[0];
+        let ranges = &first.receiver_ranges_m;
+        let mut pressure = vec![Complex64::new(0.0, 0.0); samples];
+        for (source, &source_depth) in first.source_depths_m.iter().enumerate() {
+            let count = modes[0].modes.len().min(first.mode_limit);
+            let excitation: Vec<_> = modes[0]
+                .modes
+                .iter()
+                .take(count)
+                .map(|mode| {
+                    let shape = sample(&modes[0], mode, source_depth);
+                    if source == 0 && !first.source_pattern.is_empty() {
+                        shape
+                            * source_pattern_scale(
+                                first,
+                                single(mode.horizontal_wavenumber_rad_per_m),
+                            )
+                    } else {
+                        shape
+                    }
+                })
+                .collect();
+            let mut a: Vec<_> = excitation
+                .iter()
+                .zip(&modes[0].modes)
+                .map(|(s, m)| {
+                    let k = single(m.horizontal_wavenumber_rad_per_m);
+                    if first.source_geometry == SourceGeometry::Line {
+                        factor() / Complex32::new(0.0, 1.0) * s / k
+                    } else {
+                        factor() * s / k.sqrt()
+                    }
+                })
+                .collect();
+            let (mut segment, mut previous) = (0, 0.0);
+            let mut steps = Vec::new();
+            for &range in ranges {
+                while segment + 1 < modes.len()
+                    && range > case.ranges_m[segment].midpoint(case.ranges_m[segment + 1])
+                {
+                    let boundary = case.ranges_m[segment].midpoint(case.ranges_m[segment + 1]);
+                    advance(&mut a, &modes[segment], boundary - previous);
+                    a = project(
+                        &case.profiles[segment],
+                        &case.profiles[segment + 1],
+                        &modes[segment],
+                        &modes[segment + 1],
+                        &a,
+                    )
+                    .unwrap();
+                    previous = boundary;
+                    segment += 1;
+                }
+                advance(&mut a, &modes[segment], range - previous);
+                let kept = a.len().min(modes[segment].modes.len());
+                steps.push((segment, range, a[..kept].to_vec()));
+                previous = range;
+            }
+            let block = source * samples / first.source_depths_m.len();
+            for (iz, &depth) in first.receiver_depths_m.iter().enumerate() {
+                for (ir, (segment, range, amplitudes)) in steps.iter().enumerate() {
+                    let at = bracket(&modes[*segment], depth);
+                    let sum: Complex32 = amplitudes
+                        .iter()
+                        .zip(&modes[*segment].modes)
+                        .map(|(a, mode)| a * sample_at(mode, at))
+                        .sum();
+                    let value = if first.source_geometry == SourceGeometry::Point && *range != 0.0 {
+                        single(double(sum) / range.sqrt())
+                    } else {
+                        sum
+                    };
+                    pressure[block + iz * ranges.len() + ir] = double(value);
+                }
+            }
+        }
+        pressure
+    }
+
+    #[test]
+    fn coupled_field_matches_the_sequential_march_when_receivers_skip_profiles() {
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ProfilesCm");
+        let field = crate::legacy::load_field_cases(
+            root.with_extension("env"),
+            root.with_extension("flp"),
+            crate::ModeSolver::Kraken,
+        )
+        .unwrap()
+        .remove(0);
+        assert_eq!(field.propagation, FieldPropagation::Coupled);
+        let solved = solve_field(&field).unwrap();
+        let mid: Vec<f64> = field
+            .ranges_m
+            .windows(2)
+            .map(|r| r[0].midpoint(r[1]))
+            .collect();
+        assert!(mid.len() >= 3, "the grids below skip at least two profiles");
+        let last = mid[mid.len() - 1];
+        let spread = |from: f64, to: f64, n: u32| -> Vec<f64> {
+            (1..=n)
+                .map(|i| from + (to - from) * f64::from(i) / f64::from(n))
+                .collect()
+        };
+        let grids = [
+            // One receiver beyond every midpoint: the march crosses them all first.
+            vec![last + 100.0],
+            // Exact midpoints stay with the profile on their left.
+            mid.clone(),
+            // Scalar ranges in the first profile, then 16 lanes and a scalar tail in the last.
+            [
+                vec![0.0, mid[0] / 2.0, mid[0]],
+                spread(last, last + 2000.0, 20),
+            ]
+            .concat(),
+            // A first receiver past one midpoint, then a group of nine in the last profile.
+            [vec![mid[0].midpoint(mid[1])], spread(last, last + 900.0, 9)].concat(),
+        ];
+        for ranges in &grids {
+            for geometry in [
+                SourceGeometry::Point,
+                SourceGeometry::Line,
+                SourceGeometry::ScaledCylindrical,
+            ] {
+                let profiles = field
+                    .profiles
+                    .iter()
+                    .map(|profile| {
+                        let mut input = profile.clone().into_definition();
+                        input.receiver_ranges_m.clone_from(ranges);
+                        input.source_geometry = geometry;
+                        Case::from_definition(input).unwrap()
+                    })
+                    .collect();
+                let case =
+                    FieldCase::new(profiles, field.ranges_m.clone(), field.propagation).unwrap();
+                let first = &case.profiles[0];
+                let samples =
+                    ranges.len() * first.receiver_depths_m.len() * first.source_depths_m.len();
+                for count in [0, 1, usize::MAX] {
+                    let mut modes = solved.modes.clone();
+                    for set in &mut modes {
+                        set.modes.truncate(count);
+                    }
+                    let largest = modes.iter().map(|m| m.modes.len()).max().unwrap().max(1);
+                    let expected = bits(&sequential_coupled(&case, &modes, samples));
+                    for budget in [1, 7 * largest, 16 * largest, TABLE_VALUES] {
+                        let grouped = synthesize(&case, &modes, samples, budget).unwrap();
+                        assert_eq!(
+                            bits(&grouped),
+                            expected,
+                            "{ranges:?} {geometry:?}, {count} modes, {budget} values"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
