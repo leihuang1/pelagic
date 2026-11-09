@@ -7,6 +7,12 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Patch releases can add features.** Under the revised
+  [version rules](docs/development/interface-contract.md#version-rules), a
+  patch release may add to a public interface, such as a new CLI flag or
+  optional argument, if every existing use keeps working as before. Changing or
+  removing a public interface still needs a minor release.
+
 ## 0.6.2 — 2026-11-09
 
 - **Faster coupled range-dependent KRAKEN FIELD.** Coupled FIELD now adds the
