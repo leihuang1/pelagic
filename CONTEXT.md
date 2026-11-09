@@ -22,11 +22,11 @@ One KRAKEN solve frequency with ordered modal profiles, profile ranges and range
 _Avoid_: Broadband response, time-domain response
 
 **Frequency block**:
-A FIELD case at its index in the enclosing input sequence, with its result once solved. The index identifies it, because frequencies can repeat: it names the block's HDF5 group and its native stem, except that an only block takes the run's stem alone.
+A FIELD case at its index in the enclosing input sequence, with its result once solved. The index identifies it, because frequencies can repeat, and names its HDF5 group. Physical native artifacts may contain several blocks: the shared native writer chooses the run's stem for a combined pair or an only block, and indexed stems otherwise.
 _Avoid_: Frequency result, per-frequency output
 
 **Frequency-block stream**:
-The one order in which a KRAKEN run solves and writes its frequency blocks, through a single solve iterator, with HDF5 plugged in as a block writer. On a failure, this order decides which diagnostic wins and what partial state exists. Python writes native files from finished results, so it shares only the block naming.
+The one order in which a KRAKEN run solves and writes its frequency blocks, through a single solve iterator, with HDF5 plugged in as a block writer. On a failure, this order decides which diagnostic wins and what partial state exists. Python writes native files from finished results without solving again; it and the stream use the same `native_output::kraken::Writer` for layout selection and serialization.
 _Avoid_: Writer loop, adapter-side write sequence
 
 **Input material**:
@@ -54,7 +54,7 @@ A complete numerical product in BELLHOP schema v3 or KRAKEN schema v1. Native MO
 _Avoid_: Fortran golden, common solver result
 
 **Native result**:
-An existing solver result serialized for the pinned v2023.5 numerical readers, with explicit precision, units and order. KRAKEN native pairs are per ordered frequency block; irregular BELLHOP arrivals are per paired receiver. Neither adapter changes physics or reconstructs inputs.
+An existing solver result serialized for the pinned v2023.5 numerical readers, with explicit precision, units and order. KRAKEN single-profile blocks with common native headers share one multi-frequency pair; multi-profile or incompatible blocks keep per-block pairs for unmodified reader compatibility. Irregular BELLHOP arrivals are per paired receiver. Neither adapter changes physics or reconstructs inputs.
 _Avoid_: Fortran-identical bytes, common solver output model
 
 **Result directory**:

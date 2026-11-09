@@ -52,6 +52,31 @@ pub fn shd(
     real: &[f32],
     imaginary: &[f32],
 ) {
+    shd_block(
+        path,
+        &[frequency],
+        0,
+        sources,
+        depths,
+        ranges,
+        irregular,
+        real,
+        imaginary,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn shd_block(
+    path: &Path,
+    frequencies: &[f64],
+    index: usize,
+    sources: &[f64],
+    depths: &[f64],
+    ranges: &[f64],
+    irregular: bool,
+    real: &[f32],
+    imaginary: &[f32],
+) {
     let bytes = fs::read(path).unwrap();
     let record_bytes = 4 * i32_at(&bytes, 0);
     assert!(record_bytes >= 164 && record_bytes >= 8 * ranges.len());
@@ -61,15 +86,25 @@ pub fn shd(
         std::str::from_utf8(&rec(1)[..10]).unwrap().trim(),
         if irregular { "irregular" } else { "rectilin" }
     );
-    for (i, n) in [1, 1, 1, 1, sources.len(), depths.len(), ranges.len()]
-        .into_iter()
-        .enumerate()
+    for (i, n) in [
+        frequencies.len(),
+        1,
+        1,
+        1,
+        sources.len(),
+        depths.len(),
+        ranges.len(),
+    ]
+    .into_iter()
+    .enumerate()
     {
         assert_eq!(i32_at(rec(2), 4 * i), n);
     }
-    assert_eq!(f64_at(rec(2), 28), frequency);
+    assert_eq!(f64_at(rec(2), 28), frequencies[0]);
     assert_eq!(f64_at(rec(2), 36), 0.0);
-    assert_eq!(f64_at(rec(3), 0), frequency);
+    for (i, &frequency) in frequencies.iter().enumerate() {
+        assert_eq!(f64_at(rec(3), 8 * i), frequency);
+    }
     for i in 4..7 {
         assert_eq!(f64_at(rec(i), 0), 0.0);
     }
@@ -79,11 +114,12 @@ pub fn shd(
         assert_eq!(f64_at(rec(9), 8 * i), r);
     }
     let rows = sources.len() * if irregular { 1 } else { depths.len() };
-    assert_eq!(bytes.len(), (10 + rows) * record_bytes);
+    assert_eq!(bytes.len(), (10 + frequencies.len() * rows) * record_bytes);
+    let first_row = 10 + index * rows;
     assert_eq!(real.len(), rows * ranges.len());
     assert_eq!(imaginary.len(), real.len());
     for index in 0..real.len() {
-        let row = rec(10 + index / ranges.len());
+        let row = rec(first_row + index / ranges.len());
         let offset = 8 * (index % ranges.len());
         assert_eq!(f32_at(row, offset).to_bits(), real[index].to_bits());
         assert_eq!(
@@ -114,17 +150,25 @@ pub fn kraken(root: &Path, input: &Path) {
         kraken::legacy::load_field_cases(input, workspace.join(text(&flp, "filename")), engine)
             .unwrap()
     };
+    let combined = root.join(format!("{stem}.mod")).exists();
     for (index, &frequency) in frequencies.iter().enumerate() {
-        let name = if frequencies.len() == 1 {
+        let name = if combined {
             stem.to_string()
         } else {
             format!("{stem}.f{index:04}")
         };
         let group = file.group(&format!("frequencies/{index}")).unwrap();
         let field = group.group("field").unwrap();
-        shd(
+        let native_frequencies = if combined {
+            frequencies.as_slice()
+        } else {
+            std::slice::from_ref(&frequency)
+        };
+        let native_index = if combined { index } else { 0 };
+        shd_block(
             &root.join(format!("{name}.shd")),
-            frequency,
+            native_frequencies,
+            native_index,
             &data(&field, "source_depth_m"),
             &data(&field, "receiver_depth_m"),
             &data(&field, "receiver_range_m"),
@@ -158,14 +202,20 @@ pub fn kraken(root: &Path, input: &Path) {
                         "KRAKEN"
                     })
             );
-            for (i, n) in [1, media_count, depths.len(), depths.len()]
-                .into_iter()
-                .enumerate()
+            for (i, n) in [
+                native_frequencies.len(),
+                media_count,
+                depths.len(),
+                depths.len(),
+            ]
+            .into_iter()
+            .enumerate()
             {
                 assert_eq!(i32_at(rec(start), 84 + 4 * i), n);
             }
             let case = &cases[index].profiles()[profile];
-            let intervals = kraken::solver::base_mesh_intervals(case).unwrap();
+            let header_case = &cases[if combined { 0 } else { index }].profiles()[profile];
+            let intervals = kraken::solver::base_mesh_intervals(header_case).unwrap();
             assert_eq!(intervals.len(), media_count);
             for (i, &intervals) in intervals.iter().enumerate() {
                 assert_eq!(i32_at(rec(start + 1), 12 * i), intervals);
@@ -180,12 +230,25 @@ pub fn kraken(root: &Path, input: &Path) {
                     attr(&layer, "density_g_cm3") as f32
                 );
             }
-            assert_eq!(f64_at(rec(start + 3), 0), frequency);
+            for (i, &frequency) in native_frequencies.iter().enumerate() {
+                assert_eq!(f64_at(rec(start + 3), 8 * i), frequency);
+            }
             check_singles(rec(start + 4), &depths);
+            let mut block = start + 5;
+            let mut selected = block;
+            for i in 0..native_frequencies.len() {
+                if i == native_index {
+                    selected = block;
+                }
+                let m = i32_at(rec(block), 0);
+                block += 2 + m + m.div_ceil(record_bytes / 8).max(1);
+            }
+            let next_profile = block;
+            let block = selected;
             let wave_real = data::<f64>(&modes, "horizontal_wavenumber_real");
             let wave_imag = data::<f64>(&modes, "horizontal_wavenumber_imaginary");
             let count = wave_real.len();
-            assert_eq!(i32_at(rec(start + 5), 0), count);
+            assert_eq!(i32_at(rec(block), 0), count);
             for (side, offset, cp, density, loss, depth, boundary) in [
                 (
                     "surface",
@@ -207,11 +270,11 @@ pub fn kraken(root: &Path, input: &Path) {
                 ),
             ] {
                 assert_eq!(
-                    rec(start + 6)[offset],
+                    rec(block + 1)[offset],
                     text(&metadata, &format!("{side}_boundary")).as_bytes()[0]
                 );
                 for (value, position) in [(cp, 1), (density, 17), (depth, 21)] {
-                    assert_eq!(f32_at(rec(start + 6), offset + position), value as f32);
+                    assert_eq!(f32_at(rec(block + 1), offset + position), value as f32);
                 }
                 let (cs, shear_loss) = if let kraken::Boundary::ElasticHalfSpace {
                     shear_sound_speed_mps,
@@ -222,14 +285,14 @@ pub fn kraken(root: &Path, input: &Path) {
                 } else {
                     (0.0, 0.0)
                 };
-                assert_eq!(f32_at(rec(start + 6), offset + 9), cs as f32);
+                assert_eq!(f32_at(rec(block + 1), offset + 9), cs as f32);
                 assert_eq!(
-                    f32_at(rec(start + 6), offset + 13),
+                    f32_at(rec(block + 1), offset + 13),
                     (shear_loss * cs / (8.685_889_6 * 2.0 * std::f64::consts::PI)) as f32
                 );
-                if rec(start + 6)[offset] == b'A' {
+                if rec(block + 1)[offset] == b'A' {
                     let expected = (loss * cp / (8.685_889_6 * 2.0 * std::f64::consts::PI)) as f32;
-                    assert_eq!(f32_at(rec(start + 6), offset + 5), expected);
+                    assert_eq!(f32_at(rec(block + 1), offset + 5), expected);
                 }
             }
             let real = data::<f64>(&modes, "eigenfunction_real");
@@ -238,17 +301,17 @@ pub fn kraken(root: &Path, input: &Path) {
             for mode in 0..count {
                 for z in 0..depths.len() {
                     assert_eq!(
-                        f32_at(rec(start + 7 + mode), 8 * z).to_bits(),
+                        f32_at(rec(block + 2 + mode), 8 * z).to_bits(),
                         (real[mode * depths.len() + z] as f32).to_bits()
                     );
                     assert_eq!(
-                        f32_at(rec(start + 7 + mode), 8 * z + 4).to_bits(),
+                        f32_at(rec(block + 2 + mode), 8 * z + 4).to_bits(),
                         (imaginary[mode * depths.len() + z] as f32).to_bits()
                     );
                 }
             }
             for mode in 0..count {
-                let record = start + 7 + count + mode / (record_bytes / 8);
+                let record = block + 2 + count + mode / (record_bytes / 8);
                 let offset = 8 * (mode % (record_bytes / 8));
                 assert_eq!(
                     f32_at(rec(record), offset).to_bits(),
@@ -259,7 +322,7 @@ pub fn kraken(root: &Path, input: &Path) {
                     (wave_imag[mode] as f32).to_bits()
                 );
             }
-            start += 7 + count + count.div_ceil(record_bytes / 8).max(1);
+            start = next_profile;
         }
         assert_eq!(
             start * record_bytes,

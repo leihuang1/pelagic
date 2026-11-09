@@ -92,8 +92,13 @@ the [porting map](porting-map.md) links Rust modules to the Fortran sources.
 - `output::kraken` is the stream's HDF5 block writer. Its header precedes the stream,
   which creates the report, and its totals follow the last block. Its check
   flushes again after the block's group closes, which can grow the file.
-  Python writes native files from finished results, so it calls `stream::block_name`
-  and not the stream.
+  Python writes native files from finished results, so it uses the same
+  `native_output::kraken::Writer` as the stream, without solving again. That writer
+  combines only single-profile blocks with compatible native headers, appending
+  each frequency's MOD/SHD payload without retaining results or moving existing
+  records. Multi-profile runs keep indexed single-frequency pairs for unmodified
+  pinned FIELD/MATLAB reader compatibility. Each block is flushed and
+  quota-accounted, including growth of the shared MOD/SHD files.
 - HTTP writes private HDF5 files and keeps its own protocol. It does not use the
   CLI's directory publication. Its response types are also the schemas that
   `/openapi.json` publishes; the arrival and field types are views over the solver

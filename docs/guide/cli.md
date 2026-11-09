@@ -78,8 +78,11 @@ previous results stay in place. Move the file, or choose another directory. Ther
 [native files and result directories](native-output.md).
 
 KRAKEN limits the total output to 256 MiB by default; change this with
-`--max-output-bytes`. KRAKEN cases with several frequencies write
-`case.f0000.mod`, `case.f0001.mod`, and so on, one pair per frequency.
+`--max-output-bytes`. Single-profile KRAKEN cases with several frequencies and
+common native headers/grids write one `case.mod` and one `case.shd`.
+Multi-profile runs or incompatible headers/grids keep `case.f0000.mod/.shd`,
+`case.f0001.mod/.shd`, and so on instead;
+see the [layout rule](native-output.md#file-selection-and-ordering).
 
 ## Threads
 

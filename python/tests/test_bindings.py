@@ -148,7 +148,10 @@ def test_kraken_keeps_frequency_order_duplicates_and_each_profiles_modes(tmp_pat
             np.testing.assert_array_equal(modes.wavenumbers, m["horizontal_wavenumber_real"][:] + 1j * m["horizontal_wavenumber_imaginary"][:])
             np.testing.assert_array_equal(modes.eigenfunctions, (m["eigenfunction_real"][:] + 1j * m["eigenfunction_imaginary"][:]).T)
     result.write_native(tmp_path / "native")
-    assert len(list((tmp_path / "native").glob("*.mod"))) == 2
+    # One profile at both (repeated) frequencies: Fortran's single shared pair, not indexed pairs.
+    native = tmp_path / "native"
+    assert len(list(native.glob("*.mod"))) == 1 and len(list(native.glob("*.shd"))) == 1
+    assert not list(native.glob("*.f0*"))
 
 
 def test_validation_is_structured_and_matches_cli():

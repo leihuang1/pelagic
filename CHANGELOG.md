@@ -73,8 +73,17 @@ in the [interface contract](docs/development/interface-contract.md).
   or `output::kraken::run_json`; the CLI already publishes through result
   directories, and its behaviour does not change.
 
-**Compatibility**
+### Compatibility
 
+- Multi-frequency KRAKEN/KRAKENC native output now uses one `CASE.mod` and one
+  `CASE.shd`, in Fortran's multi-frequency layout, when every block has exactly
+  one profile and shares the native headers and source/receiver grids. All
+  single-profile broadband `.env` inputs qualify. Multi-profile runs retain
+  byte-identical `CASE.fNNNN.mod/.shd` pairs so unmodified pinned FIELD and MATLAB
+  mode readers can traverse them; incompatible headers also retain indexed pairs.
+  This applies to the CLI and Python; consumers should use the manifest rather
+  than assume indexed filenames. Single-frequency bytes and HDF5 are unchanged.
+  This public filename change requires a minor release before 1.0.
 - KRAKEN `run` and `run-many` now report a JSON solver mismatch under the field
   `kraken.solver`, the JSON path, as `validate` and `export` already did. It was
   `mode_solver`.

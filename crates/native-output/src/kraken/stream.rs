@@ -154,6 +154,7 @@ pub fn run(
         frequency_count: cases.len(),
         ..RunSummary::default()
     };
+    let mut native = super::Writer::new(root, stem, cases);
     for (index, (case, result)) in cases
         .iter()
         .zip(kraken::solve_frequencies(cases))
@@ -167,10 +168,12 @@ pub fn run(
         writer.write_block(index, case, &result)?;
         writer.refresh_quota(&mut quota)?;
         quota.refresh(&report_path)?;
-        let name = block_name(stem, index, cases.len());
-        if format.legacy() {
-            super::write(root, &name, case, &result, &mut quota)?;
-        }
+        let name = if format.legacy() {
+            native.write_block(index, &result, &mut quota)?;
+            native.block_name(index)
+        } else {
+            block_name(stem, index, cases.len())
+        };
         writeln!(report, "frequency[{index}] {} Hz; native_stem={name}; profiles={} ranges_m={:?}; modes={:?}; pressures={}", case.profiles()[0].frequency_hz, case.profiles().len(), case.ranges_m(), result.modes.iter().map(|m| m.modes.len()).collect::<Vec<_>>(), result.field.pressure.len()).map_err(|e| e.to_string())?;
         for (profile, environment) in case.profiles().iter().enumerate() {
             writeln!(report, "  profile[{profile}] title={:?}; solver={:?}; mesh_reference_frequency_hz={}; source_geometry={:?}; mode_addition={:?}", environment.title, environment.mode_solver, environment.mesh_reference_frequency_hz.unwrap_or(environment.frequency_hz), environment.source_geometry, environment.mode_addition).map_err(|e| e.to_string())?;
