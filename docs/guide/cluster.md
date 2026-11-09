@@ -6,6 +6,72 @@ uses every CPU. On a cluster, a job array gives each task a share of the cases
 with `--shard`, and `--resume` lets a task that runs again skip what it already
 finished. Results are bit-for-bit the same however the cases are split.
 
+## Choose a Linux x86-64 build
+
+Releases include two Linux x86-64 CLI archives, both requiring glibc 2.35+:
+
+- `pelagic-vX.Y.Z-linux-x64.tar.gz` is the baseline build. Use it on older
+  CPUs, mixed clusters, or whenever you are unsure of the compute nodes' features.
+- `pelagic-vX.Y.Z-linux-x64-v3.tar.gz` is compiled with
+  `-C target-cpu=x86-64-v3`. Choose it when **every node that will run the
+  program supports x86-64-v3**, including AVX2, FMA and BMI2. Python wheels
+  and the CLIs bundled with MATLAB remain baseline builds.
+
+Check on the **compute nodes**, not just the login node. This quick screen
+should print all four feature names:
+
+```sh
+grep -o -w -E 'avx2|fma|bmi2|movbe' /proc/cpuinfo | sort -u
+```
+
+Those four flags alone are not a complete v3 or operating-system support
+check. On glibc 2.33 or newer, prefer the loader's check:
+
+```sh
+/lib64/ld-linux-x86-64.so.2 --help | grep x86-64-v3
+```
+
+The line must say **`x86-64-v3 (supported, searched)`**; being listed without
+that suffix is not enough. Intel CPUs before Haswell (2013), some Pentium and
+Celeron parts, and AMD CPUs before Excavator do not support v3. Check rather
+than relying on a family name, especially in virtual machines.
+
+**There is no startup CPU guard.** A whole-program v3 build can execute v3
+instructions before a Rust feature check, and the compiler can fold that
+check to `true`. An incompatible CPU can therefore stop with `Illegal
+instruction` (`SIGILL`); use the baseline archive instead.
+
+### Indicative gains
+
+On one AMD EPYC 7B13 (Zen 3) cloud VM, one-thread solver measurements with
+`x86-64-v3` were **1.02–1.47 times faster** than the baseline target: Gulf
+coupled 1.47, Gulf adiabatic 1.34, large Munk 1.22, surface duct 1.16, and
+BELLHOP Munk transmission loss 1.20 times. Results were byte-identical across
+the full `tools/perf` inventory at 1, 2 and 4 threads. These are indicative
+solver-only measurements, not promised end-to-end speedups: CPU, workload and
+result-file costs matter. No fast-math option is used. CI checks the 12
+representative cases in `tools/perf/cases.json` at one thread against a
+baseline build, as well as running the CLI tests against the v3 build.
+
+### Build for your nodes
+
+From a source checkout with the [build prerequisites](../../CONTRIBUTING.md),
+choose one of:
+
+```sh
+# For the build machine's CPU (build on a representative compute node):
+RUSTFLAGS='-C target-cpu=native' CARGO_TARGET_DIR=target/native \
+  cargo build --locked --release -p cli
+# For any x86-64-v3 node, even if the build machine has newer features:
+RUSTFLAGS='-C target-cpu=x86-64-v3' CARGO_TARGET_DIR=target/v3 \
+  cargo build --locked --release -p cli
+```
+
+The programs are `target/native/release/pelagic` and
+`target/v3/release/pelagic`. `native` can require features beyond v3; do not
+copy it to weaker nodes. Keep the default build for a heterogeneous cluster.
+Neither command changes the default compiler settings for other builds.
+
 ## One machine
 
 ```sh
@@ -101,16 +167,41 @@ threads, KRAKEN frequencies and profiles that run side by side can also hold abo
 
 ## When a task stops early
 
-Every case writes its status line as soon as it finishes, so a task killed by
-its time limit, by preemption or by a node failure keeps every case it
-completed. Submit that task again:
+Every successful case writes its status line after all file syncs and
+installation. Each publication, including a separate `run` in a job array,
+syncs its files concurrently with at most 16 I/O participants including the
+calling thread. This is independent of the numerical `--threads` setting;
+a refused helper leaves work to the caller rather than failing the case.
+Linux and Windows workers sync their own files without cross-case coordination
+or a filesystem-wide flush. Each file keeps its own error result. Apple can
+share its additional drive-cache flush between ready cases.
+
+Each helper thread holds one open file, so helpers are shared by the whole
+process: at most 64, and at most a quarter of the open files left after 8 for
+each worker and 32 for the process. When the limit leaves no such room, each
+worker syncs its files one after another, as before, and a helper that finds
+no free descriptor leaves its file to its worker, which tries it once more
+alone. The reserve is an estimate of what the CLI's workers need, not a
+guarantee. At startup the CLI raises its soft open-file limit
+(`ulimit -Sn`) to the hard limit (`ulimit -Hn`), as Go and Node.js programs do
+(on macOS, to at most 10240). If the hard limit is also Linux's usual 1024,
+sweeps of up to 92 workers keep all 64 helpers and 124 or more get none.
+No additional directory sync or directory-entry power-loss guarantee is added,
+and the status file is not fsynced per line. Node failure can lose a record
+or result names, so resume rehashes every listed artifact rather than trusting
+the record alone.
+Submit the task again:
 
 ```sh
 sbatch --array=7 examples/cli/slurm-sweep.sh kraken cases.txt results
 ```
 
-With `--resume`, it skips each case whose input, options and results are
-unchanged, and solves the rest. A case that failed runs again. The example
+With `--resume`, it skips each recorded case whose input, options and results
+are unchanged, and solves the rest. A case that failed runs again. Retained
+scratch, locks or backups are never adopted: interrupted publication may need
+manual recovery first. See the [publication crash states](native-output.md#run-many-barriers-and-interrupted-batches)
+before removing control paths or backups. Storage-server durability still
+depends on the cluster filesystem honoring sync requests. The example
 script also asks Slurm to requeue the task by itself after a node failure or
 preemption (`#SBATCH --requeue`). `--resume` reads every status file in
 `results/`, so a case done by any task, or by an earlier one-machine run, is

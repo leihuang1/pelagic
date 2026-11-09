@@ -7,6 +7,15 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[cfg(target_vendor = "apple")]
+mod batch;
+#[cfg(not(target_vendor = "apple"))]
+#[path = "directory/unbatched.rs"]
+mod batch;
+mod syncing;
+pub use batch::Batch;
+pub use syncing::raise_open_file_limit;
+
 const MANIFEST: &str = "pelagic-manifest.json";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -93,6 +102,7 @@ pub fn verified_manifest_sha256(output: &Path) -> Result<Option<String>, String>
 /// # Errors
 /// Rejects conflicts, modified owned files, input aliases, symlinks, quotas and I/O failures.
 /// Installation failure rolls back; rollback failure preserves scratch/backup and names them.
+/// A [`Batch`] shares Apple drive flushes before installation; no directory durability is promised.
 pub fn publish<T, E: From<String>>(
     output: &Path,
     inputs: &[&Path],
@@ -113,42 +123,73 @@ struct Transaction {
     backup: PathBuf,
     lock: PathBuf,
     created_output: bool,
+    fresh: bool,
+    permissions: Option<fs::Permissions>,
     owned: Vec<PathBuf>,
     retain: bool,
+    #[cfg(target_vendor = "apple")]
+    batch: Option<std::sync::Arc<Batch>>,
     #[cfg(test)]
     before_install: Option<fn(&Self)>,
     #[cfg(test)]
-    sync: fn(&File, bool) -> std::io::Result<()>,
+    sync: fn(&File) -> std::io::Result<()>,
+    #[cfg(all(test, target_vendor = "apple"))]
+    full_sync: fn(&File) -> std::io::Result<()>,
     #[cfg(test)]
     install_file: fn(&Path, &Path) -> std::io::Result<bool>,
     #[cfg(test)]
     after_install: Option<fn(&Self, &str)>,
+    #[cfg(test)]
+    after_step: Option<fn(&Self, &str)>,
+    #[cfg(test)]
+    install_directory: fn(&Path, &Path) -> std::io::Result<bool>,
+    #[cfg(all(test, target_vendor = "apple"))]
+    wait: fn(&Batch, File) -> Result<(), String>,
 }
 
 impl Transaction {
+    #[allow(clippy::too_many_lines)] // Keep both reservations under the same cleanup guard.
     fn begin(output: &Path, inputs: &[&Path]) -> Result<Self, String> {
-        let parent = output
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
+        let parent = parent(output);
         fs::create_dir_all(parent).map_err(message)?;
         let inputs = inputs
             .iter()
             .map(|input| fs::canonicalize(input).map_err(message))
             .collect::<Result<Vec<_>, _>>()?;
         protect(output, &inputs, fs::canonicalize(parent).ok().as_deref())?;
+        let sibling = sibling_stage(output);
+        let mut fresh = false;
         let created_output = match fs::symlink_metadata(output) {
             Ok(m) if m.file_type().is_symlink() || !m.is_dir() => {
                 return Err("output must be a real result directory, not a file or symlink".into());
             }
             Ok(_) => false,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                fs::create_dir(output).map_err(message)?;
-                true
+                if sibling.is_some() {
+                    fresh = true;
+                    false
+                } else {
+                    fs::create_dir(output).map_err(message)?;
+                    true
+                }
             }
             Err(e) => return Err(message(e)),
         };
-        let resolved_output = fs::canonicalize(output).ok();
+        if !fresh
+            && sibling
+                .as_ref()
+                .is_some_and(|path| fs::symlink_metadata(path).is_ok())
+        {
+            return Err(format!(
+                "unable to reserve result directory ({}): scratch exists",
+                output.join(".pelagic-lock").display()
+            ));
+        }
+        let resolved_output = fs::canonicalize(output).ok().or_else(|| {
+            fs::canonicalize(parent)
+                .ok()
+                .and_then(|p| output.file_name().map(|name| p.join(name)))
+        });
         for name in [
             MANIFEST,
             ".pelagic-lock",
@@ -161,37 +202,65 @@ impl Transaction {
             output: output.to_path_buf(),
             resolved_output,
             inputs,
-            stage: output.join(".pelagic-stage"),
+            stage: if fresh {
+                sibling.expect("fresh publication has a sibling")
+            } else {
+                output.join(".pelagic-stage")
+            },
             backup: output.join(".pelagic-backup"),
             lock: output.join(".pelagic-lock"),
             created_output,
+            fresh,
+            permissions: None,
             owned: Vec::new(),
             retain: false,
+            #[cfg(target_vendor = "apple")]
+            batch: Batch::current(),
             #[cfg(test)]
             before_install: None,
             #[cfg(test)]
             sync: sync_file,
+            #[cfg(all(test, target_vendor = "apple"))]
+            full_sync,
             #[cfg(test)]
             install_file,
             #[cfg(test)]
             after_install: None,
+            #[cfg(test)]
+            after_step: None,
+            #[cfg(test)]
+            install_directory,
+            #[cfg(all(test, target_vendor = "apple"))]
+            wait: Batch::wait,
         };
-        fs::create_dir(&this.lock).map_err(|e| {
-            format!(
-                "unable to reserve result directory ({}): {e}",
-                this.lock.display()
-            )
-        })?;
-        this.owned.push(this.lock.clone());
-        if fs::symlink_metadata(&this.backup).is_ok() {
-            return Err(format!(
-                "unowned or recoverable backup exists: {}",
-                this.backup.display()
-            ));
+        if !fresh {
+            fs::create_dir(&this.lock).map_err(|e| {
+                format!(
+                    "unable to reserve result directory ({}): {e}",
+                    this.lock.display()
+                )
+            })?;
+            this.owned.push(this.lock.clone());
+            if fs::symlink_metadata(&this.backup).is_ok() {
+                return Err(format!(
+                    "unowned or recoverable backup exists: {}",
+                    this.backup.display()
+                ));
+            }
         }
         fs::create_dir(&this.stage)
             .map_err(|e| format!("unable to reserve scratch {}: {e}", this.stage.display()))?;
         this.owned.push(this.stage.clone());
+        if fresh {
+            this.permissions = Some(fs::metadata(&this.stage).map_err(message)?.permissions());
+            // The sibling is the reservation until rename; the inner lock travels with it.
+            if fs::symlink_metadata(output).is_ok() {
+                return Err(format!(
+                    "unable to reserve result directory ({}): destination appeared",
+                    this.lock.display()
+                ));
+            }
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -202,6 +271,8 @@ impl Transaction {
 
     #[allow(clippy::too_many_lines)]
     fn install(&mut self, maximum: Option<u64>) -> Result<(), String> {
+        #[cfg(test)]
+        self.step("staged");
         let mut names = BTreeSet::new();
         for entry in fs::read_dir(&self.stage).map_err(message)? {
             let entry = entry.map_err(message)?;
@@ -261,18 +332,71 @@ impl Transaction {
             sha256: format!("{:x}", Sha256::digest(&bytes)),
         };
         check_quota(&self.stage, maximum)?;
+        names.insert(MANIFEST.into());
+        let paths: Vec<_> = names.iter().map(|name| self.stage.join(name)).collect();
+        self.sync_files(&paths)?;
+        #[cfg(target_vendor = "apple")]
+        {
+            let handle = open_for_sync(&self.stage.join(MANIFEST)).map_err(message)?;
+            if let Some(batch) = &self.batch {
+                #[cfg(test)]
+                let wait = self.wait;
+                #[cfg(not(test))]
+                let wait = Batch::wait;
+                wait(batch, handle)?;
+            } else {
+                #[cfg(test)]
+                let full_sync = self.full_sync;
+                full_sync(&handle).map_err(message)?;
+            }
+        }
         #[cfg(test)]
-        let sync = self.sync;
-        #[cfg(not(test))]
-        let sync = sync_file;
-        for name in names.iter().map(String::as_str).chain([MANIFEST]) {
-            // Windows FlushFileBuffers requires write access.
-            fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(self.stage.join(name))
-                .and_then(|f| sync(&f, name == MANIFEST))
-                .map_err(message)?;
+        {
+            self.step("barrier");
+            self.step("synced");
+        }
+        if self.fresh {
+            #[cfg(test)]
+            if let Some(hook) = self.before_install {
+                hook(self);
+            }
+            self.protect(&self.output)?;
+            let lock = self.stage.join(".pelagic-lock");
+            fs::create_dir(&lock).map_err(message)?;
+            self.owned.push(lock);
+            if let Some(permissions) = self.permissions.take() {
+                fs::set_permissions(&self.stage, permissions).map_err(message)?;
+            }
+            #[cfg(test)]
+            let install_directory = self.install_directory;
+            match install_directory(&self.stage, &self.output) {
+                Ok(true) => {
+                    self.owned.clear();
+                    self.owned.push(self.lock.clone());
+                    self.stage.clone_from(&self.output);
+                    #[cfg(test)]
+                    self.step("renamed");
+                    #[cfg(test)]
+                    self.step("installed");
+                    return Ok(());
+                }
+                Ok(false) => {
+                    // No exclusive directory rename on this filesystem: reserve the destination
+                    // before falling back to the original exclusive per-file installation.
+                    fs::create_dir(&self.output).map_err(message)?;
+                    self.created_output = true;
+                    fs::create_dir(&self.lock).map_err(message)?;
+                    self.owned.push(self.lock.clone());
+                    fs::remove_dir(self.stage.join(".pelagic-lock")).map_err(message)?;
+                    self.fresh = false;
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "unable to install result directory {}: {e}",
+                        self.output.display()
+                    ));
+                }
+            }
         }
         // All validation happens before moving any previous product. Recheck at each move.
         fs::create_dir(&self.backup).map_err(message)?;
@@ -323,6 +447,8 @@ impl Transaction {
             }
             return Err(format!("{error}; previous results restored"));
         }
+        #[cfg(test)]
+        self.step("installed");
         // The manifest is the commit marker, not a promise of atomic visibility to readers.
         if let Err(e) = fs::remove_dir_all(&self.backup) {
             self.retain = true;
@@ -333,6 +459,24 @@ impl Transaction {
         }
         self.owned.pop();
         Ok(())
+    }
+
+    #[cfg_attr(not(test), allow(clippy::unused_self))]
+    fn sync_files(&self, paths: &[PathBuf]) -> Result<(), String> {
+        #[cfg(test)]
+        let sync = self.sync;
+        #[cfg(not(test))]
+        let sync = sync_file;
+        syncing::sync_paths(paths, |path| sync_path(path, sync))
+            .into_iter()
+            .collect::<Result<(), _>>()
+    }
+
+    #[cfg(test)]
+    fn step(&self, name: &str) {
+        if let Some(hook) = self.after_step {
+            hook(self, name);
+        }
     }
 
     fn protect(&self, target: &Path) -> Result<(), String> {
@@ -395,6 +539,57 @@ impl Drop for Transaction {
     }
 }
 
+// Long/non-component names and other platforms retain the original path and its refusals.
+fn sibling_stage(output: &Path) -> Option<PathBuf> {
+    if !cfg!(any(target_vendor = "apple", target_os = "linux")) {
+        return None;
+    }
+    let name = output.file_name()?;
+    if name.as_encoded_bytes().len() > 240 {
+        return None;
+    }
+    let mut sibling = std::ffi::OsString::from(".pelagic-");
+    sibling.push(name);
+    sibling.push("-stage");
+    Some(parent(output).join(sibling))
+}
+
+/// False only if the filesystem does not support exclusive directory rename.
+// Other targets have no exclusive rename, so there it cannot fail.
+#[cfg_attr(
+    not(any(target_vendor = "apple", target_os = "linux")),
+    allow(clippy::unnecessary_wraps)
+)]
+fn install_directory(source: &Path, target: &Path) -> std::io::Result<bool> {
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    {
+        use rustix::fs::{CWD, RenameFlags, renameat_with};
+        match renameat_with(CWD, source, CWD, target, RenameFlags::NOREPLACE) {
+            Ok(()) => Ok(true),
+            Err(e) if unsupported_rename(e) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
+    {
+        let _ = (source, target);
+        Ok(false)
+    }
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+fn unsupported_rename(error: rustix::io::Errno) -> bool {
+    use rustix::io::Errno;
+    [
+        Errno::INVAL,
+        Errno::NOSYS,
+        Errno::NOTSUP,
+        Errno::OPNOTSUPP,
+        Errno::XDEV,
+    ]
+    .contains(&error)
+}
+
 /// True when rename consumed the source; false when the hard-link fallback retained it.
 fn install_file(source: &Path, target: &Path) -> std::io::Result<bool> {
     #[cfg(any(target_vendor = "apple", target_os = "linux"))]
@@ -415,44 +610,37 @@ fn install_file_with(
     target: &Path,
     rename: impl FnOnce(&Path, &Path) -> rustix::io::Result<()>,
 ) -> std::io::Result<bool> {
-    use rustix::io::Errno;
     match rename(source, target) {
         Ok(()) => Ok(true),
         // Unsupported syscall/flag/filesystem: retain the original exclusive hard-link path.
         // Do not retry conflicts, permissions or I/O errors as a different operation.
-        Err(e)
-            if [
-                Errno::INVAL,
-                Errno::NOSYS,
-                Errno::NOTSUP,
-                Errno::OPNOTSUPP,
-                Errno::XDEV,
-            ]
-            .contains(&e) =>
-        {
-            fs::hard_link(source, target).map(|()| false)
-        }
+        Err(e) if unsupported_rename(e) => fs::hard_link(source, target).map(|()| false),
         Err(e) => Err(e.into()),
     }
 }
 
+fn open_for_sync(path: &Path) -> std::io::Result<File> {
+    // Windows FlushFileBuffers requires write access.
+    fs::OpenOptions::new().read(true).write(true).open(path)
+}
+
+fn sync_path(path: &Path, sync: fn(&File) -> std::io::Result<()>) -> Result<(), syncing::Failure> {
+    sync(&open_for_sync(path).map_err(syncing::Failure::open)?).map_err(syncing::Failure::Other)
+}
+
 #[cfg(target_vendor = "apple")]
-fn sync_file(file: &File, last: bool) -> std::io::Result<()> {
-    // Match std's sync_all retry on interrupted syscalls.
-    rustix::io::retry_on_intr(|| rustix::fs::fsync(file))?;
-    if last {
-        // Apple's fsync(2) sends each file to the drive; fcntl(2)'s F_FULLFSYNC flushes ALL
-        // drive buffers. These files share the stage's device: one full flush, on the manifest
-        // last, makes every artifact stable before any old product moves (not group commit).
-        // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fsync.2.html
-        // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fcntl.2.html
-        rustix::io::retry_on_intr(|| rustix::fs::fcntl_fullfsync(file))?;
-    }
-    Ok(())
+fn sync_file(file: &File) -> std::io::Result<()> {
+    // Apple sync_all includes a drive flush; defer that until every ordinary fsync is done.
+    rustix::io::retry_on_intr(|| rustix::fs::fsync(file)).map_err(Into::into)
+}
+
+#[cfg(target_vendor = "apple")]
+fn full_sync(file: &File) -> std::io::Result<()> {
+    rustix::io::retry_on_intr(|| rustix::fs::fcntl_fullfsync(file)).map_err(Into::into)
 }
 
 #[cfg(not(target_vendor = "apple"))]
-fn sync_file(file: &File, _last: bool) -> std::io::Result<()> {
+fn sync_file(file: &File) -> std::io::Result<()> {
     file.sync_all()
 }
 
@@ -630,6 +818,12 @@ fn protect(target: &Path, inputs: &[PathBuf], parent: Option<&Path>) -> Result<(
         }
     }
     Ok(())
+}
+
+fn parent(path: &Path) -> &Path {
+    path.parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
 }
 
 fn message(e: impl std::fmt::Display) -> String {

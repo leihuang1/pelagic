@@ -732,6 +732,71 @@ fn resume_continues_after_a_first_record_cut_short() {
 }
 
 #[test]
+fn resume_after_an_interrupted_parallel_batch_checks_records_and_retained_locks() {
+    let root = directory("interrupted-batch");
+    let cases = root.join("cases");
+    fs::create_dir(&cases).unwrap();
+    for name in ["a", "b", "c", "d"] {
+        fs::copy(
+            example("kraken", "pekeris", "json"),
+            cases.join(format!("{name}.json")),
+        )
+        .unwrap();
+    }
+    let output = root.join("results");
+    let run = || {
+        pelagic(&[
+            &"kraken",
+            &"run-many",
+            &cases,
+            &"--output",
+            &output,
+            &"--workers",
+            &"4",
+            &"--threads",
+            &"1",
+            &"--resume",
+        ])
+    };
+    assert!(run().status.success());
+    let status = output.join("status.ndjson");
+    let previous = fs::read_to_string(&status).unwrap();
+    let a = previous
+        .lines()
+        .find(|line| line.contains("\"stem\":\"a\""))
+        .unwrap();
+    // a was recorded; b finished installation but lost its record; c died before lock
+    // cleanup; d had not yet published. The native-output crash tests produce these states.
+    fs::write(&status, format!("{a}\n{{\"status_version\":")).unwrap();
+    fs::create_dir(output.join("c/.pelagic-lock")).unwrap();
+    fs::remove_dir_all(output.join("d")).unwrap();
+    assert_eq!(run().status.code(), Some(4));
+    let last = outcomes(&output);
+    assert_eq!(
+        last,
+        BTreeMap::from([
+            ("a".into(), "skipped".into()),
+            ("b".into(), "ok".into()),
+            ("c".into(), "failed".into()),
+            ("d".into(), "ok".into()),
+        ])
+    );
+    assert!(
+        output.join("c/.pelagic-lock").is_dir(),
+        "resume never adopts retained work"
+    );
+    // After the owner has inspected/recovered the interrupted transaction, resume can retry it.
+    fs::remove_dir(output.join("c/.pelagic-lock")).unwrap();
+    assert!(run().status.success());
+    let last = outcomes(&output);
+    assert_eq!(last["c"], "ok");
+    for name in ["a", "b", "d"] {
+        assert_eq!(last[name], "skipped");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn resume_reruns_a_kraken_case_whose_output_quota_changed() {
     let root = directory("quota");
     let case = root.join("p.json");
@@ -773,4 +838,71 @@ fn resume_reruns_a_kraken_case_whose_output_quota_changed() {
     assert_eq!(resume("1").status.code(), Some(4));
     assert_eq!(outcomes(&output)["p"], "failed");
     fs::remove_dir_all(root).unwrap();
+}
+
+/// A full pool under a tight open-file limit still publishes every case and leaves no staging
+/// behind: sync helpers only use descriptors that no worker needs. Each of the 16 workers holds
+/// at most its HDF5 file, its report and one other file. With stdin, stdout, stderr and the
+/// status file, one-at-a-time syncing therefore never needs more than 3 × 16 + 4 = 52
+/// descriptors, however the workers' writes overlap; on macOS it needs between 48 and 52. 24
+/// workers can need up to 76, and a Linux CI run with them lost 2 cases at 64.
+/// Each case has 101 frequencies at a short range, for little solving. `sh` sets both the soft
+/// and hard limits, so the CLI cannot raise its own.
+#[cfg(unix)]
+fn publishes_every_case_under_a_tight_open_file_limit(name: &str, profiles: bool) {
+    let root = directory(name);
+    let cases = root.join("cases");
+    fs::create_dir(&cases).unwrap();
+    let mut case: Value =
+        serde_json::from_slice(&fs::read(example("kraken", "broadband", "json")).unwrap()).unwrap();
+    case["kraken"]["max_range"] = 5000.0.into();
+    if profiles {
+        // A second profile keeps indexed pairs: 205 files to sync per case instead of 5.
+        case["kraken"]["propagation"] = "adiabatic".into();
+        case["profiles"] = serde_json::json!([{ "range": 2500.0 }]);
+    }
+    for index in 0..24 {
+        fs::write(cases.join(format!("c{index:02}.json")), case.to_string()).unwrap();
+    }
+    let output = root.join("results");
+    let run = Command::new("sh")
+        .arg("-c")
+        .arg(r#"ulimit -n 64 && exec "$0" "$@""#)
+        .arg(env!("CARGO_BIN_EXE_pelagic"))
+        .args(["kraken", "run-many"])
+        .arg(&cases)
+        .arg("--output")
+        .arg(&output)
+        .args(["--workers", "16", "--threads", "1", "--format", "both"])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    let outcomes = outcomes(&output);
+    assert_eq!(outcomes.len(), 24, "{stderr}");
+    assert!(
+        outcomes.values().all(|outcome| outcome == "ok"),
+        "{outcomes:?}\n{stderr}"
+    );
+    assert!(run.status.success(), "{stderr}");
+    let controls: Vec<_> = fs::read_dir(&output)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .filter(|name| name.to_string_lossy().starts_with(".pelagic-"))
+        .collect();
+    assert!(controls.is_empty(), "{controls:?}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// 205 files to sync per case, one at a time under this limit.
+#[cfg(unix)]
+#[test]
+fn a_full_pool_under_a_tight_open_file_limit_publishes_every_case() {
+    publishes_every_case_under_a_tight_open_file_limit("open-files", true);
+}
+
+/// Holding a shared pair open between frequencies lost 9 of the 24 cases in every run.
+#[cfg(unix)]
+#[test]
+fn a_full_pool_under_a_tight_open_file_limit_publishes_every_shared_pair() {
+    publishes_every_case_under_a_tight_open_file_limit("open-files-shared", false);
 }

@@ -109,6 +109,9 @@ fn main() -> ExitCode {
             return ExitCode::from(if error.use_stderr() { 2 } else { 0 });
         }
     };
+    // Leave room for concurrent result-file syncs beside a large worker pool. A refused raise
+    // keeps the current limit, which the sync helpers then budget for.
+    let _ = output::directory::raise_open_file_limit();
     let threads = cli
         .threads
         .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));

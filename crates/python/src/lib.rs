@@ -325,9 +325,9 @@ impl NativeResult {
                     (CaseData::Bellhop(case), ResultData::Bellhop(result)) => native_output::bellhop::write(scratch, "case", case, result)?,
                     (CaseData::Kraken(cases), ResultData::Kraken(results)) => {
                         let mut quota = native_output::directory::Quota::new(scratch, max_output_bytes)?;
-                        for (index, (case, result)) in cases.iter().zip(results).enumerate() {
-                            let stem = native_output::kraken::stream::block_name("case", index, cases.len());
-                            native_output::kraken::write(scratch, &stem, case, result, &mut quota)?;
+                        let mut writer = native_output::kraken::Writer::new(scratch, "case", cases);
+                        for (index, result) in results.iter().enumerate() {
+                            writer.write_block(index, result, &mut quota)?;
                         }
                     }
                     _ => unreachable!("result is paired with its immutable case"),

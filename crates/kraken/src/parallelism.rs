@@ -1,6 +1,6 @@
 //! Thread-scoped worker count; results are bit-identical for every count.
 //!
-//! Workers only evaluate independent items (a group of modes' bisections, one
+//! Workers only evaluate independent items (a group of modes' root refinements, one
 //! FIELD row). The calling thread keeps every order-dependent step: results
 //! are returned in item order and combined exactly as a single thread would.
 use std::cell::Cell;

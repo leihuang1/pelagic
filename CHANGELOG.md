@@ -7,6 +7,54 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster durable CLI output, especially on Linux.** A result's files are now
+  synced concurrently, up to 16 at a time, instead of one after another, in
+  single `run` and in `run-many`. Each file still gets its own sync, so the
+  durability guarantee is unchanged. Sync helpers leave room for a sweep's own
+  open files: under a tight `ulimit -n`, each worker syncs one file at a time,
+  as before. The CLI also raises its soft open-file limit to the hard limit at
+  startup. Indicative measurements against the previous `main`, at one solver
+  thread per case with legacy output into fresh result directories, on an AMD
+  EPYC 7B13 Linux VM (overlay filesystem): 100 separate Pekeris runs, one after
+  another, were 2.1 times faster; `run-many` sweeps of 200 Pekeris cases 1.6 to
+  2.9 times faster at 1 to 24 workers; surface-duct sweeps 1.1 to 1.2 times; and
+  one 101-frequency broadband result of 204 files 3.9 times faster. Such results
+  now come from multi-profile runs, which keep indexed pairs; single-profile
+  broadband runs write one shared pair. A 24-worker sweep that also writes HDF5
+  took the same time. On a 14-CPU Apple M4 Pro, `run-many` workers that finish
+  together share one drive flush: Pekeris sweeps on 8 and 14 workers were 1.2
+  and 1.5 times faster, and the 204-file result 1.3 times. New result directories
+  on Linux and macOS are staged beside the destination and renamed into place in
+  one step. See
+  [publication and interrupted batches](docs/guide/native-output.md#run-many-barriers-and-interrupted-batches).
+- **Faster fluid KRAKEN root search.** Fluid problems now isolate modes with
+  shared Sturm-count bisections and refine each one with a safeguarded secant
+  (Illinois) iteration, which Sturm counts then check. A mode that fails any
+  check uses the previous exact bisection. On one thread of a 14-CPU Apple M4
+  Pro, solver-only runs are about 1.3 times faster for surface duct, 1.4 times
+  for Gulf, 1.7 times for Munk and 1.9 times for broadband. Results are no
+  longer bit-for-bit those of the previous release. Across the changed examples,
+  the largest per-example 99th-percentile transmission-loss change is 0.0003 dB.
+  Single cells at pressure nulls (below 1e-10 of the field's peak) change by up
+  to 74 dB, and the largest such difference from the pinned Fortran reference
+  falls from 69.4 to 37.8 dB. Mode counts are unchanged, results are still
+  identical across thread counts, each refinement mesh costs the same against
+  the work limit, and elastic KRAKEN and KRAKENC keep their existing search. See the
+  [measurement record](docs/history/kraken-fluid-roots.md).
+- **Faster fluid KRAKEN shooting.** The shooting function behind that search
+  now keeps its eight lanes in registers and rescales growing values out of
+  line. On one thread of an AMD EPYC 7B13, solver-only fluid runs are 1.02 to
+  1.24 times faster with both the default and the x86-64-v3 build: Gulf about
+  1.07 times, surface duct 1.13, broadband 1.2 and Pekeris 1.2. Elastic KRAKEN
+  and KRAKENC are unchanged. Results are bit-for-bit those of the new root
+  search. See the [measurement record](docs/history/kraken-fluid-roots.md#shooting-kernel).
+- **Optional Linux x86-64-v3 CLI for clusters.** A separate `linux-x64-v3`
+  archive is built for CPUs with AVX2, FMA and BMI2. On an AMD EPYC 7B13,
+  one-thread solver runs are about 1.02 to 1.47 times faster, with
+  byte-identical results across the measured inventory. Existing archives,
+  Python wheels and MATLAB's bundled CLIs are unchanged. Older CPUs must use
+  the baseline archive; see
+  [CPU checks and source builds](docs/guide/cluster.md#choose-a-linux-x86-64-build).
 - **Faster KRAKEN FIELD on Apple silicon.** Range-independent FIELD now sums
   16 ranges per loop instead of 8. On one thread of a 14-CPU Apple M4 Pro,
   solver-only runs are about 1.5 times faster for the large Munk benchmark,
@@ -45,8 +93,17 @@ in the [interface contract](docs/development/interface-contract.md).
   or `output::kraken::run_json`; the CLI already publishes through result
   directories, and its behaviour does not change.
 
-**Compatibility**
+### Compatibility
 
+- Multi-frequency KRAKEN/KRAKENC native output now uses one `CASE.mod` and one
+  `CASE.shd`, in Fortran's multi-frequency layout, when every block has exactly
+  one profile and shares the native headers and source/receiver grids. All
+  single-profile broadband `.env` inputs qualify. Multi-profile runs retain
+  byte-identical `CASE.fNNNN.mod/.shd` pairs so unmodified pinned FIELD and MATLAB
+  mode readers can traverse them; incompatible headers also retain indexed pairs.
+  This applies to the CLI and Python; consumers should use the manifest rather
+  than assume indexed filenames. Single-frequency bytes and HDF5 are unchanged.
+  This public filename change requires a minor release before 1.0.
 - KRAKEN `run` and `run-many` now report a JSON solver mismatch under the field
   `kraken.solver`, the JSON path, as `validate` and `export` already did. It was
   `mode_solver`.

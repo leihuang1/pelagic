@@ -9,6 +9,7 @@ of `main`. Publishing the GitHub release triggers everything else.
 | --- | --- | --- |
 | `pelagic-vX.Y.Z-windows-x64.zip` | `bindings.yml` (`windows-wheel`, `publish-windows`) | GitHub release |
 | `pelagic-vX.Y.Z-{linux-x64,linux-arm64,macos-arm64,macos-x64}.tar.gz` | `.github/workflows/bindings.yml` (`release-assets`) | GitHub release |
+| `pelagic-vX.Y.Z-linux-x64-v3.tar.gz` | `bindings.yml` (`cli-v3`, `release-assets`) | GitHub release |
 | `pelagic-vX.Y.Z.mltbx` (all five CLIs inside) | `bindings.yml` (`matlab`, `release-assets`) | GitHub release |
 | A `.sha256` for each of the above | Same jobs | GitHub release |
 | Five abi3 wheels and the sdist | `bindings.yml` (`linux-wheel`, `windows-wheel`, `wheels`, `sdist`, `publish-pypi`) | PyPI |
@@ -17,6 +18,15 @@ Release publishing refuses mismatched versions: Windows packaging checks the
 tag against Cargo, PyPI checks every wheel version, and the other assets check
 `matlab/VERSION`. `publish-pypi`, `publish-windows`, and `release-assets` run only
 after the complete `bindings-check` gate succeeds.
+
+The separate `cli-v3` job builds only the optional Linux x86-64-v3 CLI; all
+wheel/CLI pairs and MATLAB's five bundled CLIs stay baseline. It runs the
+release-mode CLI suite and compares one-thread solver snapshots with a
+baseline build using the 12 representative `tools/perf/cases.json` cases.
+It runs on code-changing PRs and main pushes, manual runs and releases, so
+compiler or solver changes cannot silently break the optional build before a
+release. The small subset and separate Cargo cache bound the extra CI cost;
+documentation-only changes skip it under the same plan as the other builds.
 
 ## One-time setup
 
@@ -136,12 +146,12 @@ because of the code, **do not** move the tag:
 ## 6. Verify as a user
 
 ```sh
-gh release view vX.Y.Z --json assets -q '.assets[].name'    # 12 files
+gh release view vX.Y.Z --json assets -q '.assets[].name'    # 14 files
 python -m venv /tmp/pg && /tmp/pg/bin/pip install pelagic==X.Y.Z
 /tmp/pg/bin/python -c "import pelagic; print(pelagic.__version__)"
 ```
 
-- **GitHub release:** 6 archives (5 CLIs and the `.mltbx`) plus 6 `.sha256`
+- **GitHub release:** 7 archives (6 CLIs and the `.mltbx`) plus 7 `.sha256`
   files.
 - **PyPI:** 5 wheels (manylinux x86-64 and aarch64, macOS x86-64 and arm64,
   win_amd64) plus the sdist.

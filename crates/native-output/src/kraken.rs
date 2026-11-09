@@ -1,7 +1,8 @@
-//! A native MOD/SHD pair per ordered frequency block, each MOD retaining profile order.
-//! Separate blocks can have different geometry in the accepted JSON contract.
+//! Fortran multi-frequency MOD/SHD, falling back to indexed pairs for incompatible headers.
 #![allow(clippy::cast_possible_truncation)]
+mod layout;
 pub mod stream;
+pub use layout::Writer;
 
 use crate::native::{self, Direct, count, doubles, singles, text};
 use kraken::{Boundary, Case, FieldCase, ModeSet, ModeSolver, ProfileSimulationResult};
@@ -62,12 +63,18 @@ fn modes(
     let words = words.div_ceil(2) * 2;
     let mut file = Direct::new(path, words, maximum)?;
     for (case, modes) in sequence.profiles().iter().zip(&result.modes) {
-        profile(&mut file, words, case, modes)?;
+        profile_header(&mut file, words, case, &[modes.frequency_hz])?;
+        mode_data(&mut file, words, case, modes)?;
     }
     file.finish()
 }
 
-fn profile(file: &mut Direct, words: usize, case: &Case, modes: &ModeSet) -> io::Result<()> {
+fn profile_header(
+    file: &mut Direct,
+    words: usize,
+    case: &Case,
+    frequencies: &[f64],
+) -> io::Result<()> {
     let mut header = count(words)?.to_vec();
     let solver = match case.mode_solver {
         ModeSolver::Kraken => "KRAKEN",
@@ -75,10 +82,10 @@ fn profile(file: &mut Direct, words: usize, case: &Case, modes: &ModeSet) -> io:
     };
     header.extend(text(&format!("{solver} {}", case.title), 80));
     for n in [
-        1,
+        frequencies.len(),
         1 + case.additional_fluid_layers.len(),
-        modes.sampled_depths_m.len(),
-        modes.sampled_depths_m.len(),
+        case.mode_sample_depths_m.len(),
+        case.mode_sample_depths_m.len(),
     ] {
         header.extend(count(n)?);
     }
@@ -113,8 +120,11 @@ fn profile(file: &mut Direct, words: usize, case: &Case, modes: &ModeSet) -> io:
         layers.extend(native::single(density)?);
     }
     file.record(layers)?;
-    file.record(doubles(&[modes.frequency_hz]))?;
-    file.record(singles(&modes.sampled_depths_m)?)?;
+    file.record(doubles(frequencies))?;
+    file.record(singles(&case.mode_sample_depths_m)?)
+}
+
+fn mode_data(file: &mut Direct, words: usize, case: &Case, modes: &ModeSet) -> io::Result<()> {
     file.record(count(modes.modes.len())?.to_vec())?;
     let mut boundaries = half_space(
         &case.surface_boundary,

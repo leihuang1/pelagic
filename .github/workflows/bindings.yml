@@ -14,6 +14,7 @@ jobs:
       others: ${{ steps.plan.outputs.others }}
       tests: ${{ steps.plan.outputs.tests }}
       shards: ${{ steps.plan.outputs.shards }}
+      v3: ${{ steps.plan.outputs.v3 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,25 +25,7 @@ jobs:
       - id: plan
         env:
           EVENT: ${{ github.event_name }}
-        shell: python3 {0}
-        run: |
-          import json, os
-          wheels = [
-              {"os": "ubuntu-22.04", "target": "x86_64-unknown-linux-gnu", "platform": "linux-x64"},
-              {"os": "ubuntu-24.04-arm", "target": "aarch64-unknown-linux-gnu", "platform": "linux-arm64"},
-              {"os": "macos-15", "target": "aarch64-apple-darwin", "platform": "macos-arm64"},
-              {"os": "macos-15-intel", "target": "x86_64-apple-darwin", "platform": "macos-x64"},
-              {"os": "windows-2022", "target": "x86_64-pc-windows-msvc", "platform": "windows-x64", "interpreter": "python"},
-          ]
-          if os.environ["EVENT"] == "pull_request":
-              wheels = [wheel for wheel in wheels if wheel["platform"] != "macos-x64"]
-          shards = {w["platform"]: (2 if w["platform"] in ("windows-x64", "macos-x64") else 1) for w in wheels}
-          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              print("shards=" + json.dumps(shards), file=output)
-              print("wheels=" + json.dumps({"include": wheels}), file=output)
-              print("others=" + json.dumps({"include": [w for w in wheels if w["platform"] not in ("linux-x64", "windows-x64")]}), file=output)
-              print("tests=" + json.dumps({"include": [dict(w, shard=shard, count=shards[w["platform"]]) for w in wheels if w["platform"] not in ("linux-x64", "windows-x64") for shard in range(shards[w["platform"]])]}), file=output)
-              print("platforms=" + " ".join(wheel["platform"] for wheel in wheels), file=output)
+        run: python3 tools/ci/plan.py
   linux-wheel:
     needs: plan
     if: needs.plan.outputs.full == 'true'
@@ -58,6 +41,55 @@ jobs:
           target: x86_64-unknown-linux-gnu
           platform: linux-x64
           interpreter: python3.11
+  cli-v3:
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    strategy:
+      matrix: ${{ fromJSON(needs.plan.outputs.v3) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      RUSTFLAGS: -C target-cpu=x86-64-v3
+      CARGO_TARGET_DIR: target/v3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install repository-pinned Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cli-${{ matrix.platform }}
+          cache-bin: false
+          workspaces: |
+            . -> target/v3
+            tools/perf -> ../../target/perf-baseline
+      - name: Test the release-mode v3 CLI
+        run: cargo test --locked --release -p cli --target ${{ matrix.target }}
+      - name: Build the baseline solver snapshot tool
+        env:
+          RUSTFLAGS: ''
+          CARGO_TARGET_DIR: target/perf-baseline
+        run: cargo build --locked --release --manifest-path tools/perf/Cargo.toml --bin pelagic-perf --target ${{ matrix.target }}
+      - name: Build the v3 solver snapshot tool
+        run: cargo build --locked --release --manifest-path tools/perf/Cargo.toml --bin pelagic-perf --target ${{ matrix.target }}
+      - name: Require byte-identical one-thread solver results
+        # shortcut: the 12 timing cases bound PR cost; expand when new solver paths need coverage.
+        run: |
+          python3 tools/perf/run.py check --cases tools/perf/cases.json --threads 1 \
+            --binary target/perf-baseline/${{ matrix.target }}/release/pelagic-perf --output "$RUNNER_TEMP/identity-baseline"
+          python3 tools/perf/run.py check --cases tools/perf/cases.json --threads 1 \
+            --binary target/v3/${{ matrix.target }}/release/pelagic-perf --output "$RUNNER_TEMP/identity-v3" --baseline "$RUNNER_TEMP/identity-baseline"
+      - name: Stage v3 CLI and license notices
+        run: |
+          mkdir -p cli
+          cp target/v3/${{ matrix.target }}/release/pelagic cli/
+          cp LICENSE NOTICE cli/
+          cp packaging/cli-licenses.json cli/THIRD-PARTY-LICENSES.json
+          python3 -c 'import pathlib,hashlib; p=pathlib.Path("cli"); (p/"SHA256SUMS").write_text("".join(hashlib.sha256(f.read_bytes()).hexdigest()+"  "+f.name+"\n" for f in sorted(p.iterdir()) if f.is_file()))'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.platform }}
+          path: cli/
+          compression-level: 0
   windows-wheel:
     needs: plan
     if: needs.plan.outputs.full == 'true'
@@ -277,8 +309,18 @@ jobs:
           cache-bin: false
           shared-key: license-sources
       - name: Download verified precompiled license tool
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          curl --fail --location --retry 3 https://github.com/sstadick/cargo-bundle-licenses/releases/download/v4.2.0/cargo-bundle-licenses-linux-amd64 -o "$RUNNER_TEMP/cargo-bundle-licenses"
+          # Authenticated, with patient retries: anonymous release downloads returned HTTP 504
+          # for this job during a GitHub incident while authenticated ones succeeded.
+          for attempt in 1 2 3 4 5; do
+            gh release download v4.2.0 --repo sstadick/cargo-bundle-licenses \
+              --pattern cargo-bundle-licenses-linux-amd64 --dir "$RUNNER_TEMP" --clobber && break
+            if [ "$attempt" = 5 ]; then exit 1; fi
+            sleep $((attempt * 15))
+          done
+          mv "$RUNNER_TEMP/cargo-bundle-licenses-linux-amd64" "$RUNNER_TEMP/cargo-bundle-licenses"
           echo "4208af8db7a34b427068211e73cdd299b577245601f68c5a1c3af85e4fa4cc7c  $RUNNER_TEMP/cargo-bundle-licenses" | sha256sum --check --strict
           chmod +x "$RUNNER_TEMP/cargo-bundle-licenses"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
@@ -301,6 +343,7 @@ jobs:
       - octave
       - sdist
       - licenses
+      - cli-v3
       - windows-check
       - linux-tests
       - windows-tests
@@ -380,7 +423,7 @@ jobs:
           version="$(tr -d '[:space:]' < matlab/VERSION)"
           test "$RELEASE_TAG" = "v$version" || { echo "Release tag must be v$version" >&2; exit 1; }
           mkdir dist
-          for platform in linux-x64 linux-arm64 macos-arm64 macos-x64; do
+          for platform in linux-x64 linux-x64-v3 linux-arm64 macos-arm64 macos-x64; do
             source="cli-artifacts/cli-$platform"
             (cd "$source" && sha256sum --check --strict SHA256SUMS)
             name="pelagic-v$version-$platform"
@@ -390,6 +433,9 @@ jobs:
             chmod 755 "stage/$name/pelagic"
             printf 'Pelagic v%s (%s)\nCommit: %s\nSource: https://github.com/%s/archive/%s.zip\n' \
               "$version" "$platform" "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_SHA" > "stage/$name/BUILD-INFO.txt"
+            if [ "$platform" = linux-x64-v3 ]; then
+              printf 'RUSTFLAGS=-C target-cpu=x86-64-v3\nRequires an x86-64-v3 CPU; use linux-x64 on older CPUs.\n' >> "stage/$name/BUILD-INFO.txt"
+            fi
             tar -C stage -czf "dist/$name.tar.gz" "$name"
           done
           cp toolbox/pelagic.mltbx "dist/pelagic-v$version.mltbx"
