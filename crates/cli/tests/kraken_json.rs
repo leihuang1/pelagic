@@ -1,5 +1,8 @@
+use hdf5::File;
 use hdf5::types::VarLenUnicode;
-use hdf5::{File, Group};
+#[path = "support/hdf5.rs"]
+mod hdf5_compare;
+use hdf5_compare::assert_datasets;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -39,45 +42,6 @@ fn text(location: &hdf5::Location, name: &str) -> String {
         .as_str()
         .to_owned()
 }
-fn assert_datasets(left: &Group, right: &Group) {
-    assert_eq!(left.attr_names().unwrap(), right.attr_names().unwrap());
-    for name in left.attr_names().unwrap() {
-        let left = left.attr(&name).unwrap();
-        let right = right.attr(&name).unwrap();
-        assert_eq!(left.dtype().unwrap(), right.dtype().unwrap(), "{name}");
-        if left.dtype().unwrap().is::<VarLenUnicode>() {
-            assert_eq!(
-                left.read_scalar::<VarLenUnicode>().unwrap(),
-                right.read_scalar::<VarLenUnicode>().unwrap(),
-                "{name}"
-            );
-        } else {
-            assert_eq!(
-                left.read_scalar::<f64>().unwrap().to_bits(),
-                right.read_scalar::<f64>().unwrap().to_bits(),
-                "{name}"
-            );
-        }
-    }
-    assert_eq!(left.member_names().unwrap(), right.member_names().unwrap());
-    for name in left.member_names().unwrap() {
-        if let Ok(group) = left.group(&name) {
-            assert_datasets(&group, &right.group(&name).unwrap());
-        } else {
-            let left = left.dataset(&name).unwrap();
-            let right = right.dataset(&name).unwrap();
-            assert_eq!(left.shape(), right.shape(), "{name}");
-            assert_eq!(left.dtype().unwrap(), right.dtype().unwrap(), "{name}");
-            assert_eq!(
-                left.read_raw::<f64>().unwrap(),
-                right.read_raw::<f64>().unwrap(),
-                "{name}"
-            );
-            assert_eq!(text(&left, "unit"), text(&right, "unit"), "{name}");
-        }
-    }
-}
-
 #[test]
 #[allow(clippy::too_many_lines)]
 fn json_cli_exports_and_runs_relocated_documents_without_auxiliary_files() {

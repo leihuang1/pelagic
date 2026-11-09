@@ -7,6 +7,9 @@ use std::process::{Command, Output, Stdio};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+#[path = "support/hdf5.rs"]
+mod hdf5_compare;
+
 fn directory(name: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!("pelagic-run-many-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&path);
@@ -95,33 +98,44 @@ fn no_sync_is_documented_for_both_models_and_commands() {
     }
 }
 
-// shortcut: raw HDF5 identity needs a sub-second pair; remove this retry when writers omit timestamps.
-// Retry only a crossed clock tick; within one tick require every raw byte, including manifests.
-fn same_timestamp_tick(run: impl Fn() -> Vec<Vec<BTreeMap<String, Vec<u8>>>>) {
-    let seconds = || {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-    };
-    for _ in 0..10 {
-        let start = seconds();
-        let snapshots = run();
-        if start == seconds() {
-            assert_eq!(snapshots[0].len(), snapshots[1].len());
-            for (left, right) in snapshots[0].iter().zip(&snapshots[1]) {
-                assert_eq!(
-                    left.keys().collect::<Vec<_>>(),
-                    right.keys().collect::<Vec<_>>()
-                );
-                for (name, bytes) in left {
-                    assert!(bytes == &right[name], "different bytes: {name}");
-                }
-            }
-            return;
+fn checked_manifest(output: &Path) -> Value {
+    let mut manifest: Value =
+        serde_json::from_slice(&fs::read(output.join("pelagic-manifest.json")).unwrap()).unwrap();
+    for artifact in manifest["artifacts"].as_array_mut().unwrap() {
+        let name = artifact["name"].as_str().unwrap();
+        let bytes = fs::read(output.join(name)).unwrap();
+        assert_eq!(artifact["size_bytes"], bytes.len(), "{name}");
+        assert_eq!(
+            artifact["sha256"],
+            format!("{:x}", Sha256::digest(&bytes)),
+            "{name}"
+        );
+        if Path::new(name).extension().is_some_and(|e| e == "h5") {
+            // HDF5 timestamps change container hashes, not the schema or physical size.
+            artifact["sha256"] = Value::Null;
         }
     }
-    panic!("could not compare paired publications within one HDF5 timestamp second");
+    manifest
+}
+
+fn assert_outputs(left: &Path, right: &Path) {
+    let left_files = files(left);
+    let right_files = files(right);
+    assert_eq!(
+        left_files.keys().collect::<Vec<_>>(),
+        right_files.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(checked_manifest(left), checked_manifest(right));
+    for (name, bytes) in left_files {
+        if Path::new(&name).extension().is_some_and(|e| e == "h5") {
+            hdf5_compare::assert_datasets(
+                &hdf5::File::open(left.join(&name)).unwrap(),
+                &hdf5::File::open(right.join(&name)).unwrap(),
+            );
+        } else if name != "pelagic-manifest.json" {
+            assert!(bytes == right_files[&name], "different bytes: {name}");
+        }
+    }
 }
 
 #[test]
@@ -146,46 +160,46 @@ fn no_sync_run_and_run_many_match_durable_outputs_in_every_format() {
                 } else {
                     cases.clone()
                 };
-                same_timestamp_tick(|| {
-                    let mut snapshots = Vec::new();
-                    for (output, no_sync) in [(&durable, false), (&scratch, true)] {
-                        let output = if command == "run" {
-                            output.join("single")
-                        } else {
-                            output.clone()
-                        };
-                        let mut args: Vec<&dyn AsRef<std::ffi::OsStr>> = vec![
-                            &model,
-                            &command,
-                            &input,
-                            &"--output",
-                            &output,
-                            &"--format",
-                            &format,
-                            &"--threads",
-                            &"1",
-                        ];
-                        if command == "run-many" {
-                            args.extend([&"--workers" as &dyn AsRef<std::ffi::OsStr>, &"4"]);
-                        }
-                        if no_sync {
-                            args.push(&"--no-sync");
-                        }
-                        let run = pelagic(&args);
-                        assert!(
-                            run.status.success(),
-                            "{}",
-                            String::from_utf8_lossy(&run.stderr)
-                        );
-                        snapshots.push(if command == "run-many" {
-                            assert!(outcomes(&output).values().all(|v| v == "ok"));
-                            ["a", "b"].map(|stem| files(&output.join(stem))).to_vec()
-                        } else {
-                            vec![files(&output)]
-                        });
+                let mut outputs = Vec::new();
+                for (output, no_sync) in [(&durable, false), (&scratch, true)] {
+                    let output = if command == "run" {
+                        output.join("single")
+                    } else {
+                        output.clone()
+                    };
+                    let mut args: Vec<&dyn AsRef<std::ffi::OsStr>> = vec![
+                        &model,
+                        &command,
+                        &input,
+                        &"--output",
+                        &output,
+                        &"--format",
+                        &format,
+                        &"--threads",
+                        &"1",
+                    ];
+                    if command == "run-many" {
+                        args.extend([&"--workers" as &dyn AsRef<std::ffi::OsStr>, &"4"]);
                     }
-                    snapshots
-                });
+                    if no_sync {
+                        args.push(&"--no-sync");
+                    }
+                    let run = pelagic(&args);
+                    assert!(
+                        run.status.success(),
+                        "{}",
+                        String::from_utf8_lossy(&run.stderr)
+                    );
+                    outputs.push(if command == "run-many" {
+                        assert!(outcomes(&output).values().all(|v| v == "ok"));
+                        ["a", "b"].map(|stem| output.join(stem)).to_vec()
+                    } else {
+                        vec![output]
+                    });
+                }
+                for (left, right) in outputs[0].iter().zip(&outputs[1]) {
+                    assert_outputs(left, right);
+                }
             }
             // Changing the policy does not change status options or prevent a verified skip.
             for no_sync in [false, true] {
