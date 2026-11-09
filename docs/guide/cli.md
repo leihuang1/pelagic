@@ -95,8 +95,10 @@ closing, hashing, quotas, locks, backups, installation and rollback are unchange
 even though they were installed and, in a sweep, recorded as `ok`.** Neither
 mode guarantees directory-entry durability. A scheduler time limit, preemption,
 `scancel` or Pelagic process crash alone does not discard completed results:
-the OS remains running and writes its cache back. An OS crash, node failure or
-power loss can lose that cache. An unfinished publication can still leave
+the OS remains running and normally writes its cache back. An OS crash, node
+failure or power loss can lose that cache. A write error that the OS hits later,
+such as a failing disk or a full network filesystem, also goes unseen: no sync
+reports it, so the case does not fail. An unfinished publication can still leave
 incomplete scratch data, a partial installation or locks in either mode.
 
 ```sh

@@ -183,8 +183,10 @@ truncated or missing even though they were installed and recorded as `ok`.**
 Closing writers still flushes their userspace buffers to the OS; that is not a
 durability barrier. Manifest and status formats are unchanged. A scheduler time
 limit, preemption, `scancel` or Pelagic process crash alone does not discard
-completed publications: the OS remains alive to write cached data back. The
-additional no-sync risk is an OS crash, node failure or power loss. Killing a
+completed publications: the OS remains alive and normally writes cached data
+back. The additional no-sync risks are an OS crash, node failure or power loss,
+and a write error that the OS hits later, such as a failing disk or a full
+network filesystem: no sync reports it, so the case is still recorded as `ok`. Killing a
 writer before its buffers are flushed can lose unfinished scratch data, and an
 interrupted installation can leave a partial group, backups or locks in either
 mode; neither case has a new `ok` record.

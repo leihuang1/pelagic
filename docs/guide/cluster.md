@@ -105,12 +105,17 @@ depend on the filesystem and storage server.
 
 A scheduler time limit, preemption, `scancel`, or a crashed Pelagic process does
 **not** discard completed results merely because they were not synced: the OS
-is still running and writes its cached data back. The extra no-sync risk is an
-**OS crash, node failure or power loss**, which can lose that cache. This applies
-to completed publications: killing a process while it is still writing can lose
+is still running and normally writes its cached data back. This applies to
+completed publications: killing a process while it is still writing can lose
 userspace-buffered scratch data, and interrupting installation can leave a
 partial group, backups or locks in either mode. It does not turn an unfinished
 case into a successful one.
+
+The extra no-sync risks are an **OS crash, node failure or power loss**, which
+can lose that cache, and a **write error that the OS hits later**, such as a
+failing disk or a full or unreachable network filesystem. In the default mode
+the sync reports such an error and the case fails. With `--no-sync`, Pelagic
+never sees it, and the case can still be recorded as `ok`.
 
 `--resume` still rehashes every listed artifact. Missing files can be regenerated;
 empty, truncated or zero-filled files are never accepted as current. Damaged
@@ -267,8 +272,11 @@ rm -rf -- scratch-results
 pelagic kraken run-many cases/ --output scratch-results --threads 1 --no-sync
 ```
 
-To keep completed cases instead, use the original input paths, format and shard
-options and resume:
+To keep completed cases instead, rerun with `--resume` and every original option
+that affects results: the input paths, `--format`, the shard options and, for
+KRAKEN, `--solver` and `--max-output-bytes`. A case whose options changed runs
+again, and its new result replaces the old one. This example uses the default
+options:
 
 ```sh
 pelagic kraken run-many cases/ --output scratch-results --threads 1 --resume
@@ -285,7 +293,7 @@ cases/c001.json: scratch-results/c001:1:1: error[BH0402]: owned artifact was mod
 ```
 
 Inspect the failed case, then move its **whole directory** aside and resume
-again. Replace `kraken` with `bellhop` for that model:
+again with the same options. Replace `kraken` with `bellhop` for that model:
 
 ```sh
 mkdir -p quarantine
