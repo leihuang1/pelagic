@@ -85,6 +85,31 @@ need to start several `pelagic` processes yourself. Each case goes to
 absolute paths in the list, or always start from the same folder: `--resume`
 matches a case by its path as written.
 
+## Disposable scratch sweeps
+
+For small cases, syncing each output file can cost more than solving it. Both
+KRAKEN and BELLHOP `run` and `run-many` accept `--no-sync` when rerunning is
+cheaper than guarding against an OS crash. For one solver thread per case:
+
+```sh
+pelagic kraken run-many cases/ --output scratch/results --workers 14 --threads 1 --no-sync
+```
+
+The default remains durable. `--no-sync` skips all per-file syncs and Apple's
+shared drive-cache barrier, but keeps staging, hashes, quotas, locks, backups,
+installation, rollback, cleanup and status lines. **After an OS crash or power
+loss, results may be empty, truncated or missing even though they were installed
+and recorded as `ok`.** Do not use it for results you cannot afford to rerun.
+Neither mode promises directory-entry durability, and remote-storage guarantees
+depend on the filesystem and storage server.
+
+`--resume` still rehashes every listed artifact. Missing files can be regenerated;
+empty, truncated or zero-filled files are never accepted as current. Damaged
+existing files, invalid manifests or retained transaction controls can require
+manual recovery before replacement is allowed. A later `--resume` without
+`--no-sync` does not sync skipped cases or upgrade their durability; to publish
+them durably, rerun without either flag.
+
 ## Slurm job arrays
 
 [`examples/cli/slurm-sweep.sh`](../../examples/cli/slurm-sweep.sh) is a
@@ -167,9 +192,10 @@ threads, KRAKEN frequencies and profiles that run side by side can also hold abo
 
 ## When a task stops early
 
-Every successful case writes its status line after all file syncs and
-installation. Each publication, including a separate `run` in a job array,
-syncs its files concurrently with at most 16 I/O participants including the
+Every successful case writes its status line after installation and, by default,
+all file syncs before it. `--no-sync` skips these syncs and Apple's drive barrier;
+it does not skip installation or status reporting. In the default mode, each
+publication, including a separate `run` in a job array, syncs its files concurrently with at most 16 I/O participants including the
 calling thread. This is independent of the numerical `--threads` setting;
 a refused helper leaves work to the caller rather than failing the case.
 Linux and Windows workers sync their own files without cross-case coordination

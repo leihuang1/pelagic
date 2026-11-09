@@ -24,6 +24,9 @@ pub enum Command {
         output: Option<PathBuf>,
         #[arg(long, value_enum, default_value = "legacy")]
         format: crate::Format,
+        /// Skip file syncs; an OS crash or power loss may leave results empty, truncated or missing.
+        #[arg(long)]
+        no_sync: bool,
     },
     /// Run many cases, each into its own result directory, recording each in a status file.
     RunMany(crate::many::Args),
@@ -42,7 +45,14 @@ pub fn execute(
             case,
             output,
             format,
-        } => match run(&case, output, format, &mut |d| diagnostics.render(d)) {
+            no_sync,
+        } => match run(
+            &case,
+            output,
+            format,
+            crate::sync_policy(no_sync),
+            &mut |d| diagnostics.render(d),
+        ) {
             Ok(summary) => {
                 println!("{summary}");
                 ExitCode::SUCCESS
@@ -137,13 +147,14 @@ fn run(
     path: &Path,
     output: Option<PathBuf>,
     format: crate::Format,
+    sync_policy: output::directory::SyncPolicy,
     emit: &mut dyn FnMut(&[Diagnostic]),
 ) -> Result<String, u8> {
     let input = load(path).map_err(|report| {
         emit(report.diagnostics());
         2
     })?;
-    solve(&input, output, format, emit)
+    solve(&input, output, format, sync_policy, emit)
 }
 
 /// The rest of `run`, once its input is loaded.
@@ -151,6 +162,7 @@ fn solve(
     input: &CaseInput,
     output: Option<PathBuf>,
     format: crate::Format,
+    sync_policy: output::directory::SyncPolicy,
     emit: &mut dyn FnMut(&[Diagnostic]),
 ) -> Result<String, u8> {
     let outcome = input.outcome();
@@ -186,6 +198,7 @@ fn solve(
             .map(PathBuf::as_path)
             .collect::<Vec<_>>(),
         format.into(),
+        sync_policy,
     )
     .map_err(|error| failed(&error))?;
     let ray_count: usize = result.sources.iter().map(|s| s.rays.len()).sum();
@@ -259,12 +272,17 @@ impl crate::many::Loaded for Loaded<'_> {
             .collect()
     }
 
-    fn run(self: Box<Self>, output: &Path) -> crate::many::Outcome {
+    fn run(
+        self: Box<Self>,
+        output: &Path,
+        sync_policy: output::directory::SyncPolicy,
+    ) -> crate::many::Outcome {
         let mut diagnostics = Vec::new();
         let result = solve(
             &self.input,
             Some(output.to_path_buf()),
             self.many.format,
+            sync_policy,
             &mut |d| diagnostics.extend(d.iter().map(crate::many::Rendered::of)),
         );
         crate::many::Outcome {

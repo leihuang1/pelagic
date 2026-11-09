@@ -12,6 +12,10 @@ mod batch;
 #[cfg(not(target_vendor = "apple"))]
 #[path = "directory/unbatched.rs"]
 mod batch;
+// Exercise Apple's platform-independent barrier coordination on other Unix hosts too.
+#[cfg(all(test, unix, not(target_vendor = "apple")))]
+#[path = "directory/batch.rs"]
+mod apple_batch;
 mod syncing;
 pub use batch::Batch;
 pub use syncing::raise_open_file_limit;
@@ -51,6 +55,15 @@ impl Format {
     pub fn hdf5(self) -> bool {
         self != Self::Legacy
     }
+}
+
+/// File-content durability before installation. Skipping syncs must be explicit.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SyncPolicy {
+    #[default]
+    Sync,
+    /// Keep publication safeguards, but an OS crash or power loss may lose file contents.
+    NoSync,
 }
 
 /// Artifact basename derived from a supplied input, never from mutable acoustic metadata.
@@ -102,16 +115,19 @@ pub fn verified_manifest_sha256(output: &Path) -> Result<Option<String>, String>
 /// # Errors
 /// Rejects conflicts, modified owned files, input aliases, symlinks, quotas and I/O failures.
 /// Installation failure rolls back; rollback failure preserves scratch/backup and names them.
-/// A [`Batch`] shares Apple drive flushes before installation; no directory durability is promised.
+/// With [`SyncPolicy::Sync`] (the default policy), a [`Batch`] shares Apple drive flushes before
+/// installation. [`SyncPolicy::NoSync`] skips all file syncs and drive barriers, not verification.
+/// Neither policy promises directory durability.
 pub fn publish<T, E: From<String>>(
     output: &Path,
     inputs: &[&Path],
     maximum: Option<u64>,
+    sync_policy: SyncPolicy,
     write: impl FnOnce(&Path) -> Result<T, E>,
 ) -> Result<T, E> {
     let mut transaction = Transaction::begin(output, inputs).map_err(E::from)?;
     let result = write(&transaction.stage)?;
-    transaction.install(maximum).map_err(E::from)?;
+    transaction.install(maximum, sync_policy).map_err(E::from)?;
     Ok(result)
 }
 
@@ -270,7 +286,7 @@ impl Transaction {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn install(&mut self, maximum: Option<u64>) -> Result<(), String> {
+    fn install(&mut self, maximum: Option<u64>, sync_policy: SyncPolicy) -> Result<(), String> {
         #[cfg(test)]
         self.step("staged");
         let mut names = BTreeSet::new();
@@ -333,21 +349,23 @@ impl Transaction {
         };
         check_quota(&self.stage, maximum)?;
         names.insert(MANIFEST.into());
-        let paths: Vec<_> = names.iter().map(|name| self.stage.join(name)).collect();
-        self.sync_files(&paths)?;
-        #[cfg(target_vendor = "apple")]
-        {
-            let handle = open_for_sync(&self.stage.join(MANIFEST)).map_err(message)?;
-            if let Some(batch) = &self.batch {
-                #[cfg(test)]
-                let wait = self.wait;
-                #[cfg(not(test))]
-                let wait = Batch::wait;
-                wait(batch, handle)?;
-            } else {
-                #[cfg(test)]
-                let full_sync = self.full_sync;
-                full_sync(&handle).map_err(message)?;
+        if sync_policy == SyncPolicy::Sync {
+            let paths: Vec<_> = names.iter().map(|name| self.stage.join(name)).collect();
+            self.sync_files(&paths)?;
+            #[cfg(target_vendor = "apple")]
+            {
+                let handle = open_for_sync(&self.stage.join(MANIFEST)).map_err(message)?;
+                if let Some(batch) = &self.batch {
+                    #[cfg(test)]
+                    let wait = self.wait;
+                    #[cfg(not(test))]
+                    let wait = Batch::wait;
+                    wait(batch, handle)?;
+                } else {
+                    #[cfg(test)]
+                    let full_sync = self.full_sync;
+                    full_sync(&handle).map_err(message)?;
+                }
             }
         }
         #[cfg(test)]

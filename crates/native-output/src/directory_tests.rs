@@ -25,7 +25,7 @@ fn snapshot(root: &Path) -> BTreeMap<String, Vec<u8>> {
         .collect()
 }
 fn write(root: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
-    publish(root, &[], None, |scratch| {
+    publish(root, &[], None, SyncPolicy::default(), |scratch| {
         fs::write(scratch.join(name), bytes).map_err(|e| e.to_string())
     })
 }
@@ -69,7 +69,7 @@ fn ownership_failures_and_writer_failures_preserve_entire_groups() {
     write(&out, "a.txt", b"old result").unwrap();
     fs::write(out.join("notes"), b"unrelated").unwrap();
     let old = snapshot(&out);
-    let error = publish::<(), String>(&out, &[], None, |scratch| {
+    let error = publish::<(), String>(&out, &[], None, SyncPolicy::default(), |scratch| {
         fs::write(scratch.join("b.txt"), b"partial").unwrap();
         Err("late solve/write failure".into())
     })
@@ -77,11 +77,9 @@ fn ownership_failures_and_writer_failures_preserve_entire_groups() {
     assert!(error.contains("late solve"));
     assert_eq!(snapshot(&out), old);
     assert!(
-        publish::<(), String>(&out, &[], Some(1), |scratch| fs::write(
-            scratch.join("a.txt"),
-            b"new result"
-        )
-        .map_err(|e| e.to_string()))
+        publish::<(), String>(&out, &[], Some(1), SyncPolicy::default(), |scratch| {
+            fs::write(scratch.join("a.txt"), b"new result").map_err(|e| e.to_string())
+        })
         .unwrap_err()
         .contains("result directory exceeds 1 bytes")
     );
@@ -133,7 +131,12 @@ fn flush_failure_precedes_every_previous_product_move() {
                 _ => sync_file(file),
             }
         };
-        assert_eq!(transaction.install(None).unwrap_err(), "first file failure");
+        assert_eq!(
+            transaction
+                .install(None, SyncPolicy::default())
+                .unwrap_err(),
+            "first file failure"
+        );
         assert_eq!(
             SYNCED.load(Ordering::SeqCst),
             3,
@@ -160,7 +163,7 @@ fn installation_and_rollback_failures_keep_recoverable_data() {
         });
         assert!(
             transaction
-                .install(None)
+                .install(None, SyncPolicy::default())
                 .unwrap_err()
                 .contains("previous results restored")
         );
@@ -172,7 +175,9 @@ fn installation_and_rollback_failures_keep_recoverable_data() {
         transaction.before_install = Some(|t| {
             fs::write(t.output.join("a.txt"), b"late unrelated destination").unwrap();
         });
-        let error = transaction.install(None).unwrap_err();
+        let error = transaction
+            .install(None, SyncPolicy::default())
+            .unwrap_err();
         assert!(error.contains("rollback failed") && error.contains("recover old results"));
     }
     assert_eq!(
@@ -250,7 +255,7 @@ fn rename_and_hard_link_rollback_restore_the_stage_and_previous_group() {
             });
             assert!(
                 transaction
-                    .install(None)
+                    .install(None, SyncPolicy::default())
                     .unwrap_err()
                     .contains("previous results restored")
             );
@@ -282,7 +287,9 @@ fn rollback_reads_installed_files_before_removing_them() {
                     fs::write(t.output.join("b.txt"), b"late").unwrap();
                 }
             });
-            let error = transaction.install(None).unwrap_err();
+            let error = transaction
+                .install(None, SyncPolicy::default())
+                .unwrap_err();
             assert!(
                 error.contains("rollback failed") && error.contains("owned artifact was modified")
             );
@@ -316,7 +323,7 @@ fn rollback_never_replaces_a_late_stage_destination() {
         });
         assert!(
             transaction
-                .install(None)
+                .install(None, SyncPolicy::default())
                 .unwrap_err()
                 .contains("rollback failed")
         );
@@ -337,7 +344,7 @@ fn destinations_appearing_during_a_run_are_refused_and_kept() {
     let out = parent.join("results");
     // While the writer runs in an existing directory: seen by the install checks.
     fs::create_dir(&out).unwrap();
-    let error = publish::<(), String>(&out, &[], None, |scratch| {
+    let error = publish::<(), String>(&out, &[], None, SyncPolicy::default(), |scratch| {
         fs::write(out.join("a.txt"), b"arrived during writing").unwrap();
         fs::write(scratch.join("a.txt"), b"new result").map_err(|e| e.to_string())
     })
@@ -358,7 +365,9 @@ fn destinations_appearing_during_a_run_are_refused_and_kept() {
         transaction.before_install = Some(|t| {
             fs::write(t.output.join("b.txt"), b"arrived before install").unwrap();
         });
-        let error = transaction.install(None).unwrap_err();
+        let error = transaction
+            .install(None, SyncPolicy::default())
+            .unwrap_err();
         assert!(error.contains("unable to install b.txt"));
         assert!(error.contains("previous results restored"));
     }
@@ -384,7 +393,7 @@ fn ownership_never_authorizes_replacing_input_aliases_or_symlinks() {
     fs::remove_file(out.join("a.txt")).unwrap();
     fs::hard_link(&input, out.join("a.txt")).unwrap();
     let old = snapshot(&out);
-    let error = publish::<(), String>(&out, &[&input], None, |scratch| {
+    let error = publish::<(), String>(&out, &[&input], None, SyncPolicy::default(), |scratch| {
         fs::write(scratch.join("a.txt"), b"bad").map_err(|e| e.to_string())
     })
     .unwrap_err();
@@ -413,9 +422,15 @@ fn ownership_never_authorizes_replacing_input_aliases_or_symlinks() {
         let alias = controls.join(name);
         fs::hard_link(&input, &alias).unwrap();
         assert!(
-            publish::<(), String>(&controls, &[&input], None, |_| Ok(()))
-                .unwrap_err()
-                .contains("input file")
+            publish::<(), String>(
+                &controls,
+                &[&input],
+                None,
+                SyncPolicy::default(),
+                |_| Ok(())
+            )
+            .unwrap_err()
+            .contains("input file")
         );
         assert_eq!(fs::read(&alias).unwrap(), b"input");
         fs::remove_file(alias).unwrap();
@@ -436,7 +451,9 @@ fn cached_inputs_still_refuse_late_hard_link_aliases() {
         transaction.before_install = Some(|t| {
             fs::hard_link(&t.inputs[0], t.output.join("a.txt")).unwrap();
         });
-        let error = transaction.install(None).unwrap_err();
+        let error = transaction
+            .install(None, SyncPolicy::default())
+            .unwrap_err();
         assert!(error.contains("output must not replace an input file or its alias"));
         assert!(error.contains("previous results restored"));
     }
@@ -455,9 +472,13 @@ fn cached_parent_and_inputs_resolve_symlinked_ancestors() {
     let out = parent.join("alias/results");
     fs::create_dir(&out).unwrap();
     fs::write(real.join("results/input"), b"input").unwrap();
-    let error = publish::<(), String>(&out, &[&real.join("results/input")], None, |stage| {
-        fs::write(stage.join("input"), b"bad").map_err(message)
-    })
+    let error = publish::<(), String>(
+        &out,
+        &[&real.join("results/input")],
+        None,
+        SyncPolicy::default(),
+        |stage| fs::write(stage.join("input"), b"bad").map_err(message),
+    )
     .unwrap_err();
     assert!(error.contains("input file or its alias"));
     assert_eq!(fs::read(out.join("input")).unwrap(), b"input");

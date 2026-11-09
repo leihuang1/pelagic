@@ -36,6 +36,14 @@ impl From<Format> for output::directory::Format {
     }
 }
 
+fn sync_policy(no_sync: bool) -> output::directory::SyncPolicy {
+    if no_sync {
+        output::directory::SyncPolicy::NoSync
+    } else {
+        output::directory::SyncPolicy::default()
+    }
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "pelagic",

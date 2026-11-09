@@ -50,8 +50,9 @@ pub fn write_directory(
     warnings: &[Diagnostic],
     input_paths: &[&Path],
     format: super::directory::Format,
+    sync_policy: super::directory::SyncPolicy,
 ) -> Result<(), String> {
-    super::directory::publish(path, input_paths, None, |scratch| {
+    super::directory::publish(path, input_paths, None, sync_policy, |scratch| {
         if format.legacy() {
             super::bellhop_native::write(scratch, stem, case, result)?;
         }
@@ -665,6 +666,7 @@ mod tests {
                 &[],
                 &[input.as_path()],
                 Format::Hdf5,
+                super::super::directory::SyncPolicy::default(),
             )
         };
         write("case.env", &bytes).unwrap();

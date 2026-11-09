@@ -1,5 +1,135 @@
 use super::*;
 
+#[test]
+fn no_sync_skips_every_file_sync_and_drive_barrier_for_single_and_batch_publications() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static SYNCS: AtomicUsize = AtomicUsize::new(0);
+    static FLUSHES: AtomicUsize = AtomicUsize::new(0);
+    let root = root("sync-policy");
+    assert_eq!(SyncPolicy::default(), SyncPolicy::Sync);
+    for workers in [None, Some(1), Some(4), Some(14)] {
+        let batch = workers.map(Batch::new);
+        let check = || {
+            for replace in [false, true] {
+                let mut expected = None;
+                for policy in [SyncPolicy::default(), SyncPolicy::NoSync] {
+                    let out = root.join(format!("{workers:?}-{replace}-{policy:?}"));
+                    if replace {
+                        write(&out, "stale", b"old").unwrap();
+                    }
+                    SYNCS.store(0, Ordering::SeqCst);
+                    FLUSHES.store(0, Ordering::SeqCst);
+                    {
+                        let mut t = Transaction::begin(&out, &[]).unwrap();
+                        fs::write(t.stage.join("a"), b"a").unwrap();
+                        fs::write(t.stage.join("z"), b"zz").unwrap();
+                        t.sync = |_| {
+                            SYNCS.fetch_add(1, Ordering::SeqCst);
+                            Ok(())
+                        };
+                        #[cfg(target_vendor = "apple")]
+                        {
+                            t.full_sync = |_| {
+                                assert_eq!(SYNCS.load(Ordering::SeqCst), 3);
+                                FLUSHES.fetch_add(1, Ordering::SeqCst);
+                                Ok(())
+                            };
+                            t.wait = |_, _| {
+                                assert_eq!(SYNCS.load(Ordering::SeqCst), 3);
+                                FLUSHES.fetch_add(1, Ordering::SeqCst);
+                                Ok(())
+                            };
+                            assert_eq!(t.batch.is_some(), workers.is_some_and(|w| w > 1));
+                        }
+                        t.install(None, policy).unwrap();
+                    }
+                    let syncing = policy == SyncPolicy::Sync;
+                    assert_eq!(SYNCS.load(Ordering::SeqCst), if syncing { 3 } else { 0 });
+                    assert_eq!(
+                        FLUSHES.load(Ordering::SeqCst),
+                        usize::from(syncing && cfg!(target_vendor = "apple"))
+                    );
+                    assert!(verified_manifest_sha256(&out).unwrap().is_some());
+                    let files = snapshot(&out);
+                    assert_eq!(files.len(), 3, "no stale files or controls remain");
+                    if let Some(expected) = &expected {
+                        assert_eq!(&files, expected);
+                    } else {
+                        expected = Some(files);
+                    }
+                }
+            }
+        };
+        if let Some(batch) = batch {
+            batch.run(check);
+        } else {
+            check();
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn explicit_publication_policies_produce_identical_files_and_manifests() {
+    let root = root("publish-policy");
+    let batch = Batch::new(4);
+    let mut expected = None;
+    for policy in [SyncPolicy::default(), SyncPolicy::NoSync] {
+        for batched in [false, true] {
+            let out = root.join(format!("{policy:?}-{batched}"));
+            let run = || {
+                publish::<(), String>(&out, &[], None, policy, |stage| {
+                    fs::write(stage.join("a"), b"result").map_err(message)
+                })
+            };
+            if batched {
+                batch.run(run).unwrap();
+            } else {
+                run().unwrap();
+            }
+            let files = snapshot(&out);
+            if let Some(expected) = &expected {
+                assert_eq!(&files, expected);
+            } else {
+                expected = Some(files);
+            }
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn no_sync_keeps_quotas_ownership_and_rollback() {
+    let root = root("no-sync-safety");
+    let out = root.join("result");
+    write(&out, "a", b"old").unwrap();
+    let old = snapshot(&out);
+    let publish = |maximum| {
+        publish::<(), String>(&out, &[], maximum, SyncPolicy::NoSync, |stage| {
+            fs::write(stage.join("a"), b"new").map_err(message)
+        })
+    };
+    assert!(publish(Some(1)).unwrap_err().contains("exceeds"));
+    assert_eq!(snapshot(&out), old);
+    {
+        let mut t = Transaction::begin(&out, &[]).unwrap();
+        fs::write(t.stage.join("a"), b"new").unwrap();
+        t.sync = |_| panic!("no-sync called sync");
+        t.install_directory = |_, _| Ok(false);
+        t.install_file = |_, _| Err(std::io::Error::other("injected install failure"));
+        assert!(
+            t.install(None, SyncPolicy::NoSync)
+                .unwrap_err()
+                .contains("previous results restored")
+        );
+    }
+    assert_eq!(snapshot(&out), old);
+    fs::write(out.join("a"), b"changed").unwrap();
+    assert!(publish(None).unwrap_err().contains("modified"));
+    assert_eq!(fs::read(out.join("a")).unwrap(), b"changed");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 #[test]
 fn fresh_directory_has_one_reservation_and_never_overwrites_late_destinations() {
@@ -24,7 +154,7 @@ fn fresh_directory_has_one_reservation_and_never_overwrites_late_destinations() 
             "symlink" => std::os::unix::fs::symlink(&input, &out).unwrap(),
             _ => unreachable!(),
         }
-        assert!(t.install(None).is_err());
+        assert!(t.install(None, SyncPolicy::default()).is_err());
         drop(t);
         assert!(!sibling_stage(&out).unwrap().exists());
         assert_eq!(fs::read(&input).unwrap(), b"input");
@@ -45,7 +175,7 @@ fn fresh_directory_has_one_reservation_and_never_overwrites_late_destinations() 
     let mut t = Transaction::begin(&out, &[]).unwrap();
     assert!(!t.fresh);
     fs::write(t.stage.join("b"), b"replacement").unwrap();
-    t.install(None).unwrap();
+    t.install(None, SyncPolicy::default()).unwrap();
     drop(t);
     assert!(!out.join("a").exists());
     fs::remove_dir_all(root).unwrap();
@@ -61,7 +191,7 @@ fn directory_rename_failure_and_unsupported_fallback_do_not_clobber() {
         fs::write(t.stage.join("a"), b"new").unwrap();
         t.install_directory = |_, _| Err(std::io::Error::other("injected rename failure"));
         assert!(
-            t.install(None)
+            t.install(None, SyncPolicy::default())
                 .unwrap_err()
                 .contains("injected rename failure")
         );
@@ -71,7 +201,7 @@ fn directory_rename_failure_and_unsupported_fallback_do_not_clobber() {
         let mut t = Transaction::begin(&out, &[]).unwrap();
         fs::write(t.stage.join("a"), b"new").unwrap();
         t.install_directory = |_, _| Ok(false);
-        t.install(None).unwrap();
+        t.install(None, SyncPolicy::default()).unwrap();
     }
     assert_eq!(fs::read(out.join("a")).unwrap(), b"new");
     assert_eq!(snapshot(&out).len(), 2);
@@ -92,7 +222,10 @@ fn a_failed_barrier_precedes_installation_and_preserves_previous_results() {
             let mut t = Transaction::begin(&out, &[]).unwrap();
             fs::write(t.stage.join("a"), b"new").unwrap();
             t.wait = |_, _| Err("injected barrier failure".into());
-            assert_eq!(t.install(None).unwrap_err(), "injected barrier failure");
+            assert_eq!(
+                t.install(None, SyncPolicy::default()).unwrap_err(),
+                "injected barrier failure"
+            );
             assert!(!t.backup.exists());
             assert!(!t.retain);
         });
@@ -129,7 +262,10 @@ fn the_single_drive_flush_follows_every_file_sync_and_precedes_installation() {
             assert_eq!(SYNCED.load(Ordering::SeqCst), 3);
             Err(std::io::Error::other("full flush failure"))
         };
-        assert_eq!(t.install(None).unwrap_err(), "full flush failure");
+        assert_eq!(
+            t.install(None, SyncPolicy::default()).unwrap_err(),
+            "full flush failure"
+        );
         assert!(!t.backup.exists());
     }
     assert_eq!(snapshot(&out), old);
@@ -141,7 +277,7 @@ fn closed_file_mutations_are_rehashed_even_with_the_same_size_and_modification_t
     let root = root("closed-file-rehash");
     for replace_inode in [false, true] {
         let out = root.join(format!("result-{replace_inode}"));
-        publish::<(), String>(&out, &[], None, |stage| {
+        publish::<(), String>(&out, &[], None, SyncPolicy::default(), |stage| {
             let path = stage.join("a");
             let mut file = crate::create(&path).unwrap();
             file.write_all(b"first").unwrap();
@@ -190,7 +326,7 @@ fn crash_child() {
                 std::process::exit(73);
             }
         });
-        t.install(None).unwrap();
+        t.install(None, SyncPolicy::default()).unwrap();
     });
     // This is the same ordering used by run-many: record only after publish returned.
     fs::write(root.join("status"), b"ok\n").unwrap();

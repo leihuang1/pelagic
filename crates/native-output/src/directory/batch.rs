@@ -8,7 +8,8 @@ thread_local! {
 }
 
 /// Shared Apple drive flushes for independent publications. Installation follows the barrier;
-/// `publish` returns only after both succeed. This does not promise directory durability.
+/// `publish` returns only after both succeed, unless explicitly using `SyncPolicy::NoSync`,
+/// which bypasses the barrier. This does not promise directory durability.
 pub struct Batch {
     state: Mutex<State>,
     changed: Condvar,
@@ -73,6 +74,7 @@ impl Batch {
         CURRENT.with(|slot| slot.borrow().clone())
     }
 
+    #[cfg(target_vendor = "apple")]
     pub(super) fn wait(&self, handle: File) -> Result<(), String> {
         self.wait_with(handle, &|ready| {
             filesystem_barriers(ready, |file| super::full_sync(file).map_err(super::message))

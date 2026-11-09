@@ -141,12 +141,12 @@ Existing scratch/locks/backups, including the sibling reservation, are never
 adopted, truncated or removed. Treat `.pelagic-*` paths as reserved control data.
 
 New artifacts are completely written and closed, then read back for SHA-256
-and their file contents synced before installation. File identity, size and
+and, by default, their file contents synced before installation. File identity, size and
 timestamps alone cannot prove that a closed file was not modified: a same-size
 rewrite can occur within one filesystem clock tick. Publication, old owned
 artifacts, rollback targets and resume verification therefore retain read-back
 hashing on every platform.
-Both single `run` and `run-many` sync the verified artifacts and manifest
+By default, both single `run` and `run-many` sync the verified artifacts and manifest
 concurrently, with at most **16 participants including the calling thread**.
 Smaller publications use fewer participants. Each helper holds one open file,
 so helpers are shared across the process: at most 64, and at most a quarter of
@@ -170,8 +170,18 @@ Linux, Windows and other non-Apple targets use each file's `sync_all` (including
 Windows `FlushFileBuffers`). Apple uses ordinary per-file `fsync`, then one
 `F_FULLFSYNC` on the manifest after all file syncs succeed, flushing the shared
 drive cache before installation. Apple sweeps can share this final drive flush,
-as described below. No file sync is skipped or replaced by a filesystem-wide
-operation. The I/O helpers do not change the numerical `--threads` setting.
+as described below. In the default mode, no file sync is skipped or replaced by
+a filesystem-wide operation. The I/O helpers do not change the numerical
+`--threads` setting.
+
+Both models' `run` and `run-many` accept opt-in **`--no-sync`** for disposable
+scratch results. It skips all per-file syncs and Apple's `F_FULLFSYNC`, including
+the shared run-many barrier, for legacy, HDF5 and both formats. It changes no
+writer, verification, quota, lock, backup, installation, rollback, cleanup or
+status-reporting step. **After an OS crash or power loss, results may be empty,
+truncated or missing even though they were installed and recorded as `ok`.**
+Closing writers still flushes their userspace buffers to the OS; that is not a
+durability barrier. Manifest and status formats are unchanged.
 
 KRAKEN keeps the positive `--max-output-bytes` default of 256 MiB: the known
 FIELD payload is admitted before solving, HDF5 payload/flush checks remain, and
@@ -212,8 +222,10 @@ destinations.
 
 ### Run-many barriers and interrupted batches
 
-Workers finish writing and verifying their staged files, then sync every file
-concurrently as above. Only after all required syncs succeed may installation
+By default, workers finish writing and verifying their staged files, then sync
+every file concurrently as above. With `--no-sync`, they go straight from
+verification to installation without file syncs or a shared Apple barrier.
+Only after all required syncs succeed may installation
 move previous products. There are **no additional result-directory, parent or
 ancestor syncs**: this preserves the single-run file-durability contract, not a
 stronger promise about directory entries.
@@ -236,26 +248,27 @@ There is no batching timer or minimum group size. A case waits for its own
 covered barrier, not an earlier flush that may have begun before its writes
 finished. There is no cross-case sharing between separate CLI processes.
 
-A new **`ok` status line** means all artifact and manifest file contents passed
-the platform's durability barrier, and installation and ordinary cleanup then
-completed. It does **not** guarantee that their names, renames, directory
-entries, cleanup removals or the status line survive power loss. A `failed`
+A new **`ok` status line** means installation and ordinary cleanup completed.
+By default, all artifact and manifest file contents first passed the platform's
+durability barrier; **with `--no-sync`, they did not**. Neither mode guarantees
+that names, renames, directory entries, cleanup removals or the status line
+survive power loss. A `failed`
 line makes no claim about new products; a `skipped` line rehashes the recorded
 group and inherits its earlier publication's guarantees. All guarantees depend
 on the filesystem, storage server and hardware honoring sync operations.
 
 The status file is appended/flushed to the OS, **not fsynced per line**. A crash
 can lose a record even when its products survive, or leave a record whose
-result names no longer exist. No new `ok` line precedes its products' barrier
-and installation. The crash states are:
+result names no longer exist. No new `ok` line precedes installation or, in
+default mode, its products' barrier. The crash states are:
 
 | Interruption point | Possible state and resume behaviour |
 |---|---|
 | Writing scratch or waiting for a barrier | No new success record. Scratch/reservation may remain; old products have not moved. |
 | Handled barrier failure | No installation or new success record; previous products are intact. Normal owned-scratch cleanup is attempted. |
 | Directory rename or per-file installation | No new success record. A fresh group may be visible; replacement may be partial, with backups. |
-| Installation completed, before cleanup or record | File contents passed the barrier, but names have no power-loss guarantee; the record can be absent and controls can remain. |
-| Appending the record | A complete, truncated or missing line, possibly with missing result names after power loss. Resume ignores truncated lines and revalidates every listed artifact. |
+| Installation completed, before cleanup or record | By default file contents passed the barrier; with `--no-sync` they may be empty, truncated or lost after power loss. Neither mode guarantees names; the record can be absent and controls can remain. |
+| Appending the record | A complete, truncated or missing line, possibly with missing result names after power loss; with `--no-sync`, even a recorded `ok` can have empty, truncated or zero-filled artifacts. Resume ignores invalid lines and revalidates every listed artifact. |
 
 `--resume` skips only a matching complete earlier record whose manifest **and
 all artifacts** still verify. An installed group without a record runs again,
@@ -264,6 +277,19 @@ locks: an interrupted transaction can require manual recovery before retrying.
 Inspect retained backups and restore old artifacts if necessary before removing
 control paths; do not simply delete recoverable data. Recorded, verified cases
 can be skipped even if a crash left their control directories behind.
+
+Missing owned files can be regenerated. Empty, truncated or zero-filled files
+fail verification (even when size and modification time match), so their cases
+are rerun, never trusted as current. Publication still refuses replacement of
+modified owned files or malformed manifests; inspect and recover/remove damaged
+data before retrying. A missing manifest with surviving artifacts likewise
+cannot authorize their replacement. An unrecognizable status-file prefix is
+refused rather than overwritten; a truncated recognizable record is ignored.
+
+Sync policy is not recorded: it changes neither result contents nor resume's
+verification. A later durable `--resume` **does not sync skipped results**; their
+earlier durability is not upgraded. Rerun without `--resume` or `--no-sync` when
+you need newly synced publications.
 
 ## Validation
 

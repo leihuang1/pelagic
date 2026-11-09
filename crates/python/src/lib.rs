@@ -320,7 +320,7 @@ impl NativeResult {
         max_output_bytes: u64,
     ) -> PyResult<String> {
         py.detach(|| {
-            let (result, warnings) = native_output::diagnostic::capture(|| native_output::directory::publish(&directory, &self.inputs.iter().map(PathBuf::as_path).collect::<Vec<_>>(), Some(max_output_bytes), |scratch| -> Result<(), String> {
+            let (result, warnings) = native_output::diagnostic::capture(|| native_output::directory::publish(&directory, &self.inputs.iter().map(PathBuf::as_path).collect::<Vec<_>>(), Some(max_output_bytes), native_output::directory::SyncPolicy::default(), |scratch| -> Result<(), String> {
                 match (&*self.case, &self.data) {
                     (CaseData::Bellhop(case), ResultData::Bellhop(result)) => native_output::bellhop::write(scratch, "case", case, result)?,
                     (CaseData::Kraken(cases), ResultData::Kraken(results)) => {

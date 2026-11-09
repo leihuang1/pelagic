@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use kraken::ModeSolver;
-use output::directory::{Format, verified_manifest_sha256};
+use output::directory::{Format, SyncPolicy, verified_manifest_sha256};
 use output::kraken::{DEFAULT_MAX_OUTPUT_BYTES, RunError, run_directory};
 
 #[test]
@@ -51,7 +51,13 @@ fn field_payload_admission_precedes_solving_and_publication_for_every_source_kin
         for format in [Format::Legacy, Format::Hdf5, Format::Both] {
             for input in [&env, &json] {
                 let input = kraken::input::load(input, None, None).unwrap();
-                check(run_directory(&input, &output, format, maximum));
+                check(run_directory(
+                    &input,
+                    &output,
+                    format,
+                    maximum,
+                    SyncPolicy::default(),
+                ));
             }
         }
     }
@@ -86,7 +92,7 @@ fn failed_runs_release_scratch_before_retry_in_the_same_process() {
     for format in [Format::Hdf5, Format::Both] {
         let run = |quota| {
             let input = kraken::input::load(&env, None, None).unwrap();
-            run_directory(&input, &output, format, quota)
+            run_directory(&input, &output, format, quota, SyncPolicy::default())
         };
         for simulation_failure in [false, true] {
             // Different input bytes, so that the retry must replace these artifacts.
