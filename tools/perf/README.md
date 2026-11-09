@@ -57,6 +57,11 @@ lists upstream and runtime-generated inputs that this kit cannot reach. Run
 `inventory`, with `--original-only` (same-stem) or `--supplementary-only`
 (pairs) if you like, to see the list, and pass a subset to `check --cases FILE`.
 
+CI's separate Linux x86-64-v3 CLI job runs `check` with
+`--cases tools/perf/cases.json --threads 1` on baseline and v3 builds. These
+12 representative timing cases cover KRAKEN, KRAKENC and BELLHOP while keeping
+PR cost small; this is not a full-inventory or Fortran acceptance check.
+
 ## Compare timings
 
 ```sh

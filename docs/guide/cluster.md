@@ -6,6 +6,72 @@ uses every CPU. On a cluster, a job array gives each task a share of the cases
 with `--shard`, and `--resume` lets a task that runs again skip what it already
 finished. Results are bit-for-bit the same however the cases are split.
 
+## Choose a Linux x86-64 build
+
+Releases include two Linux x86-64 CLI archives, both requiring glibc 2.35+:
+
+- `pelagic-vX.Y.Z-linux-x64.tar.gz` is the baseline build. Use it on older
+  CPUs, mixed clusters, or whenever you are unsure of the compute nodes' features.
+- `pelagic-vX.Y.Z-linux-x64-v3.tar.gz` is compiled with
+  `-C target-cpu=x86-64-v3`. Choose it when **every node that will run the
+  program supports x86-64-v3**, including AVX2, FMA and BMI2. Python wheels
+  and the CLIs bundled with MATLAB remain baseline builds.
+
+Check on the **compute nodes**, not just the login node. This quick screen
+should print all four feature names:
+
+```sh
+grep -o -w -E 'avx2|fma|bmi2|movbe' /proc/cpuinfo | sort -u
+```
+
+Those four flags alone are not a complete v3 or operating-system support
+check. On glibc 2.33 or newer, prefer the loader's check:
+
+```sh
+/lib64/ld-linux-x86-64.so.2 --help | grep x86-64-v3
+```
+
+The line must say **`x86-64-v3 (supported, searched)`**; being listed without
+that suffix is not enough. Intel CPUs before Haswell (2013), some Pentium and
+Celeron parts, and AMD CPUs before Excavator do not support v3. Check rather
+than relying on a family name, especially in virtual machines.
+
+**There is no startup CPU guard.** A whole-program v3 build can execute v3
+instructions before a Rust feature check, and the compiler can fold that
+check to `true`. An incompatible CPU can therefore stop with `Illegal
+instruction` (`SIGILL`); use the baseline archive instead.
+
+### Indicative gains
+
+On one AMD EPYC 7B13 (Zen 3) cloud VM, one-thread solver measurements with
+`x86-64-v3` were **1.02–1.47 times faster** than the baseline target: Gulf
+coupled 1.47, Gulf adiabatic 1.34, large Munk 1.22, surface duct 1.16, and
+BELLHOP Munk transmission loss 1.20 times. Results were byte-identical across
+the full `tools/perf` inventory at 1, 2 and 4 threads. These are indicative
+solver-only measurements, not promised end-to-end speedups: CPU, workload and
+result-file costs matter. No fast-math option is used. CI checks the 12
+representative cases in `tools/perf/cases.json` at one thread against a
+baseline build, as well as running the CLI tests against the v3 build.
+
+### Build for your nodes
+
+From a source checkout with the [build prerequisites](../../CONTRIBUTING.md),
+choose one of:
+
+```sh
+# For the build machine's CPU (build on a representative compute node):
+RUSTFLAGS='-C target-cpu=native' CARGO_TARGET_DIR=target/native \
+  cargo build --locked --release -p cli
+# For any x86-64-v3 node, even if the build machine has newer features:
+RUSTFLAGS='-C target-cpu=x86-64-v3' CARGO_TARGET_DIR=target/v3 \
+  cargo build --locked --release -p cli
+```
+
+The programs are `target/native/release/pelagic` and
+`target/v3/release/pelagic`. `native` can require features beyond v3; do not
+copy it to weaker nodes. Keep the default build for a heterogeneous cluster.
+Neither command changes the default compiler settings for other builds.
+
 ## One machine
 
 ```sh
