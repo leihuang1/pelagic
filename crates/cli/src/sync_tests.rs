@@ -65,19 +65,12 @@ fn check(model: &str, command: &str) {
                     expected.push((artifact["name"].as_str().unwrap().to_owned(), Kind::File));
                 }
                 expected.push(("pelagic-manifest.json".into(), Kind::File));
-                if cfg!(target_vendor = "apple") {
-                    expected.push((
-                        "pelagic-manifest.json".into(),
-                        if count > 1 {
-                            Kind::SharedBarrier
-                        } else {
-                            Kind::DriveFlush
-                        },
-                    ));
+                if cfg!(target_vendor = "apple") && count > 1 {
+                    expected.push(("pelagic-manifest.json".into(), Kind::SharedBarrier));
                 }
             }
         }
-        let mut actual: Vec<_> = observer
+        let (flushes, mut actual): (Vec<_>, Vec<_>) = observer
             .take()
             .into_iter()
             .map(|event| {
@@ -91,10 +84,23 @@ fn check(model: &str, command: &str) {
                     event.kind,
                 )
             })
-            .collect();
+            .partition(|(_, kind)| *kind == Kind::DriveFlush);
         actual.sort();
         expected.sort();
         assert_eq!(actual, expected, "{model} {command}, no_sync={no_sync}");
+        // Apple flushes the drive once per barrier, and one shared barrier can cover several cases.
+        let allowed = if no_sync || !cfg!(target_vendor = "apple") {
+            0..=0
+        } else {
+            1..=count
+        };
+        assert!(
+            allowed.contains(&flushes.len())
+                && flushes
+                    .iter()
+                    .all(|(name, _)| name == "pelagic-manifest.json"),
+            "{model} {command}, no_sync={no_sync}: {flushes:?}"
+        );
     }
     drop(observer);
     fs::remove_dir_all(root).unwrap();

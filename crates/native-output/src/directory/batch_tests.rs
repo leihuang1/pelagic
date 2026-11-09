@@ -33,7 +33,7 @@ fn lone_barrier_runs_immediately_and_later_arrivals_share_the_next_barrier() {
     };
     std::thread::scope(|s| {
         let finish = || {
-            batch.wait_with(staged(&path), &barrier).unwrap();
+            batch.wait_with(staged(&path), &path, &barrier).unwrap();
             recorded.fetch_add(1, Ordering::SeqCst);
         };
         s.spawn(finish);
@@ -71,7 +71,7 @@ fn barrier_error_reaches_every_covered_case_and_the_next_batch_can_succeed() {
     std::thread::scope(|s| {
         let wait = || {
             assert_eq!(
-                batch.wait_with(staged(&path), &barrier).unwrap_err(),
+                batch.wait_with(staged(&path), &path, &barrier).unwrap_err(),
                 "injected barrier failure"
             );
         };
@@ -87,7 +87,7 @@ fn barrier_error_reaches_every_covered_case_and_the_next_batch_can_succeed() {
     });
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     batch
-        .wait_with(staged(&path), &|ready| vec![Ok(()); ready.len()])
+        .wait_with(staged(&path), &path, &|ready| vec![Ok(()); ready.len()])
         .unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -132,7 +132,7 @@ fn two_barriers_allow_a_late_case_to_finish_without_borrowing_the_first_barrier(
     };
     std::thread::scope(|s| {
         let finish = || {
-            batch.wait_with(staged(&path), &barrier).unwrap();
+            batch.wait_with(staged(&path), &path, &barrier).unwrap();
             recorded.fetch_add(1, Ordering::SeqCst);
         };
         s.spawn(finish);
@@ -182,21 +182,24 @@ fn a_drive_barrier_fans_out_errors_to_its_covered_cases() {
     let new = root.join("new");
     std::fs::write(&old, b"1").unwrap();
     std::fs::write(&new, b"22").unwrap();
-    let old = staged(&old);
-    let new = staged(&new);
-    let ready: Vec<_> = [new, old]
+    let ready: Vec<_> = [&new, &old]
         .into_iter()
-        .map(|handle| {
+        .map(|path| {
             Arc::new(Request {
-                handle,
+                handle: staged(path),
+                path: path.clone(),
                 result: OnceLock::new(),
             })
         })
         .collect();
     let calls = AtomicUsize::new(0);
-    let results = filesystem_barriers(&ready, |file| {
+    let results = filesystem_barriers(&ready, |request| {
         calls.fetch_add(1, Ordering::SeqCst);
-        assert_eq!(file.metadata().unwrap().len(), 2);
+        assert_eq!(request.handle.metadata().unwrap().len(), 2);
+        assert_eq!(
+            request.path, new,
+            "the flushed handle names its own publication"
+        );
         Err("writeback failure".into())
     });
     assert_eq!(calls.load(Ordering::SeqCst), 1);

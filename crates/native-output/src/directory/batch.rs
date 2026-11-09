@@ -25,6 +25,8 @@ struct State {
 
 struct Request {
     handle: File,
+    /// The publication's manifest, under which test observers see this request's drive flush.
+    path: std::path::PathBuf,
     result: OnceLock<Result<(), String>>,
 }
 
@@ -76,13 +78,12 @@ impl Batch {
 
     #[cfg(target_vendor = "apple")]
     pub(super) fn wait(&self, handle: File, path: &std::path::Path) -> Result<(), String> {
+        // Admission only: `full_sync` observes the drive flush that covers this request.
         #[cfg(any(test, feature = "test-observer"))]
         super::sync_observer::record(path, super::sync_observer::Kind::SharedBarrier);
-        #[cfg(not(any(test, feature = "test-observer")))]
-        let _ = path;
-        self.wait_with(handle, &|ready| {
-            filesystem_barriers(ready, |file| {
-                super::full_sync(file, None).map_err(super::message)
+        self.wait_with(handle, path, &|ready| {
+            filesystem_barriers(ready, |request| {
+                super::full_sync(&request.handle, &request.path).map_err(super::message)
             })
         })
     }
@@ -90,10 +91,12 @@ impl Batch {
     fn wait_with(
         &self,
         handle: File,
+        path: &std::path::Path,
         barrier: &impl Fn(&[Arc<Request>]) -> Vec<Result<(), String>>,
     ) -> Result<(), String> {
         let request = Arc::new(Request {
             handle,
+            path: path.to_path_buf(),
             result: OnceLock::new(),
         });
         let mut state = self
@@ -138,7 +141,7 @@ impl Batch {
 
 fn filesystem_barriers(
     ready: &[Arc<Request>],
-    sync: impl Fn(&File) -> Result<(), String>,
+    sync: impl Fn(&Request) -> Result<(), String>,
 ) -> Vec<Result<(), String>> {
     use std::os::unix::fs::MetadataExt;
     let mut groups: std::collections::BTreeMap<u64, Vec<usize>> = std::collections::BTreeMap::new();
@@ -150,7 +153,7 @@ fn filesystem_barriers(
         }
     }
     for group in groups.values() {
-        let result = sync(&ready[group[0]].handle);
+        let result = sync(&ready[group[0]]);
         for &index in group {
             results[index].clone_from(&result);
         }

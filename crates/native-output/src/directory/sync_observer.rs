@@ -30,16 +30,19 @@ pub struct Registration(PathBuf);
 impl Registration {
     /// Register an absolute directory, using the same spelling as publication paths.
     /// # Panics
-    /// Panics for a relative or overlapping registration, or a poisoned registry.
+    /// Panics for a relative or overlapping registration.
     #[must_use]
     pub fn new(root: &Path) -> Self {
         assert!(root.is_absolute());
-        let mut observers = OBSERVERS.lock().unwrap();
-        assert!(
-            observers
-                .iter()
-                .all(|o| !root.starts_with(&o.root) && !o.root.starts_with(root))
-        );
+        let mut observers = registry();
+        if observers
+            .iter()
+            .any(|o| root.starts_with(&o.root) || o.root.starts_with(root))
+        {
+            // Release the registry first, so only this test fails.
+            drop(observers);
+            panic!("overlapping sync observer: {}", root.display());
+        }
         observers.push(Observer {
             root: root.into(),
             events: Vec::new(),
@@ -49,29 +52,36 @@ impl Registration {
     }
 
     /// Drain only this registration's records; concurrent tests keep their own.
-    /// # Panics
-    /// Panics if the registry is poisoned.
     #[must_use]
     pub fn take(&self) -> Vec<Event> {
-        let mut observers = OBSERVERS.lock().unwrap();
-        let observer = observers.iter_mut().find(|o| o.root == self.0).unwrap();
-        std::mem::take(&mut observer.events)
+        registry()
+            .iter_mut()
+            .find(|o| o.root == self.0)
+            .map(|o| std::mem::take(&mut o.events))
+            .unwrap_or_default()
     }
 }
 
 impl Drop for Registration {
     fn drop(&mut self) {
-        let mut observers = OBSERVERS.lock().unwrap();
+        let mut observers = registry();
         observers.retain(|o| o.root != self.0);
         ACTIVE.store(observers.len(), Ordering::Relaxed);
     }
+}
+
+/// A test that panics while holding the registry must not abort every later test.
+fn registry() -> std::sync::MutexGuard<'static, Vec<Observer>> {
+    OBSERVERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 pub(super) fn record(path: &Path, kind: Kind) {
     if ACTIVE.load(Ordering::Relaxed) == 0 {
         return;
     }
-    let mut observers = OBSERVERS.lock().unwrap();
+    let mut observers = registry();
     if let Some(observer) = observers.iter_mut().find(|o| path.starts_with(&o.root)) {
         observer.events.push(Event {
             path: path.into(),
@@ -114,5 +124,17 @@ mod tests {
         record(&root.join("left/unregistered"), Kind::File);
         let left = Registration::new(&root.join("left"));
         assert_eq!(left.take(), []);
+    }
+
+    #[test]
+    fn an_overlapping_registration_fails_without_breaking_the_registry() {
+        let root =
+            std::env::temp_dir().join(format!("pelagic-observer-overlap-{}", std::process::id()));
+        let outer = Registration::new(&root);
+        for overlapping in [root.clone(), root.join("inner")] {
+            assert!(std::panic::catch_unwind(|| Registration::new(&overlapping)).is_err());
+        }
+        record(&root.join("a"), Kind::File);
+        assert_eq!(outer.take().len(), 1);
     }
 }

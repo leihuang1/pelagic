@@ -107,14 +107,11 @@ fn public_publish_observes_the_requested_sync_policy() {
                 if policy == SyncPolicy::Sync {
                     expected.extend(["a", "b", MANIFEST].map(|name| (name.to_owned(), Kind::File)));
                     if cfg!(target_vendor = "apple") {
-                        expected.push((
-                            MANIFEST.to_owned(),
-                            if workers.is_some_and(|w| w > 1) {
-                                Kind::SharedBarrier
-                            } else {
-                                Kind::DriveFlush
-                            },
-                        ));
+                        // Publications here run one at a time, so each barrier flushes once.
+                        expected.push((MANIFEST.to_owned(), Kind::DriveFlush));
+                        if workers.is_some_and(|w| w > 1) {
+                            expected.push((MANIFEST.to_owned(), Kind::SharedBarrier));
+                        }
                     }
                 }
                 expected.sort();
