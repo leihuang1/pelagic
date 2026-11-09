@@ -68,6 +68,19 @@ pub(crate) struct Direct {
     written: u64,
     maximum: u64,
 }
+
+/// A [`Direct`] file between appends. It holds no descriptor, so a multi-frequency run does not
+/// keep its shared files open while it solves the next frequency.
+pub(crate) struct Closed {
+    bytes: usize,
+    written: u64,
+}
+
+// Batch binary records without changing the report buffer's quota checkpoints.
+fn buffered(file: File) -> BufWriter<File> {
+    BufWriter::with_capacity(64 * 1024, file)
+}
+
 impl Direct {
     pub(crate) fn new(path: &Path, words: usize, maximum: u64) -> io::Result<Self> {
         let bytes = words
@@ -78,11 +91,7 @@ impl Direct {
             return Err(io::Error::other("native record exceeds output quota"));
         }
         Ok(Self {
-            // Batch binary records without changing the report buffer's quota checkpoints.
-            file: BufWriter::with_capacity(
-                64 * 1024,
-                OpenOptions::new().write(true).create_new(true).open(path)?,
-            ),
+            file: buffered(OpenOptions::new().write(true).create_new(true).open(path)?),
             bytes,
             written: 0,
             maximum,
@@ -102,14 +111,37 @@ impl Direct {
         bytes.resize(self.bytes, 0);
         self.file.write_all(&bytes)
     }
-    pub(crate) fn remaining(&mut self, remaining: u64) {
-        self.maximum = self.written.saturating_add(remaining);
-    }
     pub(crate) fn flush(&mut self) -> io::Result<()> {
         self.file.flush()
     }
     pub(crate) fn finish(mut self) -> io::Result<()> {
         self.flush()
+    }
+    /// Flush and close the file, keeping what [`Closed::reopen`] needs to append to it.
+    pub(crate) fn close(mut self) -> io::Result<Closed> {
+        self.flush()?;
+        Ok(Closed {
+            bytes: self.bytes,
+            written: self.written,
+        })
+    }
+}
+
+impl Closed {
+    /// Reopen `path` to append records of the same length, allowing `remaining` more bytes.
+    /// Every record went through [`Direct::record`], so the file must be exactly as long as what
+    /// was written; anything else means it changed between blocks.
+    pub(crate) fn reopen(self, path: &Path, remaining: u64) -> io::Result<Direct> {
+        let file = OpenOptions::new().append(true).open(path)?;
+        if file.metadata()?.len() != self.written {
+            return Err(io::Error::other("native file changed between blocks"));
+        }
+        Ok(Direct {
+            file: buffered(file),
+            bytes: self.bytes,
+            written: self.written,
+            maximum: self.written.saturating_add(remaining),
+        })
     }
 }
 

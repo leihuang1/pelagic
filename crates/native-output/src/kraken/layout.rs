@@ -1,7 +1,7 @@
 //! One layout decision for both the streaming CLI and Python's immutable snapshots.
 use super::{mode_data, profile_header};
 use crate::directory::Quota;
-use crate::native::{self, Direct};
+use crate::native::{self, Closed, Direct};
 use kraken::{Case, FieldCase, ProfileSimulationResult};
 use std::io;
 use std::path::Path;
@@ -43,8 +43,10 @@ pub struct Writer<'a> {
     stem: &'a str,
     cases: &'a [FieldCase],
     combined: bool,
-    modes: Option<Direct>,
-    shade: Option<Direct>,
+    // Closed between blocks, as indexed pairs are. Holding them open would give every `run-many`
+    // worker two more open files while it solves, so sweeps that fit a tight `ulimit -n` would fail.
+    modes: Option<Closed>,
+    shade: Option<Closed>,
 }
 
 impl<'a> Writer<'a> {
@@ -119,35 +121,33 @@ impl<'a> Writer<'a> {
             .max(2 * self.cases.len())
             .div_ceil(2)
             * 2;
-        if let Some(file) = &mut self.modes {
-            file.remaining(remaining);
+        let path = self.root.join(format!("{}.mod", self.stem));
+        let mut file = if let Some(closed) = self.modes.take() {
+            closed.reopen(&path, remaining)?
         } else {
-            let mut file = Direct::new(
-                &self.root.join(format!("{}.mod", self.stem)),
-                words,
-                remaining,
-            )?;
+            let mut file = Direct::new(&path, words, remaining)?;
             profile_header(&mut file, words, first, &self.frequencies())?;
-            self.modes = Some(file);
-        }
-        let file = self.modes.as_mut().expect("opened above");
+            file
+        };
         mode_data(
-            file,
+            &mut file,
             words,
             &self.cases[index].profiles()[0],
             &result.modes[0],
         )?;
-        file.flush()
+        self.modes = Some(file.close()?);
+        Ok(())
     }
 
     #[allow(clippy::cast_possible_truncation)]
     fn write_field(&mut self, result: &ProfileSimulationResult, remaining: u64) -> io::Result<()> {
         let field = &result.field;
-        if let Some(file) = &mut self.shade {
-            file.remaining(remaining);
+        let path = self.root.join(format!("{}.shd", self.stem));
+        let mut file = if let Some(closed) = self.shade.take() {
+            closed.reopen(&path, remaining)?
         } else {
-            self.shade = Some(native::shd_header(
-                &self.root.join(format!("{}.shd", self.stem)),
+            native::shd_header(
+                &path,
                 &self.cases[0].profiles()[0].title,
                 &self.frequencies(),
                 &field.source_depths_m,
@@ -155,17 +155,17 @@ impl<'a> Writer<'a> {
                 &field.receiver_ranges_m,
                 false,
                 remaining,
-            )?);
-        }
-        let file = self.shade.as_mut().expect("opened above");
+            )?
+        };
         native::shd_pressure(
-            file,
+            &mut file,
             field.source_depths_m.len(),
             field.receiver_depths_m.len(),
             field.receiver_ranges_m.len(),
             false,
             field.pressure.iter().map(|p| (p.re as f32, p.im as f32)),
         )?;
-        file.flush()
+        self.shade = Some(file.close()?);
+        Ok(())
     }
 }

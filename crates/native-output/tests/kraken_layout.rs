@@ -204,7 +204,7 @@ fn single_profile_frequency_payloads_equal_separate_files() {
         )
         .unwrap();
     }
-    drop(writer);
+    // The writer closes both files after every block, so they are complete here.
     let bytes = fs::read(scratch.0.join("all.mod")).unwrap();
     let rec = records(&bytes);
     assert_eq!(number(rec[0], 84), 37);
