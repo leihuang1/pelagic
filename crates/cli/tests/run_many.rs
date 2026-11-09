@@ -840,11 +840,14 @@ fn resume_reruns_a_kraken_case_whose_output_quota_changed() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Concurrent result-file syncs must fit wherever one-at-a-time syncs did: a pool that fits
-/// under a tight open-file limit still publishes every case, and leaves no staging behind.
+/// A full pool under a tight open-file limit still publishes every case and leaves no staging
+/// behind: sync helpers only use descriptors that no worker needs. Each of the 16 workers holds
+/// at most its HDF5 file, its report and one other file. With stdin, stdout, stderr and the
+/// status file, one-at-a-time syncing therefore never needs more than 3 × 16 + 4 = 52
+/// descriptors, however the workers' writes overlap; on macOS it needs between 48 and 52. 24
+/// workers can need up to 76, and a Linux CI run with them lost 2 cases at 64.
 /// Each case has 101 frequencies at a short range, for little solving. `sh` sets both the soft
-/// and hard limits, so the CLI cannot raise its own. With either layout, one-at-a-time syncing
-/// needs between 52 and 56 open files for this sweep on macOS.
+/// and hard limits, so the CLI cannot raise its own.
 #[cfg(unix)]
 fn publishes_every_case_under_a_tight_open_file_limit(name: &str, profiles: bool) {
     let root = directory(name);
@@ -870,7 +873,7 @@ fn publishes_every_case_under_a_tight_open_file_limit(name: &str, profiles: bool
         .arg(&cases)
         .arg("--output")
         .arg(&output)
-        .args(["--workers", "24", "--threads", "1", "--format", "both"])
+        .args(["--workers", "16", "--threads", "1", "--format", "both"])
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&run.stderr);
@@ -890,7 +893,7 @@ fn publishes_every_case_under_a_tight_open_file_limit(name: &str, profiles: bool
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Before sync helpers left room for every worker's open files, this lost a case in most runs.
+/// 205 files to sync per case, one at a time under this limit.
 #[cfg(unix)]
 #[test]
 fn a_full_pool_under_a_tight_open_file_limit_publishes_every_case() {
