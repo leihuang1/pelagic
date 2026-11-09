@@ -7,6 +7,24 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster durable CLI output, especially on Linux.** A result's files are now
+  synced concurrently, up to 16 at a time, instead of one after another, in
+  single `run` and in `run-many`. Each file still gets its own sync, so the
+  durability guarantee is unchanged. Sync helpers leave room for a sweep's own
+  open files: under a tight `ulimit -n`, each worker syncs one file at a time,
+  as before. The CLI also raises its soft open-file limit to the hard limit at
+  startup. Indicative measurements against the previous `main`, at one solver
+  thread per case with legacy output into fresh result directories, on an AMD
+  EPYC 7B13 Linux VM (overlay filesystem): 100 separate Pekeris runs, one after
+  another, were 2.1 times faster; `run-many` sweeps of 200 Pekeris cases 1.6 to
+  2.9 times faster at 1 to 24 workers; surface-duct sweeps 1.1 to 1.2 times; and
+  one broadband run 3.9 times faster. A 24-worker sweep that also writes HDF5
+  took the same time. On a 14-CPU Apple M4 Pro, `run-many` workers that finish
+  together share one drive flush: Pekeris sweeps on 8 and 14 workers were 1.2
+  and 1.5 times faster, and one broadband run 1.3 times. New result directories
+  on Linux and macOS are staged beside the destination and renamed into place in
+  one step. See
+  [publication and interrupted batches](docs/guide/native-output.md#run-many-barriers-and-interrupted-batches).
 - **Faster fluid KRAKEN root search.** Fluid problems now isolate modes with
   shared Sturm-count bisections and refine each one with a safeguarded secant
   (Illinois) iteration, which Sturm counts then check. A mode that fails any

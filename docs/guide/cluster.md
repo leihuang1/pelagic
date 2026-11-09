@@ -167,16 +167,41 @@ threads, KRAKEN frequencies and profiles that run side by side can also hold abo
 
 ## When a task stops early
 
-Every case writes its status line as soon as it finishes, so a task killed by
-its time limit, by preemption or by a node failure keeps every case it
-completed. Submit that task again:
+Every successful case writes its status line after all file syncs and
+installation. Each publication, including a separate `run` in a job array,
+syncs its files concurrently with at most 16 I/O participants including the
+calling thread. This is independent of the numerical `--threads` setting;
+a refused helper leaves work to the caller rather than failing the case.
+Linux and Windows workers sync their own files without cross-case coordination
+or a filesystem-wide flush. Each file keeps its own error result. Apple can
+share its additional drive-cache flush between ready cases.
+
+Each helper thread holds one open file, so helpers are shared by the whole
+process: at most 64, and at most a quarter of the open files left after 8 for
+each worker and 32 for the process. When the limit leaves no such room, each
+worker syncs its files one after another, as before, and a helper that finds
+no free descriptor leaves its file to its worker, which tries it once more
+alone. The reserve is an estimate of what the CLI's workers need, not a
+guarantee. At startup the CLI raises its soft open-file limit
+(`ulimit -Sn`) to the hard limit (`ulimit -Hn`), as Go and Node.js programs do
+(on macOS, to at most 10240). If the hard limit is also Linux's usual 1024,
+sweeps of up to 92 workers keep all 64 helpers and 124 or more get none.
+No additional directory sync or directory-entry power-loss guarantee is added,
+and the status file is not fsynced per line. Node failure can lose a record
+or result names, so resume rehashes every listed artifact rather than trusting
+the record alone.
+Submit the task again:
 
 ```sh
 sbatch --array=7 examples/cli/slurm-sweep.sh kraken cases.txt results
 ```
 
-With `--resume`, it skips each case whose input, options and results are
-unchanged, and solves the rest. A case that failed runs again. The example
+With `--resume`, it skips each recorded case whose input, options and results
+are unchanged, and solves the rest. A case that failed runs again. Retained
+scratch, locks or backups are never adopted: interrupted publication may need
+manual recovery first. See the [publication crash states](native-output.md#run-many-barriers-and-interrupted-batches)
+before removing control paths or backups. Storage-server durability still
+depends on the cluster filesystem honoring sync requests. The example
 script also asks Slurm to requeue the task by itself after a node failure or
 preemption (`#SBATCH --requeue`). `--resume` reads every status file in
 `results/`, so a case done by any task, or by an earlier one-machine run, is

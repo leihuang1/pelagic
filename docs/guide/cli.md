@@ -175,8 +175,21 @@ for clashing stems, so all of them accept or reject the same input. See
 ### Status file and resuming
 
 Each case appends one JSON line to `DIR/status.ndjson`, or to
-`DIR/status-I-of-N.ndjson` for a shard, as soon as it finishes, so a job that
-is killed still leaves every finished case recorded:
+`DIR/status-I-of-N.ndjson` for a shard. A new `ok` follows all file syncs and
+subsequent installation. Single `run` and each sweep worker sync their own
+files concurrently with at most 16 I/O participants including the caller.
+Helpers are shared across the process, at most 64, and only use open files
+left after 8 per sweep worker and 32 for the process. Without that room,
+workers sync one file at a time, as before. At startup the CLI raises its soft
+open-file limit to the hard limit. None of this changes the numerical
+`--threads` setting. Linux and Windows
+workers do not coordinate publication across cases. Apple can share its final
+drive-cache flush without a batching timer. This does not promise directory-entry
+power-loss durability. The status file itself is not fsynced per line:
+a crash can lose a record or result names,
+or cut a line short. Resume rehashes the manifest and every listed artifact.
+See [barriers and interrupted batches](native-output.md#run-many-barriers-and-interrupted-batches)
+for the exact platform guarantees and recovery rules:
 
 ```json
 {"status_version":1,"case":"cases/a.json","stem":"a","version":"0.6.1","format":"legacy","options":{"max_output_bytes":268435456,"solver":null},"input_sha256":"5d0c…","outcome":"ok","exit_code":0,"seconds":0.03,"manifest_sha256":"4a3b…","diagnostics":[]}
@@ -206,7 +219,8 @@ matches that line's `manifest_sha256` with every listed file unmodified.
 Anything else runs again: any change to an input file, another option or
 version, a failure, a case without a complete line, or results that were
 edited or removed. A rerun into results you have edited fails with exit code
-4 and keeps your edits, as `run` does.
+4 and keeps your edits, as `run` does. A crash that leaves scratch, locks or
+backups can require manual recovery: resume never adopts or removes them.
 
 `run-many` appends only to its own status files. It stops with exit code 4
 (`PG0404`) before solving anything if the status file is a symbolic link, has

@@ -3,7 +3,10 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-fn root(name: &str) -> PathBuf {
+#[path = "directory/publication_tests.rs"]
+mod publication;
+
+pub(super) fn root(name: &str) -> PathBuf {
     let root =
         std::env::temp_dir().join(format!("pelagic-publication-{name}-{}", std::process::id()));
     fs::create_dir(&root).unwrap();
@@ -121,21 +124,20 @@ fn flush_failure_precedes_every_previous_product_move() {
     {
         let mut transaction = Transaction::begin(&out, &[]).unwrap();
         fs::write(transaction.stage.join("a.txt"), b"a").unwrap();
-        fs::write(transaction.stage.join("b.txt"), b"b").unwrap();
-        transaction.sync = |file, last| {
-            if last {
-                assert_eq!(SYNCED.load(Ordering::SeqCst), 2);
-                assert!(file.metadata().unwrap().len() > 1);
-                Err(std::io::Error::other("injected final flush failure"))
-            } else {
-                sync_file(file, false)?;
-                SYNCED.fetch_add(1, Ordering::SeqCst);
-                Ok(())
+        fs::write(transaction.stage.join("b.txt"), b"bb").unwrap();
+        transaction.sync = |file| {
+            SYNCED.fetch_add(1, Ordering::SeqCst);
+            match file.metadata()?.len() {
+                1 => Err(std::io::Error::other("first file failure")),
+                2 => Err(std::io::Error::other("second file failure")),
+                _ => sync_file(file),
             }
         };
+        assert_eq!(transaction.install(None).unwrap_err(), "first file failure");
         assert_eq!(
-            transaction.install(None).unwrap_err(),
-            "injected final flush failure"
+            SYNCED.load(Ordering::SeqCst),
+            3,
+            "manifest and all artifacts attempted"
         );
         assert!(!transaction.backup.exists());
         assert_eq!(fs::read(out.join("old.txt")).unwrap(), b"old");
@@ -333,7 +335,8 @@ fn rollback_never_replaces_a_late_stage_destination() {
 fn destinations_appearing_during_a_run_are_refused_and_kept() {
     let parent = root("late");
     let out = parent.join("results");
-    // While the writer runs, in a directory this run created: seen by the install checks.
+    // While the writer runs in an existing directory: seen by the install checks.
+    fs::create_dir(&out).unwrap();
     let error = publish::<(), String>(&out, &[], None, |scratch| {
         fs::write(out.join("a.txt"), b"arrived during writing").unwrap();
         fs::write(scratch.join("a.txt"), b"new result").map_err(|e| e.to_string())
@@ -426,6 +429,7 @@ fn cached_inputs_still_refuse_late_hard_link_aliases() {
     let input = parent.join("input");
     fs::write(&input, b"input").unwrap();
     let out = parent.join("results");
+    fs::create_dir(&out).unwrap();
     {
         let mut transaction = Transaction::begin(&out, &[&input]).unwrap();
         fs::write(transaction.stage.join("a.txt"), b"new").unwrap();

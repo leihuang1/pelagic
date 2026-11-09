@@ -218,6 +218,7 @@ pub(crate) fn execute(
             NonZeroUsize::get,
         )
         .clamp(1, cases.len().max(1));
+    let batch = output::directory::Batch::new(workers);
     let threads = threads
         .unwrap_or_else(|| NonZeroUsize::new(available / workers).unwrap_or(NonZeroUsize::MIN));
     let report = Mutex::new(Report {
@@ -234,7 +235,8 @@ pub(crate) fn execute(
             let Some(case) = cases.get(next.fetch_add(1, Ordering::Relaxed)) else {
                 return;
             };
-            let finished = solve(case, args, &previous, threads, model);
+            // publish returns only after its file barrier and the subsequent installation.
+            let finished = batch.run(|| solve(case, args, &previous, threads, model));
             let mut report = report
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -632,7 +634,65 @@ impl Report {
 
 #[cfg(test)]
 mod tests {
-    use super::{Record, STATUS_PREFIX, is_status};
+    use super::*;
+
+    #[test]
+    fn failed_status_write_does_not_claim_a_record_or_damage_installed_results() {
+        let root =
+            std::env::temp_dir().join(format!("pelagic-record-fault-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let output = root.join("case");
+        let batch = output::directory::Batch::new(4);
+        batch
+            .run(|| {
+                output::directory::publish::<(), String>(&output, &[], None, |stage| {
+                    fs::write(stage.join("a"), b"result").map_err(|e| e.to_string())
+                })
+            })
+            .unwrap();
+        let manifest = output::directory::verified_manifest_sha256(&output).unwrap();
+        let status = root.join("status.ndjson");
+        fs::write(&status, b"").unwrap();
+        let mut report = Report {
+            file: File::open(&status).unwrap(), // Read-only handle injects a real record-write failure.
+            status: status.clone(),
+            diagnostics: Diagnostics::Text,
+            tally: [0; 3],
+            code: 0,
+        };
+        let finished = Finished {
+            record: Record {
+                status_version: STATUS_VERSION,
+                case: "case.json".into(),
+                stem: "case".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                format: "legacy".into(),
+                options: serde_json::json!({}),
+                input_sha256: None,
+                outcome: "ok".into(),
+                exit_code: 0,
+                seconds: 0.0,
+                manifest_sha256: manifest.clone(),
+                diagnostics: Vec::new(),
+            },
+            text: Vec::new(),
+            summary: None,
+        };
+        assert!(!report.record(
+            &Case {
+                path: "case.json".into(),
+                stem: "case".into()
+            },
+            &finished
+        ));
+        assert_eq!(report.code, 4);
+        assert_eq!(fs::read(&status).unwrap(), [] as [u8; 0]);
+        assert_eq!(
+            output::directory::verified_manifest_sha256(&output).unwrap(),
+            manifest
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn every_record_starts_with_the_status_prefix() {
