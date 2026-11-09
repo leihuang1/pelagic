@@ -7,6 +7,12 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Coupled KRAKEN FIELD lanes — performance review pending.** On one thread
+  of an AMD EPYC 7B13, the Gulf coupled example has solver-only speedups of
+  1.18× with the default build and 1.20× with the x86-64-v3 build. Complete
+  solver results are bit-for-bit unchanged in the checked inventory. Small
+  off-path v3 slowdowns persist, so this candidate has **not** passed the
+  no-regression gate. See the [experiment record](docs/history/kraken-rd-field-lanes.md).
 - **Faster durable CLI output, especially on Linux.** A result's files are now
   synced concurrently, up to 16 at a time, instead of one after another, in
   single `run` and in `run-many`. Each file still gets its own sync, so the

@@ -1,4 +1,5 @@
 //! Range-dependent 2D FIELD propagation.
+use super::{FIELD_RANGE_LANES, MIN_LANE_RANGES};
 use crate::case::MAX_SEQUENCE_VALUES;
 use crate::solver::{double, elastic::complex_speed, error, single, source_pattern_scale};
 use crate::{
@@ -343,6 +344,84 @@ fn fill_rows(
     Ok(())
 }
 
+/// One same-profile group; padding is charged to the table, not the output.
+struct RangeGroup {
+    start: usize,
+    len: usize,
+    segment: usize,
+    lanes: bool,
+}
+
+fn range_blocks<'a>(
+    ranges: &'a [f64],
+    boundaries: &'a [f64],
+    capacity: usize,
+) -> impl Iterator<Item = Vec<RangeGroup>> + 'a {
+    let mut start = 0;
+    std::iter::from_fn(move || {
+        if start == ranges.len() {
+            return None;
+        }
+        let mut remaining = capacity.max(1);
+        let mut groups = Vec::new();
+        while start < ranges.len() && remaining > 0 {
+            let segment = boundaries.partition_point(|&boundary| ranges[start] > boundary);
+            let len = boundaries
+                .get(segment)
+                .map_or(ranges.len() - start, |&boundary| {
+                    ranges[start..].partition_point(|&range| range <= boundary)
+                })
+                .min(FIELD_RANGE_LANES)
+                .min(remaining);
+            let lanes = len >= MIN_LANE_RANGES && remaining >= FIELD_RANGE_LANES;
+            groups.push(RangeGroup {
+                start,
+                len,
+                segment,
+                lanes,
+            });
+            remaining -= if lanes { FIELD_RANGE_LANES } else { len };
+            start += len;
+        }
+        Some(groups)
+    })
+}
+
+/// Coupled amplitudes have one layout, never a scalar table plus its transpose.
+enum RangeValues {
+    Scalar(Vec<Complex32>),
+    Lanes(Vec<super::RangePhaseLanes>),
+}
+
+impl RangeValues {
+    fn new(group: &RangeGroup, modes: usize) -> Self {
+        if group.lanes {
+            Self::Lanes(
+                (0..modes)
+                    .map(|_| super::RangePhaseLanes {
+                        re: [0.0; FIELD_RANGE_LANES],
+                        im: [0.0; FIELD_RANGE_LANES],
+                    })
+                    .collect(),
+            )
+        } else {
+            Self::Scalar(Vec::with_capacity(group.len * modes))
+        }
+    }
+
+    fn push_range(&mut self, lane: usize, values: impl Iterator<Item = Complex32>) {
+        match self {
+            Self::Scalar(table) => table.extend(values),
+            Self::Lanes(table) => {
+                for (mode, value) in table.iter_mut().zip(values) {
+                    mode.re[lane] = value.re;
+                    mode.im[lane] = value.im;
+                }
+            }
+        }
+    }
+}
+
 /// One receiver range of the adiabatic march: the profiles it lies between,
 /// its weight, and a term per mode: the phase integral, then the range factor.
 struct AdiabaticRange {
@@ -538,14 +617,64 @@ fn integrate(
     }
 }
 
-/// One receiver range of the coupled march: its profile and mode amplitudes.
-struct CoupledRange {
-    segment: usize,
-    range: f64,
-    amplitudes: Vec<Complex32>,
+/// One receiver depth's coupled pressure, retaining f32 modal addition order.
+#[allow(clippy::float_cmp)]
+fn coupled_row(
+    groups: &[RangeGroup],
+    amplitudes: &[RangeValues],
+    modes: &[ModeSet],
+    first: &Case,
+    depth: f64,
+) -> Vec<Complex64> {
+    let mut profile = None;
+    let mut shapes = Vec::new();
+    let mut values = Vec::with_capacity(groups.iter().map(|g| g.len).sum());
+    let finish = |sum: Complex32, range: f64| {
+        double(
+            if first.source_geometry == SourceGeometry::Point && range != 0.0 {
+                single(double(sum) / range.sqrt())
+            } else {
+                sum
+            },
+        )
+    };
+    for (group, amplitudes) in groups.iter().zip(amplitudes) {
+        if profile != Some(group.segment) {
+            profile = Some(group.segment);
+            let set = &modes[group.segment];
+            let at = bracket(set, depth);
+            shapes = set.modes.iter().map(|mode| sample_at(mode, at)).collect();
+        }
+        let ranges = &first.receiver_ranges_m[group.start..][..group.len];
+        match amplitudes {
+            RangeValues::Scalar(table) => {
+                let count = table.len() / group.len;
+                for (i, &range) in ranges.iter().enumerate() {
+                    let terms = &table[i * count..(i + 1) * count];
+                    let sum = terms.iter().zip(&shapes).map(|(a, shape)| a * shape).sum();
+                    values.push(finish(sum, range));
+                }
+            }
+            RangeValues::Lanes(table) => {
+                let mut re = [0.0; FIELD_RANGE_LANES];
+                let mut im = [0.0; FIELD_RANGE_LANES];
+                for (a, shape) in table.iter().zip(&shapes) {
+                    for lane in 0..FIELD_RANGE_LANES {
+                        let contribution = Complex32::new(a.re[lane], a.im[lane]) * shape;
+                        re[lane] += contribution.re;
+                        im[lane] += contribution.im;
+                    }
+                }
+                for (lane, &range) in ranges.iter().enumerate() {
+                    values.push(finish(Complex32::new(re[lane], im[lane]), range));
+                }
+            }
+        }
+    }
+    values
 }
 
-#[allow(clippy::float_cmp)]
+#[allow(clippy::too_many_lines)]
 fn coupled(
     case: &FieldCase,
     modes: &[ModeSet],
@@ -570,16 +699,20 @@ fn coupled(
     let mut previous = 0.0;
     let range_count = first.receiver_ranges_m.len();
     let largest = modes.iter().map(|m| m.modes.len()).max().unwrap_or(0);
-    let block_len = (table_values / largest.max(1)).clamp(1, range_count.max(1));
-    for (block_index, ranges) in first.receiver_ranges_m.chunks(block_len).enumerate() {
-        // Each range advances the previous one's amplitudes, so the march is sequential.
-        let mut steps = Vec::with_capacity(ranges.len());
-        for &range in ranges {
+    let boundaries: Vec<_> = case
+        .ranges_m
+        .windows(2)
+        .map(|r| r[0].midpoint(r[1]))
+        .collect();
+    let capacity = (table_values.min(super::PHASE_TABLE_VALUES) / largest.max(1)).max(1);
+    for groups in range_blocks(&first.receiver_ranges_m, &boundaries, capacity) {
+        // Write each marched amplitude directly into its final scalar/lane layout.
+        let mut amplitudes = Vec::with_capacity(groups.len());
+        for group in &groups {
+            let ranges = &first.receiver_ranges_m[group.start..][..group.len];
             crate::cancellation::check()?;
-            while segment + 1 < modes.len()
-                && range > case.ranges_m[segment].midpoint(case.ranges_m[segment + 1])
-            {
-                let boundary = case.ranges_m[segment].midpoint(case.ranges_m[segment + 1]);
+            while segment < group.segment {
+                let boundary = boundaries[segment];
                 advance(&mut a, &modes[segment], boundary - previous);
                 a = project(
                     &case.profiles[segment],
@@ -591,15 +724,17 @@ fn coupled(
                 previous = boundary;
                 segment += 1;
             }
-            advance(&mut a, &modes[segment], range - previous);
-            steps.push(CoupledRange {
-                segment,
-                range,
-                amplitudes: a[..a.len().min(modes[segment].modes.len())].to_vec(),
-            });
-            previous = range;
+            let count = a.len().min(modes[segment].modes.len());
+            let mut table = RangeValues::new(group, count);
+            for (lane, &range) in ranges.iter().enumerate() {
+                crate::cancellation::check()?;
+                advance(&mut a, &modes[segment], range - previous);
+                table.push_range(lane, a[..count].iter().copied());
+                previous = range;
+            }
+            amplitudes.push(table);
         }
-        let block = (block_index * block_len, ranges.len());
+        let block = (groups[0].start, groups.iter().map(|g| g.len).sum());
         fill_rows(
             pressure,
             &first.receiver_depths_m,
@@ -607,38 +742,7 @@ fn coupled(
             block,
             table_values,
             largest,
-            |depth| {
-                let mut profile = None;
-                let mut shapes = Vec::new();
-                steps
-                    .iter()
-                    .map(|step| {
-                        if profile != Some(step.segment) {
-                            profile = Some(step.segment);
-                            let at = bracket(&modes[step.segment], depth);
-                            shapes = modes[step.segment]
-                                .modes
-                                .iter()
-                                .map(|mode| sample_at(mode, at))
-                                .collect();
-                        }
-                        let sum: Complex32 = step
-                            .amplitudes
-                            .iter()
-                            .zip(&shapes)
-                            .map(|(a, shape)| a * shape)
-                            .sum();
-                        let value = if first.source_geometry == SourceGeometry::Point
-                            && step.range != 0.0
-                        {
-                            single(double(sum) / step.range.sqrt())
-                        } else {
-                            sum
-                        };
-                        double(value)
-                    })
-                    .collect()
-            },
+            |depth| coupled_row(&groups, &amplitudes, modes, first, depth),
         )?;
     }
     Ok(())
@@ -888,6 +992,153 @@ fn table_size_never_changes_the_range_dependent_field() {
                 format!("{:?}", Ok::<_, DiagnosticReport>(&expected.field.pressure)),
                 "{stem} {addition:?} {geometry:?} with {table_values}-value tables"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod range_lane_tests {
+    use super::*;
+
+    fn bits(values: &[Complex64]) -> Vec<(u64, u64)> {
+        values
+            .iter()
+            .map(|p| (p.re.to_bits(), p.im.to_bits()))
+            .collect()
+    }
+
+    #[test]
+    fn groups_charge_padding_and_keep_short_segments_scalar() {
+        let boundaries = [6.0, 14.0, 23.0, 39.0, 56.0];
+        let ranges: Vec<_> = (0..74).map(f64::from).collect();
+        let groups = range_blocks(&ranges, &boundaries, 128).next().unwrap();
+        assert_eq!(
+            groups.iter().map(|g| (g.len, g.lanes)).collect::<Vec<_>>(),
+            [
+                (7, false),
+                (8, true),
+                (9, true),
+                (16, true),
+                (16, true),
+                (1, false),
+                (16, true),
+                (1, false)
+            ]
+        );
+        for capacity in [1, 2, 7, 8, 15, 16, 17, 23, 31, 32, 33, 128] {
+            let mut next = 0;
+            for groups in range_blocks(&ranges, &boundaries, capacity) {
+                let charged: usize = groups
+                    .iter()
+                    .map(|g| if g.lanes { FIELD_RANGE_LANES } else { g.len })
+                    .sum();
+                assert!(charged <= capacity);
+                for group in groups {
+                    assert_eq!(group.start, next);
+                    assert!(group.len > 0 && group.len <= FIELD_RANGE_LANES);
+                    assert!(!group.lanes || group.len >= MIN_LANE_RANGES);
+                    for &range in &ranges[group.start..][..group.len] {
+                        assert_eq!(group.segment, boundaries.partition_point(|&b| range > b));
+                    }
+                    next += group.len;
+                }
+            }
+            assert_eq!(next, ranges.len());
+        }
+    }
+
+    #[test]
+    fn scalar_and_lane_fields_are_bitwise_identical() {
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        for stem in ["ProfilesAd", "ProfilesCm"] {
+            let root = fixtures.join(stem);
+            let field = crate::legacy::load_field_cases(
+                root.with_extension("env"),
+                root.with_extension("flp"),
+                crate::ModeSolver::Kraken,
+            )
+            .unwrap()
+            .remove(0);
+            let solved = solve_field(&field).unwrap();
+            let boundaries = if field.propagation == FieldPropagation::Adiabatic {
+                field.ranges_m[1..].to_vec()
+            } else {
+                field
+                    .ranges_m
+                    .windows(2)
+                    .map(|r| r[0].midpoint(r[1]))
+                    .collect()
+            };
+            for len in 1..=17 {
+                let mut ranges = Vec::new();
+                let mut left = 0.0;
+                for segment in 0..field.profiles.len() {
+                    let right = boundaries.get(segment).copied().unwrap_or(left + 1000.0);
+                    for i in 1..=len {
+                        ranges.push(if segment == 0 && i == 1 {
+                            0.0
+                        } else if i == len {
+                            right
+                        } else {
+                            left + (right - left) * f64::from(i) / f64::from(len)
+                        });
+                    }
+                    left = right;
+                }
+                for (addition, geometry) in [
+                    (ModeAddition::Coherent, SourceGeometry::Point),
+                    (ModeAddition::Coherent, SourceGeometry::Line),
+                    (ModeAddition::Coherent, SourceGeometry::ScaledCylindrical),
+                    (ModeAddition::Incoherent, SourceGeometry::Point),
+                    (ModeAddition::Incoherent, SourceGeometry::Line),
+                ] {
+                    if field.propagation == FieldPropagation::Coupled
+                        && addition == ModeAddition::Incoherent
+                    {
+                        continue;
+                    }
+                    let profiles = field
+                        .profiles
+                        .iter()
+                        .map(|profile| {
+                            let mut input = profile.clone().into_definition();
+                            input.receiver_ranges_m.clone_from(&ranges);
+                            input.mode_addition = addition;
+                            input.source_geometry = geometry;
+                            Case::from_definition(input).unwrap()
+                        })
+                        .collect();
+                    let case = FieldCase::new(profiles, field.ranges_m.clone(), field.propagation)
+                        .unwrap();
+                    for count in [0, 1, usize::MAX] {
+                        let mut modes = solved.modes.clone();
+                        for set in &mut modes {
+                            set.modes.truncate(count);
+                        }
+                        let largest = modes.iter().map(|m| m.modes.len()).max().unwrap().max(1);
+                        let samples = ranges.len() * case.profiles[0].receiver_depths_m.len();
+                        let scalar = synthesize(&case, &modes, samples, 1).unwrap();
+                        for budget in [
+                            7 * largest,
+                            8 * largest,
+                            15 * largest,
+                            16 * largest,
+                            17 * largest,
+                            31 * largest,
+                            32 * largest + 1,
+                            TABLE_VALUES,
+                            super::super::PHASE_TABLE_VALUES + 1,
+                        ] {
+                            let lanes = synthesize(&case, &modes, samples, budget).unwrap();
+                            assert_eq!(
+                                bits(&scalar),
+                                bits(&lanes),
+                                "{stem} {addition:?} {geometry:?} {len} ranges/segment, {count} modes, {budget} values"
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -178,6 +178,38 @@ changes cancellation-sensitive deflated search paths. The
 [three-layer refinement fix](../history/krakenc-three-layer-refinement.md) preserves existing
 sqrt, seed, shooting and stopping paths and reproduces the natural 5-to-4 search.
 
+### FIELD storage and range lanes
+
+Range-independent FIELD in `solver/mod.rs` uses 16 independent receiver-range
+lanes. Coupled range-dependent FIELD in `field.rs` reuses that lane width and
+`RangePhaseLanes` representation, but keeps its own f32 arithmetic. The
+amplitude march and interface projections remain sequential. Each marched
+amplitude is written directly into **one** layout: a range-major scalar table
+or mode-major real/imaginary lane arrays, not a scalar block plus its transpose.
+
+`Case`/`FieldCase` already require finite, strictly increasing receiver/profile
+ranges. `range_blocks` groups receivers on the same side of a profile midpoint,
+keeping an exact midpoint in the left profile as before. Multiple profiles can share a
+block. Groups with at least `MIN_LANE_RANGES` (eight) live ranges use lanes only
+when 16 slots fit; shorter segments, short tails and budget-limited groups use
+the scalar row. Each lane still adds modes in order. Shape sampling, the f32
+complex products and sum, geometric spreading and final f32/f64 conversions
+retain their original grouping; padding is never returned as pressure.
+
+The range capacity is `max(1, min(table_values, PHASE_TABLE_VALUES) /
+max(largest_mode_count, 1))`. A lane group spends 16 slots including padding; a
+scalar group spends its live length. Thus padding across several profiles cannot
+overrun the amplitude table. `TABLE_VALUES` is 65,536 modal values; completed
+receiver rows retain their separate budget in `fill_rows`. As before, an
+artificially smaller-than-one-mode-vector test budget still admits one scalar
+range. These are per-table bounds, not a total-process memory ceiling.
+
+Adiabatic FIELD retains its scalar receiver row and existing blocked range
+factors. A separate lane prototype was measured but not retained; see the
+[range-dependent FIELD experiment](../history/kraken-rd-field-lanes.md) for the
+threshold evidence, performance qualifications and full-result identity checks.
+No numerical selector or adapter-specific path was added.
+
 `tests/refactoring.rs` characterizes the Case/load/solve Interfaces; existing
 behavior, JSON round-trip, material, FIELD, CLI/HDF5 and fresh-reference tests
 remain the acceptance surface. No helper-only test replaces those checks.
