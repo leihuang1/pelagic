@@ -7,6 +7,8 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+## 0.6.2 — 2026-11-09
+
 - **Faster coupled range-dependent KRAKEN FIELD.** Coupled FIELD now adds the
   modes of up to 16 receiver ranges that share a profile at once, as
   range-independent FIELD already does. On one thread of an AMD EPYC 7B13,
@@ -100,7 +102,11 @@ in the [interface contract](docs/development/interface-contract.md).
   or `output::kraken::run_json`; the CLI already publishes through result
   directories, and its behaviour does not change.
 
-### Compatibility
+**Compatibility**
+
+This patch release changes the public interfaces below. That is an exception to
+the [interface contract](docs/development/interface-contract.md), under which
+only a minor release may change a public interface before 1.0.
 
 - Multi-frequency KRAKEN/KRAKENC native output now uses one `CASE.mod` and one
   `CASE.shd`, in Fortran's multi-frequency layout, when every block has exactly
@@ -110,7 +116,6 @@ in the [interface contract](docs/development/interface-contract.md).
   mode readers can traverse them; incompatible headers also retain indexed pairs.
   This applies to the CLI and Python; consumers should use the manifest rather
   than assume indexed filenames. Single-frequency bytes and HDF5 are unchanged.
-  This public filename change requires a minor release before 1.0.
 - KRAKEN `run` and `run-many` now report a JSON solver mismatch under the field
   `kraken.solver`, the JSON path, as `validate` and `export` already did. It was
   `mode_solver`.
