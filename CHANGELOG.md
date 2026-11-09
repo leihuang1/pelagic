@@ -104,9 +104,12 @@ in the [interface contract](docs/development/interface-contract.md).
 
 **Compatibility**
 
-This patch release changes the public interfaces below. That is an exception to
-the [interface contract](docs/development/interface-contract.md), under which
-only a minor release may change a public interface before 1.0.
+Three of these change public interfaces: the native output filenames, a
+diagnostic `field`, and the codes and fields of Python's load diagnostics.
+Making them in a patch release is an exception to the
+[interface contract](docs/development/interface-contract.md), under which only a
+minor release may change a public interface before 1.0. Message wording is not
+a public interface.
 
 - Multi-frequency KRAKEN/KRAKENC native output now uses one `CASE.mod` and one
   `CASE.shd`, in Fortran's multi-frequency layout, when every block has exactly
