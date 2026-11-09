@@ -84,6 +84,27 @@ Multi-profile runs or incompatible headers/grids keep `case.f0000.mod/.shd`,
 `case.f0001.mod/.shd`, and so on instead;
 see the [layout rule](native-output.md#file-selection-and-ordering).
 
+### Scratch results: `--no-sync`
+
+Both `pelagic kraken run` and `pelagic bellhop run` accept `--no-sync`, for
+scratch work that is cheaper to rerun than to sync. The default remains durable:
+file contents are synced before installation. With the flag, all per-file syncs
+and Apple's drive-cache flush are skipped, in every output format. Writing,
+closing, hashing, quotas, locks, backups, installation and rollback are unchanged.
+**After an OS crash or power loss, results may be empty, truncated or missing
+even though they were installed and, in a sweep, recorded as `ok`.** Neither
+mode guarantees directory-entry durability. A scheduler time limit, preemption,
+`scancel` or Pelagic process crash alone does not discard completed results:
+the OS remains running and normally writes its cache back. An OS crash, node
+failure or power loss can lose that cache. A write error that the OS hits later,
+such as a failing disk or a full network filesystem, also goes unseen: no sync
+reports it, so the case does not fail. An unfinished publication can still leave
+incomplete scratch data, a partial installation or locks in either mode.
+
+```sh
+pelagic kraken run pekeris.env --output scratch/pekeris --no-sync --threads 1
+```
+
 ## Threads
 
 A run uses every CPU available to the program. On Linux that honours CPU
@@ -136,6 +157,11 @@ pelagic kraken run-many --list cases.txt --output results --shard 3/50 --resume
   even differing only in letter case, the command exits with code 2 before
   solving anything. A directory holding both `gulf.env` and `gulf.json` is
   rejected that way; list the files you want instead.
+- **Scratch sweeps.** Both models accept `--no-sync` here too. It skips every
+  file sync and Apple's shared run-many drive barrier; the default still syncs.
+  After an OS crash or power loss, results may be empty, truncated or missing
+  even though they were installed and recorded as `ok`. Use it only when
+  rerunning and, if needed, manually recovering damaged output is acceptable.
 - **Failures.** A failed case does not stop the others. The exit code is the
   largest of the cases' codes, so 0 means every case succeeded or was skipped.
   The status file says which cases failed and why.
@@ -175,8 +201,10 @@ for clashing stems, so all of them accept or reject the same input. See
 ### Status file and resuming
 
 Each case appends one JSON line to `DIR/status.ndjson`, or to
-`DIR/status-I-of-N.ndjson` for a shard. A new `ok` follows all file syncs and
-subsequent installation. Single `run` and each sweep worker sync their own
+`DIR/status-I-of-N.ndjson` for a shard. A new `ok` follows installation and,
+by default, all file syncs before it. `--no-sync` skips those syncs and Apple's
+shared drive barrier, not installation or status reporting. By default,
+single `run` and each sweep worker sync their own
 files concurrently with at most 16 I/O participants including the caller.
 Helpers are shared across the process, at most 64, and only use open files
 left after 8 per sweep worker and 32 for the process. Without that room,
@@ -221,6 +249,17 @@ version, a failure, a case without a complete line, or results that were
 edited or removed. A rerun into results you have edited fails with exit code
 4 and keeps your edits, as `run` does. A crash that leaves scratch, locks or
 backups can require manual recovery: resume never adopts or removes them.
+
+This also applies after `--no-sync`: an empty, truncated or zero-filled artifact
+fails the size/SHA-256 check and is never skipped as current. The case is rerun,
+but replacing a damaged existing file still fails the ownership check; inspect
+and recover or remove the damaged data before retrying. Follow the worked
+[recovery procedure](cluster.md#recovery-after-a-node-crash); do not just delete
+the manifest or discard backups you still need. Missing owned files can be
+regenerated. The flag is not recorded in the manifest or status file because
+it does not change results. A later `--resume` without `--no-sync` rehashes, but
+**does not sync skipped cases or upgrade their durability**. Rerun without
+`--resume` and without `--no-sync` to publish them durably.
 
 `run-many` appends only to its own status files. It stops with exit code 4
 (`PG0404`) before solving anything if the status file is a symbolic link, has

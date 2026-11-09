@@ -85,6 +85,46 @@ need to start several `pelagic` processes yourself. Each case goes to
 absolute paths in the list, or always start from the same folder: `--resume`
 matches a case by its path as written.
 
+## Disposable scratch sweeps
+
+For small cases, syncing each output file can cost more than solving it. Both
+KRAKEN and BELLHOP `run` and `run-many` accept `--no-sync` when rerunning is
+cheaper than guarding against an OS crash. For one solver thread per case:
+
+```sh
+pelagic kraken run-many cases/ --output scratch/results --workers 14 --threads 1 --no-sync
+```
+
+The default remains durable. `--no-sync` skips all per-file syncs and Apple's
+shared drive-cache barrier, but keeps staging, hashes, quotas, locks, backups,
+installation, rollback, cleanup and status lines. **After an OS crash or power
+loss, results may be empty, truncated or missing even though they were installed
+and recorded as `ok`.** Do not use it for results you cannot afford to rerun.
+Neither mode promises directory-entry durability, and remote-storage guarantees
+depend on the filesystem and storage server.
+
+A scheduler time limit, preemption, `scancel`, or a crashed Pelagic process does
+**not** discard completed results merely because they were not synced: the OS
+is still running and normally writes its cached data back. This applies to
+completed publications: killing a process while it is still writing can lose
+userspace-buffered scratch data, and interrupting installation can leave a
+partial group, backups or locks in either mode. It does not turn an unfinished
+case into a successful one.
+
+The extra no-sync risks are an **OS crash, node failure or power loss**, which
+can lose that cache, and a **write error that the OS hits later**, such as a
+failing disk or a full or unreachable network filesystem. In the default mode
+the sync reports such an error and the case fails. With `--no-sync`, Pelagic
+never sees it, and the case can still be recorded as `ok`.
+
+`--resume` still rehashes every listed artifact. Missing files can be regenerated;
+empty, truncated or zero-filled files are never accepted as current. Damaged
+existing files, invalid manifests or retained transaction controls can require
+manual recovery before replacement is allowed. A later `--resume` without
+`--no-sync` does not sync skipped cases or upgrade their durability; to publish
+them durably, rerun without either flag. See [recovery after a node crash](#recovery-after-a-node-crash)
+for a worked procedure.
+
 ## Slurm job arrays
 
 [`examples/cli/slurm-sweep.sh`](../../examples/cli/slurm-sweep.sh) is a
@@ -167,11 +207,13 @@ threads, KRAKEN frequencies and profiles that run side by side can also hold abo
 
 ## When a task stops early
 
-Every successful case writes its status line after all file syncs and
-installation. Each publication, including a separate `run` in a job array,
-syncs its files concurrently with at most 16 I/O participants including the
-calling thread. This is independent of the numerical `--threads` setting;
-a refused helper leaves work to the caller rather than failing the case.
+Every successful case writes its status line after installation and, by default,
+all file syncs before it. `--no-sync` skips these syncs and Apple's drive barrier;
+it does not skip installation or status reporting. In the default mode, each
+publication, including a separate `run` in a job array, syncs its files
+concurrently with at most 16 I/O participants including the calling thread.
+This is independent of the numerical `--threads` setting; a refused helper
+leaves work to the caller rather than failing the case.
 Linux and Windows workers sync their own files without cross-case coordination
 or a filesystem-wide flush. Each file keeps its own error result. Apple can
 share its additional drive-cache flush between ready cases.
@@ -189,7 +231,9 @@ sweeps of up to 92 workers keep all 64 helpers and 124 or more get none.
 No additional directory sync or directory-entry power-loss guarantee is added,
 and the status file is not fsynced per line. Node failure can lose a record
 or result names, so resume rehashes every listed artifact rather than trusting
-the record alone.
+the record alone. A process-only stop does not discard completed results from
+the OS cache, even with `--no-sync`, but in either mode an interrupted
+publication can leave scratch, backups or locks requiring recovery.
 Submit the task again:
 
 ```sh
@@ -199,7 +243,8 @@ sbatch --array=7 examples/cli/slurm-sweep.sh kraken cases.txt results
 With `--resume`, it skips each recorded case whose input, options and results
 are unchanged, and solves the rest. A case that failed runs again. Retained
 scratch, locks or backups are never adopted: interrupted publication may need
-manual recovery first. See the [publication crash states](native-output.md#run-many-barriers-and-interrupted-batches)
+manual recovery first. Follow [recovery after a node crash](#recovery-after-a-node-crash),
+and see the [publication crash states](native-output.md#run-many-barriers-and-interrupted-batches)
 before removing control paths or backups. Storage-server durability still
 depends on the cluster filesystem honoring sync requests. The example
 script also asks Slurm to requeue the task by itself after a node failure or
@@ -214,6 +259,61 @@ done, but a case's lines are then spread over several status files, and
 
 Never run two copies of the same task at once: both would write the same
 folders and status file.
+
+## Recovery after a node crash
+
+First stop competing writers and check that the output directory contains only
+results you can afford to discard, not your inputs. For a disposable scratch
+sweep, the simplest recovery is to **delete the entire scratch results directory
+and rerun**:
+
+```sh
+rm -rf -- scratch-results
+pelagic kraken run-many cases/ --output scratch-results --threads 1 --no-sync
+```
+
+To keep completed cases instead, rerun with `--resume` and every original option
+that affects results: the input paths, `--format`, the shard options and, for
+KRAKEN, `--solver` and `--max-output-bytes`. A case whose options changed runs
+again, and its new result replaces the old one. This example uses the default
+options:
+
+```sh
+pelagic kraken run-many cases/ --output scratch-results --threads 1 --resume
+```
+
+Verified cases are skipped and missing owned files are regenerated. A damaged
+case fails with exit code **4**, naming its result directory in the offending
+artifact's path. For example, these are the actual error lines after truncating
+`c001.prt` in a no-sync sweep (BELLHOP can also print solver warnings):
+
+```text
+cases/c001.json: <output>:1:1: error[KR0402]: owned artifact was modified; refusing replacement: scratch-results/c001/c001.prt (output)
+cases/c001.json: scratch-results/c001:1:1: error[BH0402]: owned artifact was modified; refusing replacement: scratch-results/c001/c001.prt (output)
+```
+
+Inspect the failed case, then move its **whole directory** aside and resume
+again with the same options. Replace `kraken` with `bellhop` for that model:
+
+```sh
+mkdir -p quarantine
+mv -- scratch-results/c001 quarantine/c001-after-crash
+pelagic kraken run-many cases/ --output scratch-results --threads 1 --resume
+```
+
+The missing c001 directory is recomputed; other verified cases stay skipped.
+If the diagnostic instead names abandoned sibling scratch such as
+`scratch-results/.pelagic-c001-stage`, inspect and quarantine that reservation too
+before retrying. Retained locks, stages and backups are never adopted or removed
+automatically. An unrecognizable damaged status file also needs inspection;
+quarantining it loses those resume records, so affected cases will run again.
+
+**Do not delete only a manifest:** surviving artifacts then look unowned and
+cannot be overwritten safely. Keep `.pelagic-backup` data you may still need;
+it can contain the only recoverable old results. For disposable scratch sweeps
+this rarely matters because rerunning is cheap, but do not discard backups of
+results you intend to recover. These steps also apply to an interrupted
+publication after a process-only stop, not just a node crash.
 
 ## Progress and failures
 

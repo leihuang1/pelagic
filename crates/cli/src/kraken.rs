@@ -34,6 +34,9 @@ pub enum Command {
         /// Numerical output format; HTTP is unaffected.
         #[arg(long, value_enum, default_value = "legacy")]
         format: crate::Format,
+        /// Skip file syncs; an OS crash or power loss may leave results empty, truncated or missing.
+        #[arg(long)]
+        no_sync: bool,
         /// Cumulative file/payload quota, checked before datasets and after flushes.
         #[arg(long, default_value_t = DEFAULT_MAX_OUTPUT_BYTES, value_parser = clap::value_parser!(u64).range(1..))]
         max_output_bytes: u64,
@@ -87,6 +90,7 @@ pub fn execute(
             solver,
             output,
             format,
+            no_sync,
             max_output_bytes,
         } => run(
             &case,
@@ -95,6 +99,7 @@ pub fn execute(
             output,
             format,
             max_output_bytes,
+            crate::sync_policy(no_sync),
         ),
         Command::RunMany {
             many,
@@ -146,6 +151,7 @@ fn run(
     output: Option<PathBuf>,
     format: crate::Format,
     max_output_bytes: u64,
+    sync_policy: output::directory::SyncPolicy,
 ) -> Result<(), RunError> {
     let input = load(case, flp, solver)?;
     let output = output.unwrap_or_else(|| {
@@ -156,7 +162,13 @@ fn run(
                 .unwrap_or_else(|| std::ffi::OsStr::new("kraken")),
         )
     });
-    let summary = run_directory(&input, &output, format.into(), max_output_bytes)?;
+    let summary = run_directory(
+        &input,
+        &output,
+        format.into(),
+        max_output_bytes,
+        sync_policy,
+    )?;
     println!("{}", summary_line(&output, &summary));
     Ok(())
 }
@@ -240,10 +252,20 @@ impl crate::many::Loaded for Loaded<'_> {
         .collect()
     }
 
-    fn run(self: Box<Self>, output: &Path) -> crate::many::Outcome {
+    fn run(
+        self: Box<Self>,
+        output: &Path,
+        sync_policy: output::directory::SyncPolicy,
+    ) -> crate::many::Outcome {
         let many = self.many;
         let result = self.input.map_err(input_failure).and_then(|input| {
-            run_directory(&input, output, many.format.into(), many.max_output_bytes)
+            run_directory(
+                &input,
+                output,
+                many.format.into(),
+                many.max_output_bytes,
+                sync_policy,
+            )
         });
         outcome(output, result)
     }

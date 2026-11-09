@@ -35,6 +35,9 @@ pub struct Args {
     output: PathBuf,
     #[arg(long, value_enum, default_value = "legacy")]
     pub format: crate::Format,
+    /// Skip file syncs; an OS crash or power loss may leave results empty, truncated or missing even after ok.
+    #[arg(long)]
+    no_sync: bool,
     /// Cases solved at once [default: one per available CPU, at most one per case].
     #[arg(long)]
     workers: Option<NonZeroUsize>,
@@ -84,7 +87,7 @@ pub(crate) trait Loaded {
     /// The exact bytes of every input file the case read, in reading order.
     fn inputs(&self) -> Vec<&[u8]>;
     /// Solve this snapshot and publish it to `output`, exactly as `run` does.
-    fn run(self: Box<Self>, output: &Path) -> Outcome;
+    fn run(self: Box<Self>, output: &Path, sync_policy: output::directory::SyncPolicy) -> Outcome;
 }
 
 /// What `run` would have printed, and its exit code.
@@ -235,7 +238,7 @@ pub(crate) fn execute(
             let Some(case) = cases.get(next.fetch_add(1, Ordering::Relaxed)) else {
                 return;
             };
-            // publish returns only after its file barrier and the subsequent installation.
+            // publish returns after installation, and by default first passes the file barrier.
             let finished = batch.run(|| solve(case, args, &previous, threads, model));
             let mut report = report
                 .lock()
@@ -389,7 +392,7 @@ fn solve(
                 record
                     .manifest_sha256
                     .is_none()
-                    .then(|| loaded.run(&output))
+                    .then(|| loaded.run(&output, crate::sync_policy(args.no_sync)))
             })
         })
     });
@@ -645,9 +648,13 @@ mod tests {
         let batch = output::directory::Batch::new(4);
         batch
             .run(|| {
-                output::directory::publish::<(), String>(&output, &[], None, |stage| {
-                    fs::write(stage.join("a"), b"result").map_err(|e| e.to_string())
-                })
+                output::directory::publish::<(), String>(
+                    &output,
+                    &[],
+                    None,
+                    output::directory::SyncPolicy::default(),
+                    |stage| fs::write(stage.join("a"), b"result").map_err(|e| e.to_string()),
+                )
             })
             .unwrap();
         let manifest = output::directory::verified_manifest_sha256(&output).unwrap();

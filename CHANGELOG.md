@@ -7,11 +7,30 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Opt-in `--no-sync` for scratch output.** KRAKEN and BELLHOP `run` and
+  `run-many` can skip per-file syncs and Apple's shared drive-cache flush.
+  The default stays durable; verification, quotas, locks, backups, installation,
+  rollback, cleanup and status formats are unchanged. After an OS crash or power
+  loss, results may be empty, truncated or missing even though they were
+  installed and recorded as `ok`. Resume still rehashes every artifact, but does
+  not upgrade skipped results' durability; damaged files can require manual
+  recovery. A process-only stop, including a scheduler time limit or `scancel`,
+  does not discard completed results from the still-running OS's cache; an
+  interrupted publication can leave scratch or locks in either mode. Without
+  syncs, Pelagic also cannot see a write error that the OS hits later. See
+  [scratch sweeps](docs/guide/cluster.md#disposable-scratch-sweeps) and
+  [crash recovery](docs/guide/cluster.md#recovery-after-a-node-crash).
 - **Patch releases can add features.** Under the revised
   [version rules](docs/development/interface-contract.md#version-rules), a
   patch release may add to a public interface, such as a new CLI flag or
   optional argument, if every existing use keeps working as before. Changing or
   removing a public interface still needs a minor release.
+
+**Compatibility**
+
+- New CLI flag: `--no-sync` on KRAKEN and BELLHOP `run` and `run-many`.
+  Without it, behaviour is unchanged. The result manifest (v1) and the
+  `run-many` status file (v1) are unchanged and do not record the flag.
 
 ## 0.6.2 — 2026-11-09
 

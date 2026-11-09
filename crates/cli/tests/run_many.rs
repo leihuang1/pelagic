@@ -7,6 +7,9 @@ use std::process::{Command, Output, Stdio};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+#[path = "support/hdf5.rs"]
+mod hdf5_compare;
+
 fn directory(name: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!("pelagic-run-many-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&path);
@@ -80,6 +83,266 @@ fn files(directory: &Path) -> BTreeMap<String, Vec<u8>> {
             )
         })
         .collect()
+}
+
+#[test]
+fn no_sync_is_documented_for_both_models_and_commands() {
+    for model in ["kraken", "bellhop"] {
+        for command in ["run", "run-many"] {
+            let help = pelagic(&[&model, &command, &"--help"]);
+            assert!(help.status.success());
+            let text = String::from_utf8(help.stdout).unwrap();
+            assert!(text.contains("--no-sync"), "{text}");
+            assert!(text.contains("OS crash or power loss"), "{text}");
+        }
+    }
+}
+
+fn checked_manifest(output: &Path) -> Value {
+    let mut manifest: Value =
+        serde_json::from_slice(&fs::read(output.join("pelagic-manifest.json")).unwrap()).unwrap();
+    for artifact in manifest["artifacts"].as_array_mut().unwrap() {
+        let name = artifact["name"].as_str().unwrap();
+        let bytes = fs::read(output.join(name)).unwrap();
+        assert_eq!(artifact["size_bytes"], bytes.len(), "{name}");
+        assert_eq!(
+            artifact["sha256"],
+            format!("{:x}", Sha256::digest(&bytes)),
+            "{name}"
+        );
+        if Path::new(name).extension().is_some_and(|e| e == "h5") {
+            // HDF5 timestamps change container hashes, not the schema or physical size.
+            artifact["sha256"] = Value::Null;
+        }
+    }
+    manifest
+}
+
+fn assert_outputs(left: &Path, right: &Path) {
+    let left_files = files(left);
+    let right_files = files(right);
+    assert_eq!(
+        left_files.keys().collect::<Vec<_>>(),
+        right_files.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(checked_manifest(left), checked_manifest(right));
+    for (name, bytes) in left_files {
+        if Path::new(&name).extension().is_some_and(|e| e == "h5") {
+            hdf5_compare::assert_datasets(
+                &hdf5::File::open(left.join(&name)).unwrap(),
+                &hdf5::File::open(right.join(&name)).unwrap(),
+            );
+        } else if name != "pelagic-manifest.json" {
+            assert!(bytes == right_files[&name], "different bytes: {name}");
+        }
+    }
+}
+
+#[test]
+fn no_sync_run_and_run_many_match_durable_outputs_in_every_format() {
+    let root = directory("no-sync-formats");
+    for (model, name) in [("kraken", "pekeris"), ("bellhop", "field-g")] {
+        let cases = root.join(model);
+        fs::create_dir(&cases).unwrap();
+        for stem in ["a", "b"] {
+            fs::copy(
+                example(model, name, "json"),
+                cases.join(format!("{stem}.json")),
+            )
+            .unwrap();
+        }
+        for format in ["legacy", "hdf5", "both"] {
+            let durable = root.join(format!("{model}-{format}-durable"));
+            let scratch = root.join(format!("{model}-{format}-no-sync"));
+            for command in ["run", "run-many"] {
+                let input = if command == "run" {
+                    cases.join("a.json")
+                } else {
+                    cases.clone()
+                };
+                let mut outputs = Vec::new();
+                for (output, no_sync) in [(&durable, false), (&scratch, true)] {
+                    let output = if command == "run" {
+                        output.join("single")
+                    } else {
+                        output.clone()
+                    };
+                    let mut args: Vec<&dyn AsRef<std::ffi::OsStr>> = vec![
+                        &model,
+                        &command,
+                        &input,
+                        &"--output",
+                        &output,
+                        &"--format",
+                        &format,
+                        &"--threads",
+                        &"1",
+                    ];
+                    if command == "run-many" {
+                        args.extend([&"--workers" as &dyn AsRef<std::ffi::OsStr>, &"4"]);
+                    }
+                    if no_sync {
+                        args.push(&"--no-sync");
+                    }
+                    let run = pelagic(&args);
+                    assert!(
+                        run.status.success(),
+                        "{}",
+                        String::from_utf8_lossy(&run.stderr)
+                    );
+                    outputs.push(if command == "run-many" {
+                        assert!(outcomes(&output).values().all(|v| v == "ok"));
+                        ["a", "b"].map(|stem| output.join(stem)).to_vec()
+                    } else {
+                        vec![output]
+                    });
+                }
+                for (left, right) in outputs[0].iter().zip(&outputs[1]) {
+                    assert_outputs(left, right);
+                }
+            }
+            // Changing the policy does not change status options or prevent a verified skip.
+            for no_sync in [false, true] {
+                let mut args: Vec<&dyn AsRef<std::ffi::OsStr>> = vec![
+                    &model,
+                    &"run-many",
+                    &cases,
+                    &"--output",
+                    &scratch,
+                    &"--format",
+                    &format,
+                    &"--resume",
+                    &"--threads",
+                    &"1",
+                ];
+                if no_sync {
+                    args.push(&"--no-sync");
+                }
+                assert!(pelagic(&args).status.success());
+                assert!(outcomes(&scratch).values().all(|v| v == "skipped"));
+            }
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn resume_after_no_sync_rehashes_crash_damaged_files_and_never_trusts_ok_alone() {
+    let root = directory("no-sync-crash");
+    let cases = root.join("cases");
+    fs::create_dir(&cases).unwrap();
+    let states = [
+        "valid",
+        "empty",
+        "truncated",
+        "zeroed",
+        "missing",
+        "no-directory",
+        "bad-manifest",
+        "no-manifest",
+        "locked",
+    ];
+    for stem in states {
+        fs::copy(
+            example("kraken", "pekeris", "json"),
+            cases.join(format!("{stem}.json")),
+        )
+        .unwrap();
+    }
+    let output = root.join("results");
+    let run = |resume| {
+        let mut args: Vec<&dyn AsRef<std::ffi::OsStr>> = vec![
+            &"kraken",
+            &"run-many",
+            &cases,
+            &"--output",
+            &output,
+            &"--no-sync",
+            &"--workers",
+            &"4",
+            &"--threads",
+            &"1",
+        ];
+        if resume {
+            args.push(&"--resume");
+        }
+        pelagic(&args)
+    };
+    assert!(run(false).status.success());
+    for stem in ["empty", "truncated", "zeroed", "missing"] {
+        let path = output.join(stem).join(format!("{stem}.mod"));
+        let original = fs::read(&path).unwrap();
+        match stem {
+            "empty" => fs::write(&path, []).unwrap(),
+            "truncated" => fs::write(&path, &original[..original.len() / 2]).unwrap(),
+            "zeroed" => {
+                let modified = fs::metadata(&path).unwrap().modified().unwrap();
+                fs::write(&path, vec![0; original.len()]).unwrap();
+                fs::OpenOptions::new()
+                    .write(true)
+                    .open(&path)
+                    .unwrap()
+                    .set_modified(modified)
+                    .unwrap();
+            }
+            "missing" => fs::remove_file(&path).unwrap(),
+            _ => unreachable!(),
+        }
+    }
+    fs::remove_dir_all(output.join("no-directory")).unwrap();
+    fs::write(
+        output.join("bad-manifest/pelagic-manifest.json"),
+        b"{\"schema_version\":",
+    )
+    .unwrap();
+    fs::remove_file(output.join("no-manifest/pelagic-manifest.json")).unwrap();
+    // No current artifact group may be skipped merely because an earlier ok exists.
+    fs::remove_file(output.join("locked/locked.mod")).unwrap();
+    fs::create_dir(output.join("locked/.pelagic-lock")).unwrap();
+    assert_eq!(run(true).status.code(), Some(4));
+    let after = outcomes(&output);
+    for stem in states {
+        let expected = match stem {
+            "valid" => "skipped",
+            "missing" | "no-directory" => "ok",
+            _ => "failed", // Ownership and retained controls still protect damaged files.
+        };
+        assert_eq!(after[stem], expected, "{stem}");
+    }
+    let records = records(&output);
+    for record in &records[states.len()..] {
+        if record["outcome"] == "failed" {
+            assert_eq!(record["exit_code"], 4);
+            assert_eq!(record["diagnostics"][0]["code"], "KR0402");
+        }
+    }
+    assert_eq!(
+        fs::read(output.join("empty/empty.mod")).unwrap(),
+        [] as [u8; 0]
+    );
+    assert!(
+        fs::read(output.join("zeroed/zeroed.mod"))
+            .unwrap()
+            .iter()
+            .all(|&b| b == 0)
+    );
+    assert!(output.join("locked/.pelagic-lock").is_dir());
+    // Simulate the owner's inspected recovery: fresh destinations may now be recomputed.
+    for stem in states {
+        if after[stem] == "failed" {
+            fs::remove_dir_all(output.join(stem)).unwrap();
+        }
+    }
+    assert!(run(true).status.success());
+    assert!(
+        outcomes(&output)
+            .values()
+            .all(|v| v == "ok" || v == "skipped")
+    );
+    assert!(run(true).status.success());
+    assert!(outcomes(&output).values().all(|v| v == "skipped"));
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

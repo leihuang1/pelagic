@@ -257,6 +257,7 @@ dependencies = [
  "clap",
  "hdf5-metno",
  "kraken",
+ "native-output",
  "output",
  "same-file",
  "serde",

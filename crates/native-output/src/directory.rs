@@ -12,6 +12,13 @@ mod batch;
 #[cfg(not(target_vendor = "apple"))]
 #[path = "directory/unbatched.rs"]
 mod batch;
+// Exercise Apple's platform-independent barrier coordination on other Unix hosts too.
+#[cfg(all(test, unix, not(target_vendor = "apple")))]
+#[path = "directory/batch.rs"]
+mod apple_batch;
+#[cfg(any(test, feature = "test-observer"))]
+#[doc(hidden)]
+pub mod sync_observer;
 mod syncing;
 pub use batch::Batch;
 pub use syncing::raise_open_file_limit;
@@ -51,6 +58,15 @@ impl Format {
     pub fn hdf5(self) -> bool {
         self != Self::Legacy
     }
+}
+
+/// File-content durability before installation. Skipping syncs must be explicit.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SyncPolicy {
+    #[default]
+    Sync,
+    /// Keep publication safeguards, but an OS crash or power loss may lose file contents.
+    NoSync,
 }
 
 /// Artifact basename derived from a supplied input, never from mutable acoustic metadata.
@@ -102,16 +118,19 @@ pub fn verified_manifest_sha256(output: &Path) -> Result<Option<String>, String>
 /// # Errors
 /// Rejects conflicts, modified owned files, input aliases, symlinks, quotas and I/O failures.
 /// Installation failure rolls back; rollback failure preserves scratch/backup and names them.
-/// A [`Batch`] shares Apple drive flushes before installation; no directory durability is promised.
+/// With [`SyncPolicy::Sync`] (the default policy), a [`Batch`] shares Apple drive flushes before
+/// installation. [`SyncPolicy::NoSync`] skips all file syncs and drive barriers, not verification.
+/// Neither policy promises directory durability.
 pub fn publish<T, E: From<String>>(
     output: &Path,
     inputs: &[&Path],
     maximum: Option<u64>,
+    sync_policy: SyncPolicy,
     write: impl FnOnce(&Path) -> Result<T, E>,
 ) -> Result<T, E> {
     let mut transaction = Transaction::begin(output, inputs).map_err(E::from)?;
     let result = write(&transaction.stage)?;
-    transaction.install(maximum).map_err(E::from)?;
+    transaction.install(maximum, sync_policy).map_err(E::from)?;
     Ok(result)
 }
 
@@ -134,7 +153,7 @@ struct Transaction {
     #[cfg(test)]
     sync: fn(&File) -> std::io::Result<()>,
     #[cfg(all(test, target_vendor = "apple"))]
-    full_sync: fn(&File) -> std::io::Result<()>,
+    full_sync: fn(&File, &Path) -> std::io::Result<()>,
     #[cfg(test)]
     install_file: fn(&Path, &Path) -> std::io::Result<bool>,
     #[cfg(test)]
@@ -144,7 +163,7 @@ struct Transaction {
     #[cfg(test)]
     install_directory: fn(&Path, &Path) -> std::io::Result<bool>,
     #[cfg(all(test, target_vendor = "apple"))]
-    wait: fn(&Batch, File) -> Result<(), String>,
+    wait: fn(&Batch, File, &Path) -> Result<(), String>,
 }
 
 impl Transaction {
@@ -270,7 +289,7 @@ impl Transaction {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn install(&mut self, maximum: Option<u64>) -> Result<(), String> {
+    fn install(&mut self, maximum: Option<u64>, sync_policy: SyncPolicy) -> Result<(), String> {
         #[cfg(test)]
         self.step("staged");
         let mut names = BTreeSet::new();
@@ -333,21 +352,24 @@ impl Transaction {
         };
         check_quota(&self.stage, maximum)?;
         names.insert(MANIFEST.into());
-        let paths: Vec<_> = names.iter().map(|name| self.stage.join(name)).collect();
-        self.sync_files(&paths)?;
-        #[cfg(target_vendor = "apple")]
-        {
-            let handle = open_for_sync(&self.stage.join(MANIFEST)).map_err(message)?;
-            if let Some(batch) = &self.batch {
-                #[cfg(test)]
-                let wait = self.wait;
-                #[cfg(not(test))]
-                let wait = Batch::wait;
-                wait(batch, handle)?;
-            } else {
-                #[cfg(test)]
-                let full_sync = self.full_sync;
-                full_sync(&handle).map_err(message)?;
+        if sync_policy == SyncPolicy::Sync {
+            let paths: Vec<_> = names.iter().map(|name| self.stage.join(name)).collect();
+            self.sync_files(&paths)?;
+            #[cfg(target_vendor = "apple")]
+            {
+                let manifest_path = self.stage.join(MANIFEST);
+                let handle = open_for_sync(&manifest_path).map_err(message)?;
+                if let Some(batch) = &self.batch {
+                    #[cfg(test)]
+                    let wait = self.wait;
+                    #[cfg(not(test))]
+                    let wait = Batch::wait;
+                    wait(batch, handle, &manifest_path)?;
+                } else {
+                    #[cfg(test)]
+                    let full_sync = self.full_sync;
+                    full_sync(&handle, &manifest_path).map_err(message)?;
+                }
             }
         }
         #[cfg(test)]
@@ -625,7 +647,10 @@ fn open_for_sync(path: &Path) -> std::io::Result<File> {
 }
 
 fn sync_path(path: &Path, sync: fn(&File) -> std::io::Result<()>) -> Result<(), syncing::Failure> {
-    sync(&open_for_sync(path).map_err(syncing::Failure::open)?).map_err(syncing::Failure::Other)
+    let file = open_for_sync(path).map_err(syncing::Failure::open)?;
+    #[cfg(any(test, feature = "test-observer"))]
+    sync_observer::record(path, sync_observer::Kind::File);
+    sync(&file).map_err(syncing::Failure::Other)
 }
 
 #[cfg(target_vendor = "apple")]
@@ -634,8 +659,14 @@ fn sync_file(file: &File) -> std::io::Result<()> {
     rustix::io::retry_on_intr(|| rustix::fs::fsync(file)).map_err(Into::into)
 }
 
+/// Flush the drive cache through `file`, the manifest at `path`. Every drive flush, standalone
+/// or shared by a batch, is observed here, under the manifest whose handle it uses.
 #[cfg(target_vendor = "apple")]
-fn full_sync(file: &File) -> std::io::Result<()> {
+fn full_sync(file: &File, path: &Path) -> std::io::Result<()> {
+    #[cfg(any(test, feature = "test-observer"))]
+    sync_observer::record(path, sync_observer::Kind::DriveFlush);
+    #[cfg(not(any(test, feature = "test-observer")))]
+    let _ = path;
     rustix::io::retry_on_intr(|| rustix::fs::fcntl_fullfsync(file)).map_err(Into::into)
 }
 

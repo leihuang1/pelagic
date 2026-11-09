@@ -6,9 +6,13 @@ pub fn h5(output: &Path, input: &Path) -> PathBuf {
 }
 
 pub fn old_output(output: &Path, bytes: &[u8]) {
-    output::directory::publish::<(), String>(output, &[], None, |scratch| {
-        fs::write(scratch.join("previous.bin"), bytes).map_err(|e| e.to_string())
-    })
+    output::directory::publish::<(), String>(
+        output,
+        &[],
+        None,
+        output::directory::SyncPolicy::default(),
+        |scratch| fs::write(scratch.join("previous.bin"), bytes).map_err(|e| e.to_string()),
+    )
     .unwrap();
 }
 

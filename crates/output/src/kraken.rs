@@ -51,6 +51,7 @@ pub fn run_directory(
     output: &Path,
     format: super::directory::Format,
     maximum: u64,
+    sync_policy: super::directory::SyncPolicy,
 ) -> Result<RunSummary, RunError> {
     let stem = super::directory::stem(input.path())?;
     let cases = input.cases();
@@ -60,7 +61,7 @@ pub fn run_directory(
         .iter()
         .map(PathBuf::as_path)
         .collect();
-    super::directory::publish(output, &consumed, Some(maximum), |scratch| {
+    super::directory::publish(output, &consumed, Some(maximum), sync_policy, |scratch| {
         let inputs = input.snapshots();
         if format.hdf5() {
             run_with_hdf5(cases, inputs, scratch, &stem, format, maximum)
