@@ -14,7 +14,11 @@ in the [interface contract](docs/development/interface-contract.md).
   loss, results may be empty, truncated or missing even though they were
   installed and recorded as `ok`. Resume still rehashes every artifact, but does
   not upgrade skipped results' durability; damaged files can require manual
-  recovery. See [scratch sweeps](docs/guide/cluster.md#disposable-scratch-sweeps).
+  recovery. A process-only stop, including a scheduler time limit or `scancel`,
+  does not discard completed results from the still-running OS's cache; an
+  interrupted publication can leave scratch or locks in either mode. See
+  [scratch sweeps](docs/guide/cluster.md#disposable-scratch-sweeps) and
+  [crash recovery](docs/guide/cluster.md#recovery-after-a-node-crash).
 - **Patch releases can add features.** Under the revised
   [version rules](docs/development/interface-contract.md#version-rules), a
   patch release may add to a public interface, such as a new CLI flag or

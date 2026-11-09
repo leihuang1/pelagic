@@ -181,7 +181,13 @@ writer, verification, quota, lock, backup, installation, rollback, cleanup or
 status-reporting step. **After an OS crash or power loss, results may be empty,
 truncated or missing even though they were installed and recorded as `ok`.**
 Closing writers still flushes their userspace buffers to the OS; that is not a
-durability barrier. Manifest and status formats are unchanged.
+durability barrier. Manifest and status formats are unchanged. A scheduler time
+limit, preemption, `scancel` or Pelagic process crash alone does not discard
+completed publications: the OS remains alive to write cached data back. The
+additional no-sync risk is an OS crash, node failure or power loss. Killing a
+writer before its buffers are flushed can lose unfinished scratch data, and an
+interrupted installation can leave a partial group, backups or locks in either
+mode; neither case has a new `ok` record.
 
 KRAKEN keeps the positive `--max-output-bytes` default of 256 MiB: the known
 FIELD payload is admitted before solving, HDF5 payload/flush checks remain, and
@@ -275,7 +281,9 @@ all artifacts** still verify. An installed group without a record runs again,
 subject to the same ownership checks. It never adopts abandoned scratch or
 locks: an interrupted transaction can require manual recovery before retrying.
 Inspect retained backups and restore old artifacts if necessary before removing
-control paths; do not simply delete recoverable data. Recorded, verified cases
+control paths; do not simply delete recoverable data. Follow the worked
+[recovery procedure](cluster.md#recovery-after-a-node-crash) to discard a scratch
+sweep or quarantine only damaged cases. Recorded, verified cases
 can be skipped even if a crash left their control directories behind.
 
 Missing owned files can be regenerated. Empty, truncated or zero-filled files

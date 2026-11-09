@@ -93,7 +93,11 @@ and Apple's drive-cache flush are skipped, in every output format. Writing,
 closing, hashing, quotas, locks, backups, installation and rollback are unchanged.
 **After an OS crash or power loss, results may be empty, truncated or missing
 even though they were installed and, in a sweep, recorded as `ok`.** Neither
-mode guarantees directory-entry durability.
+mode guarantees directory-entry durability. A scheduler time limit, preemption,
+`scancel` or Pelagic process crash alone does not discard completed results:
+the OS remains running and writes its cache back. An OS crash, node failure or
+power loss can lose that cache. An unfinished publication can still leave
+incomplete scratch data, a partial installation or locks in either mode.
 
 ```sh
 pelagic kraken run pekeris.env --output scratch/pekeris --no-sync --threads 1
@@ -247,8 +251,10 @@ backups can require manual recovery: resume never adopts or removes them.
 This also applies after `--no-sync`: an empty, truncated or zero-filled artifact
 fails the size/SHA-256 check and is never skipped as current. The case is rerun,
 but replacing a damaged existing file still fails the ownership check; inspect
-and recover or remove the damaged data before retrying. Missing owned files can
-be regenerated. The flag is not recorded in the manifest or status file because
+and recover or remove the damaged data before retrying. Follow the worked
+[recovery procedure](cluster.md#recovery-after-a-node-crash); do not just delete
+the manifest or discard backups you still need. Missing owned files can be
+regenerated. The flag is not recorded in the manifest or status file because
 it does not change results. A later `--resume` without `--no-sync` rehashes, but
 **does not sync skipped cases or upgrade their durability**. Rerun without
 `--resume` and without `--no-sync` to publish them durably.
