@@ -130,3 +130,56 @@ x86 performance and separately installed Python/MATLAB applications were not
 measured in this campaign; the shared solver and existing adapter regression
 checks were used. After the work-accounting fix, a clean-commit full acceptance
 passed all 27 stages.
+
+## Shooting kernel
+
+Shooting and refinement were then the largest remaining fluid phase, with the
+kernel `shoot_interior` in `modes/fluid_roots.rs` at its core. In samples on
+the M4 Pro they took 30–68% of solver time on every fluid timing case except
+layered seabed, against 5–27% for Sturm counts. Rescaling
+growing values in line, through references to the caller's arrays, cost
+registers: a first rewrite that only kept the state in locals spilled every
+lane to memory on x86-64. The kernel now keeps its state in locals, tests
+every lane with one combined comparison per row and rescales in a cold,
+out-of-line, by-value function. Each lane performs exactly the same operations
+in the same order, so results are bit-for-bit unchanged.
+
+Measured on a Colab AMD EPYC 7B13 (Zen 3) at one solver thread, with the
+`pelagic-perf` solver-only harness: 11 seeded interleaved rounds, a control
+copy of each baseline, and median paired speedups with 95% bootstrap intervals.
+
+| Case | Default x86-64 | x86-64-v3 |
+|---|---|---|
+| Pekeris | 1.213 [1.207, 1.225] | 1.244 [1.137, 1.284] |
+| MunkLossless | 1.124 [1.120, 1.141] | 1.105 [1.076, 1.134] |
+| SductTrapped | 1.140 [1.130, 1.146] | 1.157 [1.120, 1.173] |
+| surface duct | 1.133 [1.130, 1.135] | 1.123 [1.099, 1.161] |
+| big Munk | 1.080 [1.072, 1.084] | 1.079 [1.065, 1.099] |
+| Gulf, adiabatic | 1.068 [1.059, 1.072] | 1.063 [1.028, 1.086] |
+| Gulf, coupled | 1.076 [1.067, 1.085] | 1.067 [1.045, 1.077] |
+| broadband | 1.179 [1.174, 1.186] | 1.208 [1.130, 1.230] |
+| layered seabed | 1.015 [1.007, 1.038] | 1.016 [1.007, 1.030] |
+| elastic sediment | 1.002 [0.993, 1.010] | 1.006 [0.987, 1.042] |
+| KRAKENC Pekeris, rigid, lossy | 1.002 [1.000, 1.006] | 1.004 [1.002, 1.008] |
+
+All nine fluid cases gained beyond the control's noise at both targets, and no
+case slowed. On the M4 Pro the same change gave 1.11–1.32× on the fluid cases
+other than layered seabed. Full-result snapshots of 148 regression and 11
+timing inputs, at 1 and 4 threads, matched the base exactly for both targets:
+318 configurations per build, including the expected diagnostics.
+
+On the same VM, the solver alone now takes 75–89% of the time that Fortran
+`kraken.exe` plus `field.exe` take end to end with the v3 build. This is
+Pelagic's solver interval against Fortran's whole run (`-O3 -march=native
+-ffast-math`, gfortran 13.3), not a CLI comparison:
+
+| Case | Default x86-64 | x86-64-v3 |
+|---|---|---|
+| MunkLossless | 0.891 | 0.842 |
+| surface duct | 0.855 | 0.755 |
+| Gulf, adiabatic | 0.893 | 0.838 |
+| broadband | 0.986 | 0.866 |
+| elastic sediment | 0.930 | 0.892 |
+
+Before the change, broadband's solver took 1.161 times Fortran's whole run
+(1.046 with v3).

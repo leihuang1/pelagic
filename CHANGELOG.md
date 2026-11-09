@@ -21,6 +21,13 @@ in the [interface contract](docs/development/interface-contract.md).
   identical across thread counts, each refinement mesh costs the same against
   the work limit, and elastic KRAKEN and KRAKENC keep their existing search. See the
   [measurement record](docs/history/kraken-fluid-roots.md).
+- **Faster fluid KRAKEN shooting.** The shooting function behind that search
+  now keeps its eight lanes in registers and rescales growing values out of
+  line. On one thread of an AMD EPYC 7B13, solver-only fluid runs are 1.02 to
+  1.24 times faster with both the default and the x86-64-v3 build: Gulf about
+  1.07 times, surface duct 1.13, broadband 1.2 and Pekeris 1.2. Elastic KRAKEN
+  and KRAKENC are unchanged. Results are bit-for-bit those of the new root
+  search. See the [measurement record](docs/history/kraken-fluid-roots.md#shooting-kernel).
 - **Optional Linux x86-64-v3 CLI for clusters.** A separate `linux-x64-v3`
   archive is built for CPUs with AVX2, FMA and BMI2. On an AMD EPYC 7B13,
   one-thread solver runs are about 1.02 to 1.47 times faster, with
