@@ -206,8 +206,8 @@ range. These are per-table bounds, not a total-process memory ceiling.
 
 Adiabatic FIELD retains its scalar receiver row and existing blocked range
 factors. A separate lane prototype was measured but not retained; see the
-[range-dependent FIELD experiment](../history/kraken-rd-field-lanes.md) for the
-threshold evidence, performance qualifications and full-result identity checks.
+[range-dependent FIELD record](../history/kraken-rd-field-lanes.md) for the
+threshold evidence, timings and full-result identity checks.
 No numerical selector or adapter-specific path was added.
 
 `tests/refactoring.rs` characterizes the Case/load/solve Interfaces; existing

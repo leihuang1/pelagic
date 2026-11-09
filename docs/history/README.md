@@ -11,6 +11,7 @@ results, use the [coverage records](../README.md#numerical-evidence).
 | [KRAKEN input-only capability audit](kraken-capability-audit.md) | Input coverage before the numerical fixes |
 | [KRAKENC three-layer refinement](krakenc-three-layer-refinement.md) | Diagnosis of one fixed three-layer refinement case |
 | [Fluid KRAKEN root search](kraken-fluid-roots.md) | Count-isolated Illinois refinement, exact fallbacks, numerical changes and solver timings |
+| [Range-dependent KRAKEN FIELD lanes](kraken-rd-field-lanes.md) | Coupled FIELD sums 16 same-profile ranges at once; an adiabatic prototype was not retained |
 | [BELLHOP boundary analysis](bellhop-boundary-analysis.md) | Boundary-step analysis; the repair was deferred |
 | [Official 2026 BELLHOP review](bellhop-official-2026-review.md) | Review of upstream 2026 changes; the pinned oracle was kept |
 | [BELLHOP performance experiments](bellhop-performance-experiments.md) | Three isolated speedup experiments; inlining the contribution recorder was retained |

@@ -7,12 +7,13 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
-- **Coupled KRAKEN FIELD lanes — performance review pending.** On one thread
-  of an AMD EPYC 7B13, the Gulf coupled example has solver-only speedups of
-  1.18× with the default build and 1.20× with the x86-64-v3 build. Complete
-  solver results are bit-for-bit unchanged in the checked inventory. Small
-  off-path v3 slowdowns persist, so this candidate has **not** passed the
-  no-regression gate. See the [experiment record](docs/history/kraken-rd-field-lanes.md).
+- **Faster coupled range-dependent KRAKEN FIELD.** Coupled FIELD now adds the
+  modes of up to 16 receiver ranges that share a profile at once, as
+  range-independent FIELD already does. On one thread of an AMD EPYC 7B13,
+  solver-only runs of the Gulf coupled example are 1.38 times faster with the
+  default build and 1.30 times faster with the x86-64-v3 build. The other
+  examples, including adiabatic FIELD, take about the same time. Results are
+  bit-for-bit unchanged. See the [measurement record](docs/history/kraken-rd-field-lanes.md).
 - **Faster durable CLI output, especially on Linux.** A result's files are now
   synced concurrently, up to 16 at a time, instead of one after another, in
   single `run` and in `run-many`. Each file still gets its own sync, so the
