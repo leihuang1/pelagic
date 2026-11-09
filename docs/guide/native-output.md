@@ -132,11 +132,16 @@ concurrently, with at most **16 participants including the calling thread**.
 Smaller publications use fewer participants. Each helper holds one open file,
 so helpers are shared across the process: at most 64, and at most a quarter of
 the open files left after 8 for each `run-many` worker (one, for a publication
-outside a sweep) and 32 for the process. When none is free, the calling thread
-does the work, so publishing never needs more open files than one-at-a-time
-syncing did. The CLI first raises its soft open-file limit to the hard limit
-(at most 10240 on macOS); library callers keep their own limit, which is read
-again for every publication. Scoped helpers finish before
+outside a sweep) and 32 for the process. When no helper may start, the calling
+thread does the work. A file that cannot be opened for lack of descriptors
+(EMFILE or ENFILE) while helpers run is tried once more by the calling thread
+alone, after every helper has closed its file; nothing was synced on the failed
+attempt. The reserve is an estimate of the CLI's own needs, not an inventory:
+while helpers run they hold extra open files, so a host process that publishes
+near its limit, or from several threads outside `run-many`, needs more
+headroom. The CLI first raises its soft open-file limit to the hard limit (at
+most 10240 on macOS); library callers keep their own limit, which is read again
+for every publication. Scoped helpers finish before
 installation; if a helper cannot be started, the calling thread and already
 running helpers finish its work instead. Every file still gets its own sync,
 and the first file error in filename order fails the publication. Helper-start

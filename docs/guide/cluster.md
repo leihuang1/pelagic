@@ -113,8 +113,10 @@ share its additional drive-cache flush between ready cases.
 Each helper thread holds one open file, so helpers are shared by the whole
 process: at most 64, and at most a quarter of the open files left after 8 for
 each worker and 32 for the process. When the limit leaves no such room, each
-worker syncs its files one after another, as before, so a sweep that fitted
-under a limit still fits. At startup the CLI raises its soft open-file limit
+worker syncs its files one after another, as before, and a helper that finds
+no free descriptor leaves its file to its worker, which tries it once more
+alone. The reserve is an estimate of what the CLI's workers need, not a
+guarantee. At startup the CLI raises its soft open-file limit
 (`ulimit -Sn`) to the hard limit (`ulimit -Hn`), as Go and Node.js programs do
 (on macOS, to at most 10240). If the hard limit is also Linux's usual 1024,
 sweeps of up to 92 workers keep all 64 helpers and 124 or more get none.

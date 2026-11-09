@@ -624,8 +624,8 @@ fn open_for_sync(path: &Path) -> std::io::Result<File> {
     fs::OpenOptions::new().read(true).write(true).open(path)
 }
 
-fn sync_path(path: &Path, sync: fn(&File) -> std::io::Result<()>) -> Result<(), String> {
-    sync(&open_for_sync(path).map_err(message)?).map_err(message)
+fn sync_path(path: &Path, sync: fn(&File) -> std::io::Result<()>) -> Result<(), syncing::Failure> {
+    sync(&open_for_sync(path).map_err(syncing::Failure::open)?).map_err(syncing::Failure::Other)
 }
 
 #[cfg(target_vendor = "apple")]
