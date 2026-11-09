@@ -842,23 +842,26 @@ fn resume_reruns_a_kraken_case_whose_output_quota_changed() {
 
 /// Concurrent result-file syncs must fit wherever one-at-a-time syncs did: a pool that fits
 /// under a tight open-file limit still publishes every case, and leaves no staging behind.
+/// Each case has 101 frequencies at a short range, for little solving. `sh` sets both the soft
+/// and hard limits, so the CLI cannot raise its own. With either layout, one-at-a-time syncing
+/// needs between 52 and 56 open files for this sweep on macOS.
 #[cfg(unix)]
-#[test]
-fn a_full_pool_under_a_tight_open_file_limit_publishes_every_case() {
-    let root = directory("open-files");
+fn publishes_every_case_under_a_tight_open_file_limit(name: &str, profiles: bool) {
+    let root = directory(name);
     let cases = root.join("cases");
     fs::create_dir(&cases).unwrap();
-    // 101 frequencies at a short range: about 200 files to sync per case, for little solving.
     let mut case: Value =
         serde_json::from_slice(&fs::read(example("kraken", "broadband", "json")).unwrap()).unwrap();
     case["kraken"]["max_range"] = 5000.0.into();
+    if profiles {
+        // A second profile keeps indexed pairs: 205 files to sync per case instead of 5.
+        case["kraken"]["propagation"] = "adiabatic".into();
+        case["profiles"] = serde_json::json!([{ "range": 2500.0 }]);
+    }
     for index in 0..24 {
         fs::write(cases.join(format!("c{index:02}.json")), case.to_string()).unwrap();
     }
     let output = root.join("results");
-    // `sh` sets both the soft and hard limits, so the CLI cannot raise its own. Before helpers
-    // left room for every worker's open files, most runs lost a case here. One-at-a-time
-    // syncing needs between 48 and 56 open files for this sweep on macOS.
     let run = Command::new("sh")
         .arg("-c")
         .arg(r#"ulimit -n 64 && exec "$0" "$@""#)
@@ -885,4 +888,18 @@ fn a_full_pool_under_a_tight_open_file_limit_publishes_every_case() {
         .collect();
     assert!(controls.is_empty(), "{controls:?}");
     fs::remove_dir_all(root).unwrap();
+}
+
+/// Before sync helpers left room for every worker's open files, this lost a case in most runs.
+#[cfg(unix)]
+#[test]
+fn a_full_pool_under_a_tight_open_file_limit_publishes_every_case() {
+    publishes_every_case_under_a_tight_open_file_limit("open-files", true);
+}
+
+/// Holding a shared pair open between frequencies lost 9 of the 24 cases in every run.
+#[cfg(unix)]
+#[test]
+fn a_full_pool_under_a_tight_open_file_limit_publishes_every_shared_pair() {
+    publishes_every_case_under_a_tight_open_file_limit("open-files-shared", false);
 }
