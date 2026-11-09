@@ -16,6 +16,9 @@ mod batch;
 #[cfg(all(test, unix, not(target_vendor = "apple")))]
 #[path = "directory/batch.rs"]
 mod apple_batch;
+#[cfg(any(test, feature = "test-observer"))]
+#[doc(hidden)]
+pub mod sync_observer;
 mod syncing;
 pub use batch::Batch;
 pub use syncing::raise_open_file_limit;
@@ -150,7 +153,7 @@ struct Transaction {
     #[cfg(test)]
     sync: fn(&File) -> std::io::Result<()>,
     #[cfg(all(test, target_vendor = "apple"))]
-    full_sync: fn(&File) -> std::io::Result<()>,
+    full_sync: fn(&File, Option<&Path>) -> std::io::Result<()>,
     #[cfg(test)]
     install_file: fn(&Path, &Path) -> std::io::Result<bool>,
     #[cfg(test)]
@@ -160,7 +163,7 @@ struct Transaction {
     #[cfg(test)]
     install_directory: fn(&Path, &Path) -> std::io::Result<bool>,
     #[cfg(all(test, target_vendor = "apple"))]
-    wait: fn(&Batch, File) -> Result<(), String>,
+    wait: fn(&Batch, File, &Path) -> Result<(), String>,
 }
 
 impl Transaction {
@@ -354,17 +357,18 @@ impl Transaction {
             self.sync_files(&paths)?;
             #[cfg(target_vendor = "apple")]
             {
-                let handle = open_for_sync(&self.stage.join(MANIFEST)).map_err(message)?;
+                let manifest_path = self.stage.join(MANIFEST);
+                let handle = open_for_sync(&manifest_path).map_err(message)?;
                 if let Some(batch) = &self.batch {
                     #[cfg(test)]
                     let wait = self.wait;
                     #[cfg(not(test))]
                     let wait = Batch::wait;
-                    wait(batch, handle)?;
+                    wait(batch, handle, &manifest_path)?;
                 } else {
                     #[cfg(test)]
                     let full_sync = self.full_sync;
-                    full_sync(&handle).map_err(message)?;
+                    full_sync(&handle, Some(&manifest_path)).map_err(message)?;
                 }
             }
         }
@@ -643,7 +647,10 @@ fn open_for_sync(path: &Path) -> std::io::Result<File> {
 }
 
 fn sync_path(path: &Path, sync: fn(&File) -> std::io::Result<()>) -> Result<(), syncing::Failure> {
-    sync(&open_for_sync(path).map_err(syncing::Failure::open)?).map_err(syncing::Failure::Other)
+    let file = open_for_sync(path).map_err(syncing::Failure::open)?;
+    #[cfg(any(test, feature = "test-observer"))]
+    sync_observer::record(path, sync_observer::Kind::File);
+    sync(&file).map_err(syncing::Failure::Other)
 }
 
 #[cfg(target_vendor = "apple")]
@@ -653,7 +660,14 @@ fn sync_file(file: &File) -> std::io::Result<()> {
 }
 
 #[cfg(target_vendor = "apple")]
-fn full_sync(file: &File) -> std::io::Result<()> {
+fn full_sync(file: &File, path: Option<&Path>) -> std::io::Result<()> {
+    // Shared flushes are observed per covered publication in Batch::wait instead.
+    #[cfg(any(test, feature = "test-observer"))]
+    if let Some(path) = path {
+        sync_observer::record(path, sync_observer::Kind::DriveFlush);
+    }
+    #[cfg(not(any(test, feature = "test-observer")))]
+    let _ = path;
     rustix::io::retry_on_intr(|| rustix::fs::fcntl_fullfsync(file)).map_err(Into::into)
 }
 

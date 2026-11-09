@@ -4,6 +4,9 @@ mod bellhop;
 mod kraken;
 mod many;
 
+#[cfg(test)]
+mod sync_tests;
+
 use std::num::NonZeroUsize;
 use std::process::ExitCode;
 
@@ -117,6 +120,10 @@ fn main() -> ExitCode {
             return ExitCode::from(if error.use_stderr() { 2 } else { 0 });
         }
     };
+    execute(cli)
+}
+
+fn execute(cli: Cli) -> ExitCode {
     // Leave room for concurrent result-file syncs beside a large worker pool. A refused raise
     // keeps the current limit, which the sync helpers then budget for.
     let _ = output::directory::raise_open_file_limit();

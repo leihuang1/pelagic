@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# In-process registration only; inert in binaries built with dev-dependency features.
+test-observer = []
+
 [dependencies]
 bellhop = { path = "../bellhop" }
 kraken = { path = "../kraken" }

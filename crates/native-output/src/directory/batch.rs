@@ -75,9 +75,15 @@ impl Batch {
     }
 
     #[cfg(target_vendor = "apple")]
-    pub(super) fn wait(&self, handle: File) -> Result<(), String> {
+    pub(super) fn wait(&self, handle: File, path: &std::path::Path) -> Result<(), String> {
+        #[cfg(any(test, feature = "test-observer"))]
+        super::sync_observer::record(path, super::sync_observer::Kind::SharedBarrier);
+        #[cfg(not(any(test, feature = "test-observer")))]
+        let _ = path;
         self.wait_with(handle, &|ready| {
-            filesystem_barriers(ready, |file| super::full_sync(file).map_err(super::message))
+            filesystem_barriers(ready, |file| {
+                super::full_sync(file, None).map_err(super::message)
+            })
         })
     }
 

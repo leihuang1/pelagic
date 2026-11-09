@@ -29,12 +29,12 @@ fn no_sync_skips_every_file_sync_and_drive_barrier_for_single_and_batch_publicat
                         };
                         #[cfg(target_vendor = "apple")]
                         {
-                            t.full_sync = |_| {
+                            t.full_sync = |_, _| {
                                 assert_eq!(SYNCS.load(Ordering::SeqCst), 3);
                                 FLUSHES.fetch_add(1, Ordering::SeqCst);
                                 Ok(())
                             };
-                            t.wait = |_, _| {
+                            t.wait = |_, _, _| {
                                 assert_eq!(SYNCS.load(Ordering::SeqCst), 3);
                                 FLUSHES.fetch_add(1, Ordering::SeqCst);
                                 Ok(())
@@ -66,6 +66,64 @@ fn no_sync_skips_every_file_sync_and_drive_barrier_for_single_and_batch_publicat
             check();
         }
     }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn public_publish_observes_the_requested_sync_policy() {
+    use sync_observer::{Kind, Registration};
+    let root = root("public-sync-policy");
+    let observer = Registration::new(&root);
+    for workers in [None, Some(1), Some(4), Some(14)] {
+        let batch = workers.map(Batch::new);
+        for policy in [SyncPolicy::default(), SyncPolicy::NoSync] {
+            let out = root.join(format!("{workers:?}-{policy:?}"));
+            for _ in 0..2 {
+                // Fresh publication and replacement use the same public policy.
+                let run = || {
+                    publish::<(), String>(&out, &[], None, policy, |stage| {
+                        fs::write(stage.join("a"), b"a").map_err(message)?;
+                        fs::write(stage.join("b"), b"bb").map_err(message)
+                    })
+                };
+                if let Some(batch) = &batch {
+                    batch.run(run)
+                } else {
+                    run()
+                }
+                .unwrap();
+                let mut actual: Vec<_> = observer
+                    .take()
+                    .into_iter()
+                    .map(|e| {
+                        (
+                            e.path.file_name().unwrap().to_string_lossy().into_owned(),
+                            e.kind,
+                        )
+                    })
+                    .collect();
+                actual.sort();
+                let mut expected = Vec::new();
+                if policy == SyncPolicy::Sync {
+                    expected.extend(["a", "b", MANIFEST].map(|name| (name.to_owned(), Kind::File)));
+                    if cfg!(target_vendor = "apple") {
+                        expected.push((
+                            MANIFEST.to_owned(),
+                            if workers.is_some_and(|w| w > 1) {
+                                Kind::SharedBarrier
+                            } else {
+                                Kind::DriveFlush
+                            },
+                        ));
+                    }
+                }
+                expected.sort();
+                assert_eq!(actual, expected, "{workers:?} {policy:?}");
+                assert!(verified_manifest_sha256(&out).unwrap().is_some());
+            }
+        }
+    }
+    drop(observer);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -221,7 +279,7 @@ fn a_failed_barrier_precedes_installation_and_preserves_previous_results() {
         batch.run(|| {
             let mut t = Transaction::begin(&out, &[]).unwrap();
             fs::write(t.stage.join("a"), b"new").unwrap();
-            t.wait = |_, _| Err("injected barrier failure".into());
+            t.wait = |_, _, _| Err("injected barrier failure".into());
             assert_eq!(
                 t.install(None, SyncPolicy::default()).unwrap_err(),
                 "injected barrier failure"
@@ -258,7 +316,7 @@ fn the_single_drive_flush_follows_every_file_sync_and_precedes_installation() {
             SYNCED.fetch_add(1, Ordering::SeqCst);
             Ok(())
         };
-        t.full_sync = |_| {
+        t.full_sync = |_, _| {
             assert_eq!(SYNCED.load(Ordering::SeqCst), 3);
             Err(std::io::Error::other("full flush failure"))
         };
