@@ -2342,7 +2342,7 @@ mod tests {
         let mut scalar = ShapeScratch::<1>::new(0);
         for multiplier in [1, 2, 1] {
             let mesh = fixture_mesh(&case, multiplier).unwrap();
-            let roots = mesh.roots(&mut 0).unwrap();
+            let roots = mesh.roots(&Refinement::default(), &mut 0).unwrap();
             let samples = mesh.sample_brackets();
             let off_diagonal = mesh.shape_off_diagonal();
             let n = off_diagonal.values.len() - 1;
