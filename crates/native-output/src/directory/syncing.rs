@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::{self, Scope, ScopedJoinHandle};
 
 const PARTICIPANTS: usize = 16;
-/// Helper threads in flight across the whole process, shared by concurrent publications.
+/// Extra open files across the whole process: sync helpers and retained native writers.
 const HELPERS: usize = 64;
 /// Open files kept for each worker's own inputs, writers, reports and Apple barrier manifest,
 /// and for the process's standard streams and status file, before any helper holds one.
@@ -156,6 +156,23 @@ fn reserve(in_flight: &AtomicUsize, limit: usize) -> Option<Slot<'_>> {
     None
 }
 
+/// Two retained native writers share the helpers' descriptor headroom, not the worker reserve.
+pub(crate) struct OpenPair {
+    _slots: [Slot<'static>; 2],
+}
+
+impl OpenPair {
+    pub(crate) fn reserve() -> Option<Self> {
+        Some(Self {
+            _slots: reserve_pair(&IN_FLIGHT, helper_limit())?,
+        })
+    }
+}
+
+fn reserve_pair(in_flight: &AtomicUsize, limit: usize) -> Option<[Slot<'_>; 2]> {
+    Some([reserve(in_flight, limit)?, reserve(in_flight, limit)?])
+}
+
 pub(super) fn sync_paths(
     paths: &[PathBuf],
     sync: impl Fn(&std::path::Path) -> Result<(), Failure> + Sync,
@@ -298,6 +315,25 @@ mod tests {
         assert_eq!(in_flight.load(Ordering::SeqCst), 0);
         let none = sync_with(&[], 4, (&in_flight, HELPERS), |_| unreachable!(), spawn);
         assert_eq!(none, []);
+    }
+
+    #[test]
+    fn retained_pairs_share_helper_slots_and_release_partial_reservations() {
+        let in_flight = AtomicUsize::new(0);
+        assert!(reserve_pair(&in_flight, 1).is_none());
+        assert_eq!(in_flight.load(Ordering::SeqCst), 0);
+        let pair = reserve_pair(&in_flight, 2).unwrap();
+        assert!(reserve(&in_flight, 2).is_none());
+        assert!(reserve_pair(&in_flight, 2).is_none());
+        drop(pair);
+        assert_eq!(in_flight.load(Ordering::SeqCst), 0);
+        let helper = reserve(&in_flight, 2).unwrap();
+        assert!(reserve_pair(&in_flight, 2).is_none());
+        assert_eq!(in_flight.load(Ordering::SeqCst), 1);
+        drop(helper);
+        assert!(reserve_pair(&in_flight, helpers_for(Some(64), 16)).is_none());
+        assert!(reserve_pair(&in_flight, helpers_for(Some(256), 1)).is_some());
+        assert_eq!(in_flight.load(Ordering::SeqCst), 0);
     }
 
     #[test]

@@ -96,9 +96,13 @@ the [porting map](porting-map.md) links Rust modules to the Fortran sources.
   `native_output::kraken::Writer` as the stream, without solving again. That writer
   combines only single-profile blocks with compatible native headers, appending
   each frequency's MOD/SHD payload without retaining results or moving existing
-  records. Multi-profile runs keep indexed single-frequency pairs for unmodified
+  records. The pair stays open only with two slots from the publication sync
+  helpers' shared descriptor budget; tight-limit workers close and reopen it.
+  Multi-profile runs keep indexed single-frequency pairs for unmodified
   pinned FIELD/MATLAB reader compatibility. Each block is flushed and
-  quota-accounted, including growth of the shared MOD/SHD files.
+  quota-accounted from bytes written, including growth of the shared MOD/SHD
+  files. The report counts only unbuffered bytes; HDF5 still refreshes its size
+  from the filesystem at the same checkpoints.
 - HTTP writes private HDF5 files and keeps its own protocol. It does not use the
   CLI's directory publication. Its response types are also the schemas that
   `/openapi.json` publishes; the arrival and field types are views over the solver

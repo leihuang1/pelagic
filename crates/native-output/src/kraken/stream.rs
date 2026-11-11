@@ -6,8 +6,32 @@ use kraken::input::InputSnapshot;
 use kraken::{DiagnosticReport, FieldCase, ProfileSimulationResult};
 use sha2::{Digest, Sha256};
 use std::fmt;
-use std::io::Write;
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
+
+/// Count accepted bytes, subtracting the report's unchanged buffer at quota checkpoints.
+struct Report {
+    file: BufWriter<std::fs::File>,
+    written: u64,
+}
+
+impl Report {
+    fn physical_size(&self) -> u64 {
+        self.written - self.file.buffer().len() as u64
+    }
+}
+
+impl Write for Report {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let count = self.file.write(bytes)?;
+        self.written += count as u64;
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
+}
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RunSummary {
@@ -137,7 +161,10 @@ pub fn run(
     writer: &mut impl BlockWriter,
 ) -> Result<RunSummary, RunError> {
     let report_path = root.join(format!("{stem}.prt"));
-    let mut report = crate::create(&report_path).map_err(|e| RunError::Output(e.to_string()))?;
+    let mut report = Report {
+        file: crate::create(&report_path).map_err(|e| RunError::Output(e.to_string()))?,
+        written: 0,
+    };
     writeln!(report, "Pelagic {} KRAKEN run report (not the Fortran PRT format)\nreference: Acoustics Toolbox v2023.5\nformat: {format:?}\nmax_output_bytes: {maximum}", env!("CARGO_PKG_VERSION")).map_err(|e| e.to_string())?;
     for input in inputs {
         writeln!(
@@ -154,7 +181,9 @@ pub fn run(
         frequency_count: cases.len(),
         ..RunSummary::default()
     };
-    let mut native = super::Writer::new(root, stem, cases);
+    let mut native = format
+        .legacy()
+        .then(|| super::Writer::new(root, stem, cases));
     for (index, (case, result)) in cases
         .iter()
         .zip(kraken::solve_frequencies(cases))
@@ -167,8 +196,8 @@ pub fn run(
         })?;
         writer.write_block(index, case, &result)?;
         writer.refresh_quota(&mut quota)?;
-        quota.refresh(&report_path)?;
-        let name = if format.legacy() {
+        quota.account(&report_path, report.physical_size())?;
+        let name = if let Some(native) = &mut native {
             native.write_block(index, &result, &mut quota)?;
             native.block_name(index)
         } else {
@@ -179,7 +208,7 @@ pub fn run(
             writeln!(report, "  profile[{profile}] title={:?}; solver={:?}; mesh_reference_frequency_hz={}; source_geometry={:?}; mode_addition={:?}", environment.title, environment.mode_solver, environment.mesh_reference_frequency_hz.unwrap_or(environment.frequency_hz), environment.source_geometry, environment.mode_addition).map_err(|e| e.to_string())?;
         }
         report.flush().map_err(|e| e.to_string())?;
-        quota.refresh(&report_path)?;
+        quota.account(&report_path, report.physical_size())?;
         quota.remaining()?;
         summary.mode_count += result
             .modes
@@ -192,4 +221,36 @@ pub fn run(
     // Every block flushed already; this flush writes only when there were none, and reports its error.
     report.flush().map_err(|e| e.to_string())?;
     Ok(summary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn report_counts_only_physical_bytes_including_automatic_buffer_flushes() {
+        let root = crate::directory::tests::root("report-bytes");
+        let path = root.join("case.prt");
+        let mut report = Report {
+            file: crate::create(&path).unwrap(),
+            written: 0,
+        };
+        let mut quota = Quota::new(&root, 999_999).unwrap();
+        let capacity = report.file.capacity();
+        for count in [1, capacity - 1, 1, 2 * capacity, 7] {
+            report.write_all(&vec![b'x'; count]).unwrap();
+            let size = std::fs::metadata(&path).unwrap().len();
+            assert_eq!(report.physical_size(), size);
+            quota.account(&path, report.physical_size()).unwrap();
+            assert_eq!(quota.remaining().unwrap(), 999_999 - size);
+        }
+        report.flush().unwrap();
+        assert_eq!(report.physical_size(), report.written);
+        assert_eq!(
+            report.physical_size(),
+            std::fs::metadata(&path).unwrap().len()
+        );
+        drop(report);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -47,6 +47,7 @@ pub fn write(
                 result.field_grid(case)?.pressures().map(|p| (p.re, p.im)),
                 u64::MAX,
             )
+            .map(|_| ())
         }
     }
     .map_err(|e| e.to_string())

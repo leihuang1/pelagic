@@ -63,17 +63,10 @@ pub(crate) fn sequential(file: &mut impl Write, bytes: &[u8]) -> io::Result<()> 
 }
 
 pub(crate) struct Direct {
-    file: BufWriter<File>,
+    file: Option<BufWriter<File>>,
     bytes: usize,
     written: u64,
     maximum: u64,
-}
-
-/// A [`Direct`] file between appends. It holds no descriptor, so a multi-frequency run does not
-/// keep its shared files open while it solves the next frequency.
-pub(crate) struct Closed {
-    bytes: usize,
-    written: u64,
 }
 
 // Batch binary records without changing the report buffer's quota checkpoints.
@@ -91,7 +84,9 @@ impl Direct {
             return Err(io::Error::other("native record exceeds output quota"));
         }
         Ok(Self {
-            file: buffered(OpenOptions::new().write(true).create_new(true).open(path)?),
+            file: Some(buffered(
+                OpenOptions::new().write(true).create_new(true).open(path)?,
+            )),
             bytes,
             written: 0,
             maximum,
@@ -109,39 +104,40 @@ impl Direct {
             .filter(|&n| n <= self.maximum)
             .ok_or_else(|| io::Error::other("native file exceeds output quota"))?;
         bytes.resize(self.bytes, 0);
-        self.file.write_all(&bytes)
+        self.file
+            .as_mut()
+            .expect("active direct writer")
+            .write_all(&bytes)
     }
     pub(crate) fn flush(&mut self) -> io::Result<()> {
-        self.file.flush()
+        self.file.as_mut().expect("active direct writer").flush()
     }
-    pub(crate) fn finish(mut self) -> io::Result<()> {
-        self.flush()
+    pub(crate) fn written(&self) -> u64 {
+        self.written
     }
-    /// Flush and close the file, keeping what [`Closed::reopen`] needs to append to it.
-    pub(crate) fn close(mut self) -> io::Result<Closed> {
+    pub(crate) fn finish(mut self) -> io::Result<u64> {
         self.flush()?;
-        Ok(Closed {
-            bytes: self.bytes,
-            written: self.written,
-        })
+        Ok(self.written)
     }
-}
-
-impl Closed {
-    /// Reopen `path` to append records of the same length, allowing `remaining` more bytes.
-    /// Every record went through [`Direct::record`], so the file must be exactly as long as what
-    /// was written; anything else means it changed between blocks.
-    pub(crate) fn reopen(self, path: &Path, remaining: u64) -> io::Result<Direct> {
-        let file = OpenOptions::new().append(true).open(path)?;
-        if file.metadata()?.len() != self.written {
-            return Err(io::Error::other("native file changed between blocks"));
+    /// Flush each block, releasing the descriptor when the process has no spare headroom.
+    pub(crate) fn pause(mut self, keep_open: bool) -> io::Result<Self> {
+        self.flush()?;
+        if !keep_open {
+            self.file = None;
         }
-        Ok(Direct {
-            file: buffered(file),
-            bytes: self.bytes,
-            written: self.written,
-            maximum: self.written.saturating_add(remaining),
-        })
+        Ok(self)
+    }
+    /// Allow `remaining` more bytes; a closed file must still have exactly the length we wrote.
+    pub(crate) fn resume(mut self, path: &Path, remaining: u64) -> io::Result<Self> {
+        if self.file.is_none() {
+            let file = OpenOptions::new().append(true).open(path)?;
+            if file.metadata()?.len() != self.written {
+                return Err(io::Error::other("native file changed between blocks"));
+            }
+            self.file = Some(buffered(file));
+        }
+        self.maximum = self.written.saturating_add(remaining);
+        Ok(self)
     }
 }
 
@@ -157,7 +153,7 @@ pub(crate) fn shd(
     irregular: bool,
     pressure: impl Iterator<Item = (f32, f32)>,
     maximum: u64,
-) -> io::Result<()> {
+) -> io::Result<u64> {
     let mut file = shd_header(
         path,
         title,
@@ -251,4 +247,57 @@ pub(crate) fn shd_pressure(
         return Err(io::Error::other("trailing native pressure values"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retained_and_reopened_records_match_and_keep_the_remaining_quota() {
+        let root = crate::directory::tests::root("direct-reopen");
+        for keep_open in [true, false] {
+            let path = root.join(keep_open.to_string());
+            let mut file = Direct::new(&path, 2, 16).unwrap();
+            file.record(vec![1, 2]).unwrap();
+            let file = file.pause(keep_open).unwrap();
+            assert_eq!(file.file.is_some(), keep_open);
+            assert_eq!(file.written(), std::fs::metadata(&path).unwrap().len());
+            let mut file = file.resume(&path, 8).unwrap();
+            file.record(vec![3, 4]).unwrap();
+            assert_eq!(file.finish().unwrap(), 16);
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                [1, 2, 0, 0, 0, 0, 0, 0, 3, 4, 0, 0, 0, 0, 0, 0]
+            );
+
+            let path = root.join(format!("limited-{keep_open}"));
+            let mut file = Direct::new(&path, 2, 16).unwrap();
+            file.record(vec![1]).unwrap();
+            let mut file = file.pause(keep_open).unwrap().resume(&path, 7).unwrap();
+            assert_eq!(
+                file.record(vec![2]).unwrap_err().to_string(),
+                "native file exceeds output quota"
+            );
+            drop(file);
+            assert_eq!(std::fs::metadata(&path).unwrap().len(), 8);
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn forced_reopen_still_rejects_a_changed_file_length() {
+        let root = crate::directory::tests::root("direct-changed");
+        let path = root.join("modes");
+        let mut file = Direct::new(&path, 2, 16).unwrap();
+        file.record(vec![1]).unwrap();
+        let file = file.pause(false).unwrap();
+        assert!(file.file.is_none());
+        std::fs::write(&path, b"changed").unwrap();
+        assert_eq!(
+            file.resume(&path, 8).err().unwrap().to_string(),
+            "native file changed between blocks"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

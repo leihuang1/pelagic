@@ -21,12 +21,12 @@ pub fn write(
 ) -> Result<(), String> {
     let remaining = quota.remaining()?;
     let mod_path = root.join(format!("{stem}.mod"));
-    modes(&mod_path, sequence, result, remaining).map_err(|e| e.to_string())?;
-    quota.refresh(&mod_path)?;
+    let size = modes(&mod_path, sequence, result, remaining).map_err(|e| e.to_string())?;
+    quota.account(&mod_path, size)?;
     let remaining = quota.remaining()?;
     let field = &result.field;
     let shd_path = root.join(format!("{stem}.shd"));
-    native::shd(
+    let size = native::shd(
         &shd_path,
         &sequence.profiles()[0].title,
         sequence.profiles()[0].frequency_hz,
@@ -38,7 +38,7 @@ pub fn write(
         remaining,
     )
     .map_err(|e| e.to_string())?;
-    quota.refresh(&shd_path)
+    quota.account(&shd_path, size)
 }
 
 fn modes(
@@ -46,7 +46,7 @@ fn modes(
     sequence: &FieldCase,
     result: &ProfileSimulationResult,
     maximum: u64,
-) -> io::Result<()> {
+) -> io::Result<u64> {
     let words = result
         .modes
         .iter()
