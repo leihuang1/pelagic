@@ -23,11 +23,14 @@ E2E = ("pekeris", "munk-lossless", "surface-duct", "gulf-adiabatic", "broadband"
 PRODUCTS = {".mod", ".shd", ".arr", ".ray"}
 MAX_ARCHIVE_BYTES = 10_000_000
 # Archive normalization replaces a home or output path only as a whole token. A token starts
-# unless a longer path, URL host or expansion could continue into it; a short option such as
-# -I or -L, or file://, may precede it. It ends at a separator or delimiter, or at a
-# sentence-ending dot, but never inside a sibling name such as `user.backup` or `user-old`.
-PATH_START = r"(?:(?<![\w.~/\-\])}])|(?<=(?<![\w-])-[A-Za-z])|(?<=file://))"
-PATH_END = r"(?=$|[^\w.~\-+@%=]|\.(?:$|[\s'\"`)\]}>,;:!?]))"
+# unless a longer path, URL host or expansion could continue into it; file:// or a joined option
+# such as -I or -isystem may precede it (captured, since lookbehinds must be fixed-width). Letters,
+# digits and the other characters in NAME continue a file name, `.`, `!` and `?` too unless they
+# end a sentence; anything else ends the token. So siblings such as `user.backup` stay unchanged.
+BOUNDARY = r"(?<![\w.~/\-\])}])"
+PATH_START = r"(?:" + BOUNDARY + r"|(?<=file://)|" + BOUNDARY + r"(?P<option>--?[A-Za-z][\w-]*))"
+NAME = r"\w.~\-+@%=#$^*(\[{!?"
+PATH_END = r"(?=$|[^" + NAME + r"]|[.!?]+(?:$|[^" + NAME + r"/\\]))"
 
 
 class Deadline(Exception):
@@ -507,7 +510,8 @@ def archive_value(kit, value, diagnostic=False):
         if roots:
             # Match whole path prefixes once; never rewrite URLs, sibling names or replacement text.
             prefixes = "|".join(re.escape(p) for p in sorted(roots, key=len, reverse=True))
-            value = re.sub(PATH_START + "(" + prefixes + ")" + PATH_END, lambda m: roots[m[1]], value)
+            value = re.sub(PATH_START + "(?P<root>" + prefixes + ")" + PATH_END,
+                           lambda m: (m["option"] or "") + roots[m["root"]], value)
         if diagnostic:
             for key in network_names(kit.env):
                 if kit.env[key]:

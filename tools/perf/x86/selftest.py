@@ -464,14 +464,20 @@ def test_normalization(out):
         assert normalized["text"] == "'~' --out=<out>/file\n~/log"
         assert normalized["prefixes"] == original["prefixes"]
         for root, marker in ((home, "~"), (out, "<out>")):
-            # Operators, response files, short options and file URLs can start a path token.
-            for lead in ("@", ">", "2>", "<", "|", "-I", "-L", "file://", "PATH=/bin:"):
+            # Operators, response files, joined options and file URLs can start a path token.
+            for lead in ("@", ">", "2>", "<", "|", "-I", "-L", "-MF", "-isystem", "-iquote", "-include", "-idirafter",
+                         "cc -isystem", "-Wl,-rpath,", "--sysroot=", "file://", "PATH=/bin:"):
                 assert archive_value(kit, lead + str(root / "f")) == lead + marker + "/f", lead
+                assert archive_value(kit, lead + str(root)) == lead + marker, lead
             assert archive_value(kit, f"See {root}. Then {root}.\n") == f"See {marker}. Then {marker}.\n"
+            assert archive_value(kit, f"Is it {root}? Yes, {root}!") == f"Is it {marker}? Yes, {marker}!"
+            assert archive_value(kit, f"\"{root}...\" ‘{root}’ {root}\\f") == f"\"{marker}...\" ‘{marker}’ {marker}\\f"
             # Siblings, URL hosts, relative paths and expansions are other paths.
-            for text in (str(root) + ".backup/f", str(root) + ".tar.gz", str(root) + "-old/f", str(root) + "2",
-                         str(root) + "~", "https://[::1]" + str(root), "https://example.org" + str(root),
-                         "." + str(root), "~" + str(root), "a-I" + str(root), "$(pwd)" + str(root), "${X}" + str(root)):
+            siblings = (".backup/f", ".tar.gz", "-old/f", "2", "~", "+old/f", "@2/f", "%20old/f", "=old/f", "#old/f",
+                        "$X/f", "^x", "*", "(1)/f", "[0-9]/f", "{,.bak}", "!old/f", "?x=1", ".d/f", "!!x")
+            for text in tuple(str(root) + s for s in siblings) + (
+                    "https://[::1]" + str(root), "https://example.org" + str(root), "." + str(root), "~" + str(root),
+                    "a-I" + str(root), "x-isystem" + str(root), "/-I" + str(root), "$(pwd)" + str(root), "${X}" + str(root)):
                 assert archive_value(kit, text) == text, text
         for collision in ({str(home / "x"): 1, "~/x": 2}, {str(out / "x"): 1, "<out>/x": 2}):
             try:
@@ -500,14 +506,14 @@ def test_archive(out):
     save(out / "measure.done.json", {})
     kit.env["CARGO_REGISTRIES_PRIVATE_TOKEN"] = "SYNTHETIC_NETWORK_SECRET"
     # The review's leaks, checked in the packaged archive rather than the helper alone.
-    leaks = f"@{out}/work/tmp/args 2>{home}/err |{out}/pipe <{home}/in -I{out}/include See {home}."
+    leaks = f"@{out}/work/tmp/args 2>{home}/err |{out}/pipe <{home}/in -I{out}/include -isystem{home}/include See {home}."
     append(out / "commands.jsonl", dict(diagnostic_tail="x" * 8000 + f"\n{out}/log {home}/private SYNTHETIC_NETWORK_SECRET\n" + leaks))
     with patch("measure.Path.home", return_value=home):
         assert summarize(kit, "complete", None) == "complete"
         with tarfile.open(out / "results.tar.gz") as tar:
             payload = b"\n".join(tar.extractfile(m).read() for m in tar)
             assert str(out).encode() not in payload and str(home).encode() not in payload
-            assert b"@<out>/work/tmp/args 2>~/err |<out>/pipe <~/in -I<out>/include See ~." in payload
+            assert b"@<out>/work/tmp/args 2>~/err |<out>/pipe <~/in -I<out>/include -isystem~/include See ~." in payload
             assert b"<out>" in payload and b"~/private" in payload
             assert all(s not in payload for s in (b"PRIVATE_MOUNTS", b"PRIVATE_BOOT", b"PRIVATE_HOST", b"SYNTHETIC_NETWORK_SECRET"))
             assert all(m.uid == m.gid == 0 and m.uname == m.gname == "" and not m.pax_headers for m in tar.getmembers())
