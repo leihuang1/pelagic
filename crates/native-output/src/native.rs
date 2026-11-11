@@ -8,11 +8,12 @@ use std::path::Path;
 /// # Errors
 /// Returns filesystem errors, including an already existing destination.
 pub fn create(path: &Path) -> io::Result<BufWriter<File>> {
-    OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map(BufWriter::new)
+    create_file(path).map(BufWriter::new)
+}
+
+/// Exclusively create an artifact without a buffer, for writers that add their own.
+pub(crate) fn create_file(path: &Path) -> io::Result<File> {
+    OpenOptions::new().write(true).create_new(true).open(path)
 }
 
 pub(crate) fn count(n: usize) -> io::Result<[u8; 4]> {

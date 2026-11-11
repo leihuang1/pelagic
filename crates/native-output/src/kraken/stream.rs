@@ -9,27 +9,26 @@ use std::fmt;
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
-/// Count accepted bytes, subtracting the report's unchanged buffer at quota checkpoints.
-struct Report {
-    file: BufWriter<std::fs::File>,
+/// Counts the bytes that reach the report file, so the quota needs no stat. The `BufWriter`
+/// stays outermost: writes, short writes and errors behave exactly as on a plain file.
+struct Counted<W> {
+    inner: W,
     written: u64,
 }
 
-impl Report {
-    fn physical_size(&self) -> u64 {
-        self.written - self.file.buffer().len() as u64
-    }
+fn report_writer<W: Write>(inner: W) -> BufWriter<Counted<W>> {
+    BufWriter::new(Counted { inner, written: 0 })
 }
 
-impl Write for Report {
+impl<W: Write> Write for Counted<W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        let count = self.file.write(bytes)?;
+        let count = self.inner.write(bytes)?;
         self.written += count as u64;
         Ok(count)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.file.flush()
+        self.inner.flush()
     }
 }
 
@@ -161,10 +160,9 @@ pub fn run(
     writer: &mut impl BlockWriter,
 ) -> Result<RunSummary, RunError> {
     let report_path = root.join(format!("{stem}.prt"));
-    let mut report = Report {
-        file: crate::create(&report_path).map_err(|e| RunError::Output(e.to_string()))?,
-        written: 0,
-    };
+    let mut report = report_writer(
+        crate::native::create_file(&report_path).map_err(|e| RunError::Output(e.to_string()))?,
+    );
     writeln!(report, "Pelagic {} KRAKEN run report (not the Fortran PRT format)\nreference: Acoustics Toolbox v2023.5\nformat: {format:?}\nmax_output_bytes: {maximum}", env!("CARGO_PKG_VERSION")).map_err(|e| e.to_string())?;
     for input in inputs {
         writeln!(
@@ -196,7 +194,7 @@ pub fn run(
         })?;
         writer.write_block(index, case, &result)?;
         writer.refresh_quota(&mut quota)?;
-        quota.account(&report_path, report.physical_size())?;
+        quota.account(&report_path, report.get_ref().written)?;
         let name = if let Some(native) = &mut native {
             native.write_block(index, &result, &mut quota)?;
             native.block_name(index)
@@ -208,7 +206,7 @@ pub fn run(
             writeln!(report, "  profile[{profile}] title={:?}; solver={:?}; mesh_reference_frequency_hz={}; source_geometry={:?}; mode_addition={:?}", environment.title, environment.mode_solver, environment.mesh_reference_frequency_hz.unwrap_or(environment.frequency_hz), environment.source_geometry, environment.mode_addition).map_err(|e| e.to_string())?;
         }
         report.flush().map_err(|e| e.to_string())?;
-        quota.account(&report_path, report.physical_size())?;
+        quota.account(&report_path, report.get_ref().written)?;
         quota.remaining()?;
         summary.mode_count += result
             .modes
@@ -226,31 +224,84 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     #[test]
-    fn report_counts_only_physical_bytes_including_automatic_buffer_flushes() {
+    fn report_counts_only_bytes_that_reach_the_file() {
         let root = crate::directory::tests::root("report-bytes");
         let path = root.join("case.prt");
-        let mut report = Report {
-            file: crate::create(&path).unwrap(),
-            written: 0,
-        };
+        let mut report = report_writer(crate::native::create_file(&path).unwrap());
         let mut quota = Quota::new(&root, 999_999).unwrap();
-        let capacity = report.file.capacity();
+        let capacity = report.capacity();
         for count in [1, capacity - 1, 1, 2 * capacity, 7] {
             report.write_all(&vec![b'x'; count]).unwrap();
             let size = std::fs::metadata(&path).unwrap().len();
-            assert_eq!(report.physical_size(), size);
-            quota.account(&path, report.physical_size()).unwrap();
+            assert_eq!(report.get_ref().written, size);
+            quota.account(&path, report.get_ref().written).unwrap();
             assert_eq!(quota.remaining().unwrap(), 999_999 - size);
         }
         report.flush().unwrap();
-        assert_eq!(report.physical_size(), report.written);
         assert_eq!(
-            report.physical_size(),
+            report.get_ref().written,
             std::fs::metadata(&path).unwrap().len()
         );
         drop(report);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Accepts 6,000 bytes of the first large write, fails the next write once, then succeeds.
+    struct ShortThenFailing {
+        disk: Rc<RefCell<Vec<u8>>>,
+        short: bool,
+        failed: bool,
+    }
+
+    impl Write for ShortThenFailing {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.short && !self.failed {
+                self.failed = true;
+                return Err(io::Error::from_raw_os_error(5));
+            }
+            let count = if !self.short && bytes.len() >= 8192 {
+                self.short = true;
+                6000
+            } else {
+                bytes.len()
+            };
+            self.disk.borrow_mut().extend_from_slice(&bytes[..count]);
+            Ok(count)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_failed_report_line_leaves_the_bytes_a_plain_buffer_leaves() {
+        // A long title makes one report write larger than the buffer, as it may in a real case.
+        fn line(report: &mut impl Write) -> io::Result<()> {
+            writeln!(report, "  profile[0] title={:?}", "x".repeat(10_000))?;
+            report.flush()
+        }
+        let failing = |disk: &Rc<RefCell<Vec<u8>>>| ShortThenFailing {
+            disk: Rc::clone(disk),
+            short: false,
+            failed: false,
+        };
+        let plain = Rc::new(RefCell::new(Vec::new()));
+        let plain_error = line(&mut BufWriter::new(failing(&plain))).unwrap_err();
+        let counted = Rc::new(RefCell::new(Vec::new()));
+        let counted_error = {
+            let mut report = report_writer(failing(&counted));
+            let error = line(&mut report).unwrap_err();
+            assert_eq!(report.get_ref().written, counted.borrow().len() as u64);
+            error
+        };
+        assert_eq!(plain_error.to_string(), counted_error.to_string());
+        // Both writers have been dropped, so any retried buffer has reached the "disk".
+        assert_eq!(plain.borrow().len(), 6000 + "  profile[0] title=\"".len());
+        assert_eq!(*plain.borrow(), *counted.borrow());
     }
 }
