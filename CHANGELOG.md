@@ -7,6 +7,15 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Less KRAKEN heap churn.** Mode shapes reuse worker-local scratch and share
+  each mesh's off-diagonal coefficients. On Linux, glibc no longer returns the
+  heap to the kernel after every batch of modes and faults it back in on the
+  next. One-thread adiabatic FIELD also writes receiver rows directly into the
+  result. With the x86-64-v3 CLI on an Intel Core i5-14600KF (WSL2), whole
+  `kraken run`s take 0.72 of their previous time for surface duct, 0.74 for
+  Munk and 0.87 for Gulf, with 76–87% fewer page faults; 20-worker `run-many`
+  sweeps of surface duct and Munk take 0.78 and 0.72 of their previous time.
+  Results are bit-for-bit unchanged.
 - **Opt-in `--no-sync` for scratch output.** KRAKEN and BELLHOP `run` and
   `run-many` can skip per-file syncs and Apple's shared drive-cache flush.
   The default stays durable; verification, quotas, locks, backups, installation,

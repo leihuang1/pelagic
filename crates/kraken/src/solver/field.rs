@@ -315,25 +315,42 @@ fn interpolate(left: Complex32, right: Complex32, w: f64) -> Complex32 {
 /// Fill a block of `len` ranges from `start`, one receiver depth per work item
 /// and at most about `table_values` pressures held at once. Each row samples
 /// its depth once per profile, then evaluates every range of the block.
-fn fill_rows(
+fn fill_rows<R: IntoIterator<Item = Complex64>>(
     pressure: &mut [Complex64],
     depths: &[f64],
     range_count: usize,
     (start, len): (usize, usize),
     table_values: usize,
     mode_count: usize,
-    row: impl Fn(f64) -> Vec<Complex64> + Sync,
+    row: impl Fn(f64) -> R + Sync,
 ) -> Result<(), DiagnosticReport> {
     let batch = (table_values / len).max(1);
     // Two profile samples and one modal sum at every range.
     let row_work = len.saturating_mul(mode_count.max(1)).saturating_mul(3);
     for (batch_index, depths) in depths.chunks(batch).enumerate() {
+        if crate::parallelism::threads() == 1 {
+            let mut result = Ok(());
+            for (offset, &depth) in depths.iter().enumerate() {
+                if let Err(report) = crate::cancellation::check() {
+                    // Like the map, check the whole batch and report its first error.
+                    result = result.and(Err(report));
+                    continue;
+                }
+                let iz = batch_index * batch + offset;
+                let output = &mut pressure[iz * range_count + start..][..len];
+                for (value, pressure) in row(depth).into_iter().zip(output) {
+                    *pressure = value;
+                }
+            }
+            result?;
+            continue;
+        }
         let rows = crate::parallelism::map(
             depths.len(),
             depths.len().saturating_mul(row_work),
             |index| {
                 crate::cancellation::check()?;
-                Ok(row(depths[index]))
+                Ok(row(depths[index]).into_iter().collect::<Vec<_>>())
             },
         );
         for (offset, values) in rows.into_iter().enumerate() {
@@ -471,45 +488,42 @@ impl AdiabaticRange {
 }
 
 /// One receiver depth's pressure at each range of a block, from its range factors.
-fn adiabatic_row(
-    steps: &[AdiabaticRange],
-    modes: &[ModeSet],
+fn adiabatic_row<'a>(
+    steps: &'a [AdiabaticRange],
+    modes: &'a [ModeSet],
     depth: f64,
     incoherent: bool,
-) -> Vec<Complex64> {
+) -> impl Iterator<Item = Complex64> + 'a {
     // Each mode's shape at this depth in both profiles, as interpolate() takes them.
     let mut profiles = None;
     let (mut base, mut slope) = (Vec::new(), Vec::new());
-    steps
-        .iter()
-        .map(|step| {
-            if profiles != Some((step.segment, step.right)) {
-                profiles = Some((step.segment, step.right));
-                let left_at = bracket(&modes[step.segment], depth);
-                let right_at = bracket(&modes[step.right], depth);
-                (base, slope) = modes[step.segment]
-                    .modes
-                    .iter()
-                    .zip(&modes[step.right].modes)
-                    .map(|(left, right)| {
-                        let left = sample_at(left, left_at);
-                        (double(left), double(sample_at(right, right_at) - left))
-                    })
-                    .unzip();
-            }
-            let contributions = base
+    steps.iter().map(move |step| {
+        if profiles != Some((step.segment, step.right)) {
+            profiles = Some((step.segment, step.right));
+            let left_at = bracket(&modes[step.segment], depth);
+            let right_at = bracket(&modes[step.right], depth);
+            (base, slope) = modes[step.segment]
+                .modes
                 .iter()
-                .zip(&slope)
-                .zip(&step.terms)
-                .map(|((&base, &slope), term)| double(single(base + step.w * slope)) * term);
-            let value = if incoherent {
-                Complex64::new(contributions.map(|p| p.norm_sqr()).sum::<f64>().sqrt(), 0.0)
-            } else {
-                contributions.sum()
-            };
-            double(single(value))
-        })
-        .collect()
+                .zip(&modes[step.right].modes)
+                .map(|(left, right)| {
+                    let left = sample_at(left, left_at);
+                    (double(left), double(sample_at(right, right_at) - left))
+                })
+                .unzip();
+        }
+        let contributions = base
+            .iter()
+            .zip(&slope)
+            .zip(&step.terms)
+            .map(|((&base, &slope), term)| double(single(base + step.w * slope)) * term);
+        let value = if incoherent {
+            Complex64::new(contributions.map(|p| p.norm_sqr()).sum::<f64>().sqrt(), 0.0)
+        } else {
+            contributions.sum()
+        };
+        double(single(value))
+    })
 }
 
 fn adiabatic(
@@ -1005,6 +1019,71 @@ mod range_lane_tests {
             .iter()
             .map(|p| (p.re.to_bits(), p.im.to_bits()))
             .collect()
+    }
+
+    #[test]
+    fn direct_and_collected_rows_keep_pressure_bits_and_block_offsets() {
+        let depths = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let mut expected = vec![Complex64::new(-1.0, -0.0); 7 * depths.len()];
+        for (iz, depth) in depths.into_iter().enumerate() {
+            for ir in 0..3 {
+                expected[iz * 7 + 2 + ir] =
+                    Complex64::new(depth, f64::from(u32::try_from(ir).unwrap()));
+            }
+        }
+        for threads in [1, 4] {
+            for budget in [1, 7, TABLE_VALUES] {
+                let mut pressure = vec![Complex64::new(-1.0, -0.0); expected.len()];
+                crate::parallelism::with_threads(NonZeroUsize::new(threads).unwrap(), || {
+                    fill_rows(
+                        &mut pressure,
+                        &depths,
+                        7,
+                        (2, 3),
+                        budget,
+                        usize::MAX,
+                        |depth| (0..3).map(move |ir| Complex64::new(depth, f64::from(ir))),
+                    )
+                    .unwrap();
+                });
+                assert_eq!(bits(&pressure), bits(&expected));
+            }
+        }
+    }
+
+    #[test]
+    fn direct_and_collected_rows_keep_cancellation_before_the_next_row() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        for threads in [1, 4] {
+            let token = Arc::new(AtomicBool::new(false));
+            let mut pressure = vec![Complex64::new(-1.0, 0.0); 6];
+            let report = crate::cancellation::with_token(token.clone(), || {
+                crate::parallelism::with_threads(NonZeroUsize::new(threads).unwrap(), || {
+                    // Tiny work stays inline even with a parallel budget.
+                    fill_rows(
+                        &mut pressure,
+                        &[1.0, 2.0, 3.0],
+                        2,
+                        (0, 2),
+                        TABLE_VALUES,
+                        1,
+                        |depth| {
+                            token.store(true, Ordering::Relaxed);
+                            [Complex64::new(depth, 0.0); 2]
+                        },
+                    )
+                })
+            })
+            .unwrap_err();
+            assert_eq!(report.diagnostics()[0].code, "KR0304");
+            let mut expected = vec![Complex64::new(-1.0, 0.0); 6];
+            expected[..2].fill(Complex64::new(1.0, 0.0));
+            assert_eq!(bits(&pressure), bits(&expected));
+            assert!(!crate::cancellation::cancelled());
+        }
     }
 
     #[test]

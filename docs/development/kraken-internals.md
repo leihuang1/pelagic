@@ -131,6 +131,22 @@ Elastic KRAKEN and KRAKENC searches are unchanged. See the
 [measurement record](../history/kraken-fluid-roots.md) for numerical changes,
 mode-count and thread-invariance checks, and indicative timings.
 
+### Mode-shape scratch
+
+Real KRAKEN shares each mesh's off-diagonal coefficients and their ordered absolute
+sum across its roots. Each shape worker owns reusable diagonals, inverse-iteration
+factors, pivot flags, iterates and one scalar gather buffer for normalization and
+sampling. Four fluid roots share a row-major pass; scalar shapes use the same kernel
+at width one. Every batch writes all factors it reads, including zero second
+superdiagonals on non-swapped rows and zero end rows. Lane stopping, failure,
+normalization and modal summation order are unchanged.
+
+Scratch lives only for that mesh's ordered shape map, not in thread-local storage.
+The 64 MiB lane allowance includes all workers, both gather buffers, the shared
+off-diagonal and a scalar remainder alongside retained lane scratch. If it would
+not fit, or for tiny/elastic groups, workers reuse width-one scratch instead.
+Shapes still come only from the first refinement mesh.
+
 ### Modal refinement and FIELD
 
 `refinement.rs` owns **Modal refinement** behind `seed` and `accept`:
@@ -205,7 +221,9 @@ artificially smaller-than-one-mode-vector test budget still admits one scalar
 range. These are per-table bounds, not a total-process memory ceiling.
 
 Adiabatic FIELD retains its scalar receiver row and existing blocked range
-factors. A separate lane prototype was measured but not retained; see the
+factors. With one worker its row iterator writes directly into the result instead
+of allocating a temporary pressure row; parallel rows retain their bounded ordered
+collection. A separate lane prototype was measured but not retained; see the
 [range-dependent FIELD record](../history/kraken-rd-field-lanes.md) for the
 threshold evidence, timings and full-result identity checks.
 No numerical selector or adapter-specific path was added.

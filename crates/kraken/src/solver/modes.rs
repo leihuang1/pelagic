@@ -23,11 +23,64 @@ const ROOT_STEPS: usize = 64;
 const ROOT_LANES: usize = 8;
 // Modes whose inverse iterations share a pass over the mesh, for the same reason.
 const SHAPE_LANES: usize = 4;
-// Scratch per mesh row, per lane: two matrix diagonals, four factor rows, the
-// iterate and a pivot flag.
-const SHAPE_ROW_BYTES: usize = 7 * size_of::<f64>() + size_of::<bool>();
+// Per lane: diagonal, four factor rows, iterate and pivot flag. Each scratch
+// also gathers one scalar shape; the off-diagonal is shared by the whole mesh.
+const SHAPE_ROW_BYTES: usize = 6 * size_of::<f64>() + size_of::<bool>();
 // All workers' lane scratch together; beyond it, a worker holds one mode at a time.
 const SHAPE_LANE_BYTES: usize = 64 * 1024 * 1024;
+
+struct ShapeOffDiagonal {
+    values: Vec<f64>,
+    norm: f64,
+}
+
+struct ShapeScratch<const K: usize> {
+    d: [Vec<f64>; K],
+    a: Vec<[f64; K]>,
+    b: Vec<[f64; K]>,
+    c: Vec<[f64; K]>,
+    multipliers: Vec<[f64; K]>,
+    swapped: Vec<[bool; K]>,
+    phi: Vec<[f64; K]>,
+    gathered: Vec<f64>,
+}
+
+impl<const K: usize> ShapeScratch<K> {
+    fn new(n: usize) -> Self {
+        let mut scratch = Self {
+            d: std::array::from_fn(|_| Vec::new()),
+            a: Vec::new(),
+            b: Vec::new(),
+            c: Vec::new(),
+            multipliers: Vec::new(),
+            swapped: Vec::new(),
+            phi: Vec::new(),
+            gathered: Vec::new(),
+        };
+        scratch.resize(n);
+        scratch
+    }
+
+    fn resize(&mut self, n: usize) {
+        for d in &mut self.d {
+            d.resize(n, 0.0);
+        }
+        self.a.resize(n, [0.0; K]);
+        self.b.resize(n, [0.0; K]);
+        self.c.resize(n, [0.0; K]);
+        self.multipliers.resize(n, [0.0; K]);
+        self.swapped.resize(n, [false; K]);
+        self.phi.resize(n, [0.0; K]);
+        self.gathered.resize(n, 0.0);
+    }
+
+    fn gather(&mut self, lane: usize) -> &mut [f64] {
+        for (value, row) in self.gathered.iter_mut().zip(&self.phi) {
+            *value = row[lane];
+        }
+        &mut self.gathered
+    }
+}
 
 /// Whether real KRAKEN searches `case` as elastic media, carrying the mode count from
 /// mesh to mesh as Solve2's root limit. With finite elastic layers, the first mesh's
@@ -1100,28 +1153,43 @@ impl<'a> Mesh<'a> {
         let estimated_work = roots
             .len()
             .saturating_mul(rows.saturating_add(samples.len()));
+        let off_diagonal = self.shape_off_diagonal();
+        let n = off_diagonal.values.len() - 1;
+        // A worker can retain its lanes while finishing a short scalar tail.
+        // Charge both scratches (including their gathers), plus the shared e.
         let lane_bytes = crate::parallelism::threads()
-            .saturating_mul(SHAPE_LANES)
             .saturating_mul(rows)
-            .saturating_mul(SHAPE_ROW_BYTES);
+            .saturating_mul((SHAPE_LANES + 1) * SHAPE_ROW_BYTES + 2 * size_of::<f64>())
+            .saturating_add((n + 1).saturating_mul(size_of::<f64>()));
         if roots.len() < SHAPE_LANES
             || lane_bytes > SHAPE_LANE_BYTES
             || crate::solver::elastic::has_layers(self.case)
             || crate::solver::elastic::has_half_space(self.case)
         {
-            return crate::solver::refinement::shape_map(roots.len(), estimated_work, |index| {
-                self.mode(roots[index], &samples)
-            });
+            return crate::solver::refinement::shape_map_init(
+                roots.len(),
+                estimated_work,
+                || ShapeScratch::<1>::new(n),
+                |scratch, index| {
+                    self.mode_with_scratch(roots[index], &samples, &off_diagonal, scratch)
+                },
+            );
         }
-        let batches = crate::solver::refinement::shape_map(
+        let batches = crate::solver::refinement::shape_map_init(
             roots.len().div_ceil(SHAPE_LANES),
             estimated_work,
-            |index| {
+            || ShapeScratch::<SHAPE_LANES>::new(n),
+            |scratch, index| {
                 let start = index * SHAPE_LANES;
-                self.mode_batch(
-                    &roots[start..roots.len().min(start + SHAPE_LANES)],
-                    &samples,
-                )
+                let roots = &roots[start..roots.len().min(start + SHAPE_LANES)];
+                if roots.len() < SHAPE_LANES {
+                    let mut scalar = ShapeScratch::<1>::new(n);
+                    return roots
+                        .iter()
+                        .map(|&x| self.mode_with_scratch(x, &samples, &off_diagonal, &mut scalar))
+                        .collect();
+                }
+                self.mode_batch(roots, &samples, &off_diagonal, scratch)
             },
         )?;
         Ok(batches.into_iter().flatten().collect())
@@ -1131,32 +1199,54 @@ impl<'a> Mesh<'a> {
         &self,
         roots: &[f64],
         samples: &[(usize, f32)],
+        off_diagonal: &ShapeOffDiagonal,
+        scratch: &mut ShapeScratch<SHAPE_LANES>,
     ) -> Result<Vec<(NormalMode, Complex64)>, DiagnosticReport> {
-        if roots.len() < SHAPE_LANES {
-            return roots.iter().map(|&x| self.mode(x, samples)).collect();
-        }
         crate::cancellation::check()?;
-        let matrices = std::array::from_fn(|lane| self.mode_matrix(roots[lane]));
-        let shapes = inverse_iteration_lanes::<SHAPE_LANES>(&matrices);
+        for (&x, d) in roots.iter().zip(&mut scratch.d) {
+            self.mode_diagonal(x, d);
+        }
+        let shapes = inverse_iteration_lanes(
+            [&off_diagonal.values; SHAPE_LANES],
+            [off_diagonal.norm; SHAPE_LANES],
+            scratch,
+        );
         let mut modes = Vec::with_capacity(roots.len());
-        self.append_modes(roots, shapes, samples, &mut modes)?;
+        self.append_modes(roots, shapes, samples, scratch, &mut modes)?;
         Ok(modes)
     }
 
     fn append_modes(
         &self,
         roots: &[f64],
-        shapes: impl IntoIterator<Item = Result<Vec<f64>, DiagnosticReport>>,
+        shapes: impl IntoIterator<Item = Result<(), DiagnosticReport>>,
         samples: &[(usize, f32)],
+        scratch: &mut ShapeScratch<SHAPE_LANES>,
         modes: &mut Vec<(NormalMode, Complex64)>,
     ) -> Result<(), DiagnosticReport> {
-        for (&x, phi) in roots.iter().zip(shapes) {
+        for (lane, (&x, shape)) in roots.iter().zip(shapes).enumerate() {
             crate::cancellation::check()?;
-            modes.push(self.finish_mode(x, phi?, samples)?);
+            shape?;
+            modes.push(self.finish_mode(x, scratch.gather(lane), samples)?);
         }
         Ok(())
     }
 
+    fn mode_with_scratch(
+        &self,
+        x: f64,
+        samples: &[(usize, f32)],
+        off_diagonal: &ShapeOffDiagonal,
+        scratch: &mut ShapeScratch<1>,
+    ) -> Result<(NormalMode, Complex64), DiagnosticReport> {
+        crate::cancellation::check()?;
+        self.mode_diagonal(x, &mut scratch.d[0]);
+        let [shape] = inverse_iteration_lanes([&off_diagonal.values], [off_diagonal.norm], scratch);
+        shape?;
+        self.finish_mode(x, scratch.gather(0), samples)
+    }
+
+    #[cfg(test)]
     fn mode(
         &self,
         x: f64,
@@ -1164,43 +1254,60 @@ impl<'a> Mesh<'a> {
     ) -> Result<(NormalMode, Complex64), DiagnosticReport> {
         crate::cancellation::check()?;
         let (d, e) = self.mode_matrix(x);
-        self.finish_mode(x, inverse_iteration(&d, &e)?, samples)
+        self.finish_mode(x, &mut inverse_iteration(&d, &e)?, samples)
     }
 
-    #[allow(clippy::many_single_char_names)]
+    #[cfg(test)]
     fn mode_matrix(&self, x: f64) -> (Vec<f64>, Vec<f64>) {
+        let e = self.shape_off_diagonal().values;
+        let mut d = vec![0.0; e.len() - 1];
+        self.mode_diagonal(x, &mut d);
+        (d, e)
+    }
+
+    fn shape_off_diagonal(&self) -> ShapeOffDiagonal {
         let last = self.layers.last().unwrap();
         let n = last.node_start + last.intervals + 1;
+        let mut values = vec![0.0; n + 1];
+        for layer in &self.layers {
+            for i in 1..=layer.intervals {
+                values[layer.node_start + i] = 1.0 / (layer.h * layer.density);
+            }
+        }
+        values[n] = 1.0 / (last.h * last.density);
+        if self.case.surface_boundary == SurfaceBoundary::Vacuum && self.top_solids.is_empty() {
+            values[1] = 0.0;
+        }
+        if self.case.bottom_boundary == BottomBoundary::Vacuum && self.bottom_solids.is_empty() {
+            values[n - 1] = 0.0;
+        }
+        let norm = values[1..n].iter().map(|v| v.abs()).sum();
+        ShapeOffDiagonal { values, norm }
+    }
+
+    fn mode_diagonal(&self, x: f64, d: &mut [f64]) {
+        let n = d.len();
         let h_rho = self.h * self.case.water_density_g_cm3;
         let shift = self.h * self.h * x;
-        let mut d = Vec::with_capacity(n);
-        let mut e = vec![0.0; n + 1];
         for (medium, layer) in self.layers.iter().enumerate() {
             for i in usize::from(medium > 0)..=layer.intervals {
-                d.push(if self.layers.len() == 1 {
+                d[layer.node_start + i] = if self.layers.len() == 1 {
                     (self.b1[i] - shift) / h_rho
                 } else {
                     self.layer_diagonal(x, medium, i)
-                });
-                if i > 0 {
-                    e[layer.node_start + i] = 1.0 / (layer.h * layer.density);
-                }
+                };
             }
         }
-        e[n] = 1.0 / (last.h * last.density);
         if self.case.surface_boundary == SurfaceBoundary::Vacuum && self.top_solids.is_empty() {
             d[0] = 1.0;
-            e[1] = 0.0;
         } else if self.layers.len() == 1 {
             d[0] = self.surface_diagonal(x) / h_rho;
         }
         if self.case.bottom_boundary == BottomBoundary::Vacuum && self.bottom_solids.is_empty() {
             d[n - 1] = 1.0;
-            e[n - 1] = 0.0;
         } else if self.layers.len() == 1 {
             d[n - 1] = self.bottom_diagonal(x) / h_rho;
         }
-        (d, e)
     }
 
     // Vector.f90 brackets samples on a single-precision depth grid.
@@ -1226,7 +1333,7 @@ impl<'a> Mesh<'a> {
     fn finish_mode(
         &self,
         x: f64,
-        mut phi: Vec<f64>,
+        phi: &mut [f64],
         samples: &[(usize, f32)],
     ) -> Result<(NormalMode, Complex64), DiagnosticReport> {
         let n = phi.len();
@@ -1314,7 +1421,7 @@ impl<'a> Mesh<'a> {
         } else {
             norm.sqrt().recip()
         };
-        for value in &mut phi {
+        for value in phi.iter_mut() {
             *value *= scale;
         }
         // Vector.f90 interpolates into complex32 .mod samples.
@@ -1544,7 +1651,9 @@ fn brent(
     }
 }
 
+// Fresh scalar oracle, including the original zero-initialized factor storage.
 // Specialized real tridiagonal inverse iteration, with row interchanges, from InverseIterationMod.f90.
+#[cfg(test)]
 #[allow(clippy::cast_precision_loss, clippy::many_single_char_names)]
 fn inverse_iteration(d: &[f64], e: &[f64]) -> Result<Vec<f64>, DiagnosticReport> {
     let n = d.len();
@@ -1621,32 +1730,35 @@ fn inverse_iteration(d: &[f64], e: &[f64]) -> Result<Vec<f64>, DiagnosticReport>
     clippy::too_many_lines
 )]
 fn inverse_iteration_lanes<const K: usize>(
-    matrices: &[(Vec<f64>, Vec<f64>); K],
-) -> [Result<Vec<f64>, DiagnosticReport>; K] {
-    let n = matrices[0].0.len();
+    off_diagonals: [&[f64]; K],
+    off_diagonal_norms: [f64; K],
+    scratch: &mut ShapeScratch<K>,
+) -> [Result<(), DiagnosticReport>; K] {
+    let ShapeScratch {
+        d,
+        a,
+        b,
+        c,
+        multipliers,
+        swapped,
+        phi,
+        ..
+    } = scratch;
+    let n = phi.len();
     debug_assert!(
-        matrices
-            .iter()
+        d.iter()
+            .zip(off_diagonals)
             .all(|(d, e)| d.len() == n && e.len() == n + 1)
     );
     let eps3: [f64; K] = std::array::from_fn(|k| {
-        let (d, e) = &matrices[k];
-        100.0
-            * f64::EPSILON
-            * (d.iter().map(|v| v.abs()).sum::<f64>()
-                + e[1..n].iter().map(|v| v.abs()).sum::<f64>())
+        100.0 * f64::EPSILON * (d[k].iter().map(|v| v.abs()).sum::<f64>() + off_diagonal_norms[k])
     });
     let eps4 = eps3.map(|eps3| n as f64 * eps3);
-    let mut a = vec![[0.0; K]; n];
-    let mut b = vec![[0.0; K]; n];
-    let mut c = vec![[0.0; K]; n];
-    let mut multipliers = vec![[0.0; K]; n];
-    let mut swapped = vec![[false; K]; n];
-    let mut u: [f64; K] = std::array::from_fn(|k| matrices[k].0[0]);
-    let mut v: [f64; K] = std::array::from_fn(|k| matrices[k].1[1]);
+    let mut u: [f64; K] = std::array::from_fn(|k| d[k][0]);
+    let mut v: [f64; K] = std::array::from_fn(|k| off_diagonals[k][1]);
     for i in 1..n {
         for k in 0..K {
-            let (d, e) = &matrices[k];
+            let (d, e) = (&d[k], off_diagonals[k]);
             if e[i].abs() >= u[k].abs() {
                 let ratio = u[k] / e[i];
                 multipliers[i][k] = ratio;
@@ -1659,8 +1771,10 @@ fn inverse_iteration_lanes<const K: usize>(
             } else {
                 let ratio = e[i] / u[k];
                 multipliers[i][k] = ratio;
+                swapped[i][k] = false;
                 a[i - 1][k] = u[k];
                 b[i - 1][k] = v[k];
+                c[i - 1][k] = 0.0;
                 u[k] = d[i] - ratio * v[k];
                 v[k] = e[i + 1];
             }
@@ -1669,8 +1783,11 @@ fn inverse_iteration_lanes<const K: usize>(
     for k in 0..K {
         a[n - 1][k] = if u[k] == 0.0 { eps3[k] } else { u[k] };
         c[n - 2][k] = 0.0;
+        b[n - 1][k] = 0.0;
+        c[n - 1][k] = 0.0;
     }
-    let mut phi = vec![eps4.map(|eps4| eps4 / (n as f64).sqrt()); n];
+    // multipliers[0] and swapped[0] are never read; every other factor is now written.
+    phi.fill(eps4.map(|eps4| eps4 / (n as f64).sqrt()));
     let mut active = [true; K];
     let mut converged = [false; K];
     for _ in 0..3 {
@@ -1700,7 +1817,7 @@ fn inverse_iteration_lanes<const K: usize>(
         if !active.contains(&true) {
             break;
         }
-        for row in &mut phi {
+        for row in phi.iter_mut() {
             for k in 0..K {
                 if active[k] {
                     row[k] *= eps4[k] / norm[k];
@@ -1721,7 +1838,7 @@ fn inverse_iteration_lanes<const K: usize>(
     }
     std::array::from_fn(|k| {
         if converged[k] {
-            Ok(phi.iter().map(|row| row[k]).collect())
+            Ok(())
         } else {
             Err(error(
                 "KR0303",
@@ -1735,8 +1852,8 @@ fn inverse_iteration_lanes<const K: usize>(
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_MODE_LIMIT, MAX_WORK, Mesh, Meshes, SHAPE_LANES, brent, inverse_iteration,
-        inverse_iteration_lanes, solve,
+        MAX_MODE_LIMIT, MAX_WORK, Mesh, Meshes, SHAPE_LANES, ShapeScratch, brent,
+        inverse_iteration, inverse_iteration_lanes as iterate_lanes, solve,
     };
     use crate::solver::{elastic, layers, pekeris};
     use crate::{
@@ -1765,6 +1882,33 @@ mod tests {
             }
             (actual, expected) => panic!("batch {actual:?}, scalar {expected:?}"),
         }
+    }
+
+    fn reused_iterations<const K: usize>(
+        matrices: &[(Vec<f64>, Vec<f64>); K],
+        scratch: &mut ShapeScratch<K>,
+    ) -> [Result<Vec<f64>, DiagnosticReport>; K] {
+        let n = matrices[0].0.len();
+        scratch.resize(n);
+        for (d, matrix) in scratch.d.iter_mut().zip(matrices) {
+            d.copy_from_slice(&matrix.0);
+        }
+        let results = iterate_lanes(
+            std::array::from_fn(|k| matrices[k].1.as_slice()),
+            std::array::from_fn(|k| matrices[k].1[1..n].iter().map(|v| v.abs()).sum()),
+            scratch,
+        );
+        let mut results = results.into_iter().enumerate();
+        std::array::from_fn(|_| {
+            let (lane, result) = results.next().unwrap();
+            result.map(|()| scratch.gather(lane).to_vec())
+        })
+    }
+
+    fn inverse_iteration_lanes<const K: usize>(
+        matrices: &[(Vec<f64>, Vec<f64>); K],
+    ) -> [Result<Vec<f64>, DiagnosticReport>; K] {
+        reused_iterations(matrices, &mut ShapeScratch::new(0))
     }
 
     #[test]
@@ -1797,17 +1941,34 @@ mod tests {
         }
         assert!(inverse_iteration(&matrices[2].0, &matrices[2].1).is_err());
         assert!(inverse_iteration(&matrices[3].0, &matrices[3].1).is_err());
-        for start in 0..SHAPE_LANES {
+        let mut scratch = ShapeScratch::new(2);
+        for start in 0..2 * SHAPE_LANES {
             let rotated: [_; SHAPE_LANES] =
                 std::array::from_fn(|k| matrices[(start + k) % SHAPE_LANES].clone());
-            for (actual, (d, e)) in inverse_iteration_lanes(&rotated).into_iter().zip(&rotated) {
+            // Poison even the unwritten end rows; none may leak into a later batch.
+            scratch.b.fill([f64::NAN; SHAPE_LANES]);
+            scratch.c.fill([f64::NAN; SHAPE_LANES]);
+            scratch.multipliers.fill([f64::NAN; SHAPE_LANES]);
+            scratch.swapped.fill([true; SHAPE_LANES]);
+            for ((actual, fresh), (d, e)) in reused_iterations(&rotated, &mut scratch)
+                .into_iter()
+                .zip(inverse_iteration_lanes(&rotated))
+                .zip(&rotated)
+            {
+                assert_inverse_result(actual.clone(), fresh);
                 assert_inverse_result(actual, inverse_iteration(d, e));
+                assert_inverse_result(
+                    reused_iterations(&[(d.clone(), e.clone())], &mut ShapeScratch::new(0))[0]
+                        .clone(),
+                    inverse_iteration(d, e),
+                );
             }
         }
     }
 
     #[test]
     fn inverse_iteration_lanes_match_scalar_pivot_swaps_and_zero_pivots() {
+        let mut scratch = ShapeScratch::new(0);
         for matrices in [
             [
                 (vec![1.0, 1.0], vec![0.0, 1.0, 1.0]),
@@ -1823,11 +1984,24 @@ mod tests {
                 (vec![f64::from_bits(1); 4], vec![0.0; 5]),
             ],
         ] {
-            for (actual, (d, e)) in inverse_iteration_lanes(&matrices)
-                .into_iter()
-                .zip(&matrices)
-            {
-                assert_inverse_result(actual, inverse_iteration(d, e));
+            for start in 0..SHAPE_LANES {
+                let rotated: [_; SHAPE_LANES] =
+                    std::array::from_fn(|k| matrices[(start + k) % SHAPE_LANES].clone());
+                scratch.resize(rotated[0].0.len());
+                scratch.a.fill([f64::NAN; SHAPE_LANES]);
+                scratch.b.fill([f64::NAN; SHAPE_LANES]);
+                scratch.c.fill([f64::NAN; SHAPE_LANES]);
+                scratch.multipliers.fill([f64::NAN; SHAPE_LANES]);
+                scratch.swapped.fill([true; SHAPE_LANES]);
+                scratch.phi.fill([f64::NAN; SHAPE_LANES]);
+                for ((actual, fresh), (d, e)) in reused_iterations(&rotated, &mut scratch)
+                    .into_iter()
+                    .zip(inverse_iteration_lanes(&rotated))
+                    .zip(&rotated)
+                {
+                    assert_inverse_result(actual.clone(), fresh);
+                    assert_inverse_result(actual, inverse_iteration(d, e));
+                }
             }
         }
     }
@@ -1919,6 +2093,56 @@ mod tests {
     }
 
     #[test]
+    fn shape_scratch_reuses_storage_across_batches_and_mesh_sizes() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/SductTrapped");
+        let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
+        let mut scratch = ShapeScratch::<SHAPE_LANES>::new(0);
+        let mut scalar = ShapeScratch::<1>::new(0);
+        for multiplier in [1, 2, 1] {
+            let mesh = fixture_mesh(&case, multiplier).unwrap();
+            let roots = mesh.roots(&mut 0).unwrap();
+            let samples = mesh.sample_brackets();
+            let off_diagonal = mesh.shape_off_diagonal();
+            let n = off_diagonal.values.len() - 1;
+            scratch.resize(n);
+            scalar.resize(n);
+            let pointers = (
+                scratch.a.as_ptr(),
+                scratch.phi.as_ptr(),
+                scratch.gathered.as_ptr(),
+            );
+            for roots in roots.as_chunks::<SHAPE_LANES>().0.iter().take(3) {
+                let actual = mesh
+                    .mode_batch(roots, &samples, &off_diagonal, &mut scratch)
+                    .unwrap();
+                let fresh = mesh
+                    .mode_batch(roots, &samples, &off_diagonal, &mut ShapeScratch::new(n))
+                    .unwrap();
+                assert_eq!(
+                    actual.iter().map(mode_bits).collect::<Vec<_>>(),
+                    fresh.iter().map(mode_bits).collect::<Vec<_>>()
+                );
+                for (&x, mode) in roots.iter().zip(&actual) {
+                    let expected = mesh.mode(x, &samples).unwrap();
+                    let reused = mesh
+                        .mode_with_scratch(x, &samples, &off_diagonal, &mut scalar)
+                        .unwrap();
+                    assert_eq!(mode_bits(mode), mode_bits(&expected));
+                    assert_eq!(mode_bits(&reused), mode_bits(&expected));
+                }
+                assert_eq!(
+                    pointers,
+                    (
+                        scratch.a.as_ptr(),
+                        scratch.phi.as_ptr(),
+                        scratch.gathered.as_ptr()
+                    )
+                );
+            }
+        }
+    }
+
+    #[test]
     fn batched_modes_report_first_root_error_before_later_lane_failure() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Pekeris");
         let mut input = load_case(root.with_extension("env"), root.with_extension("flp"))
@@ -1965,7 +2189,11 @@ mod tests {
         let later_error = mesh.mode(f64::NAN, &samples).unwrap_err();
         let token = Arc::new(AtomicBool::new(false));
         let mut consumed = 0;
-        let shapes = [Ok(phi), Err(later_error)].into_iter().inspect(|_| {
+        let mut scratch = ShapeScratch::new(phi.len());
+        for (row, value) in scratch.phi.iter_mut().zip(phi) {
+            row[0] = value;
+        }
+        let shapes = [Ok(()), Err(later_error)].into_iter().inspect(|_| {
             consumed += 1;
             if consumed == 2 {
                 token.store(true, Ordering::Relaxed);
@@ -1973,7 +2201,7 @@ mod tests {
         });
         let mut modes = Vec::new();
         let error = crate::cancellation::with_token(token.clone(), || {
-            mesh.append_modes(&[x, x], shapes, &samples, &mut modes)
+            mesh.append_modes(&[x, x], shapes, &samples, &mut scratch, &mut modes)
         })
         .unwrap_err();
         assert_eq!(error.diagnostics()[0].code, "KR0304");
