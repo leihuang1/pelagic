@@ -80,8 +80,11 @@ terminal filter, preserving GNU's distinct step groupings and the filter's
 `((previous + z) + 2 * y) * 0.25` ordering. Only non-unit rescaling runs, in a
 cold by-value helper to reduce x86 register spills; the `1e-50`/`1e50` thresholds
 and decimal power bookkeeping are unchanged. The complex Robin-data boundary
-retains imaginary zero signs. Bitwise tests compare this path with the original
+retains imaginary zero signs. Bitwise tests compare finite values with the original
 complex-state recurrence, including rescaling, both directions and signed zeros.
+After overflow, NaN signs and payloads may differ; no elastic caller inspects those
+bits. Separate overflow tests check the same NaN locations, identical non-NaN and
+imaginary bits and powers, and the unchanged non-finite dispersion diagnostic.
 KRAKENC keeps its separate complex transfer arithmetic.
 Their root searches, precision, work limits and deflation arithmetic remain
 separate Implementations. In single-layer lossless-water narrow spectra with a

@@ -10,8 +10,9 @@ in the [interface contract](docs/development/interface-contract.md).
 - **Faster finite elastic KRAKEN layers.** Their transfer now keeps its state
   in real arithmetic and skips unit rescaling; KRAKENC's complex arithmetic is
   unchanged. On one thread, the elastic-sediment example's solver-only run is
-  about 1.77 times faster on an Apple M4 Pro, and its whole `kraken run` with the
-  x86-64-v3 CLI about 1.45 times faster on an Intel Core i5-14600KF (WSL2).
+  about 1.77 times faster on an Apple M4 Pro, and its whole
+  `kraken run --threads 1 --no-sync` with the x86-64-v3 CLI about 1.45 times
+  faster on an Intel Core i5-14600KF (WSL2).
   Results are bit-for-bit unchanged.
 - **Faster adiabatic range-dependent KRAKEN FIELD.** Adiabatic FIELD now adds
   modes for eight receiver ranges at once, without changing their addition
