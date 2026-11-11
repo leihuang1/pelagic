@@ -31,6 +31,20 @@ in the [interface contract](docs/development/interface-contract.md).
   of their previous time for surface duct and Munk. All adapters share the
   allocation reduction; speedups depend on the workload. Results are bit-for-bit
   unchanged.
+- **Faster fine-mesh fluid KRAKEN refinement.** As in Fortran KRAKEN, meshes
+  after the second now start each root from the earlier meshes' raw roots. Each
+  local bracket must be certified by Sturm counts, and any failure falls back to
+  the full-interval search. On one thread, the broadband example's solver is
+  about 1.24 times faster on an Apple M4 Pro, and its whole `kraken run` with the
+  x86-64-v3 CLI about 1.13 times faster on an Intel Core i5-14600KF (WSL2).
+  Full-precision modal wavenumbers change by at most `1.4e-13 rad/m` across the
+  checked fixtures and examples. Over that inventory, single-precision
+  wavenumbers and FIELD pressures stayed byte-identical, and so did the MOD files
+  in the CLI comparisons; other inputs can show small MOD and FIELD differences
+  where a value crosses a rounding boundary. Mode counts and thread-count
+  identity are preserved. Elastic KRAKEN, KRAKENC and the first two meshes keep
+  their existing searches. See
+  [fluid root search](docs/development/kraken-internals.md#fluid-root-search).
 - **Opt-in `--no-sync` for scratch output.** KRAKEN and BELLHOP `run` and
   `run-many` can skip per-file syncs and Apple's shared drive-cache flush.
   The default stays durable; verification, quotas, locks, backups, installation,

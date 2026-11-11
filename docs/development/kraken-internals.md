@@ -105,8 +105,14 @@ growth (at least two passes, within the existing three-pass ceiling).
 Real KRAKEN without finite elastic layers or elastic half-spaces always uses
 `modes/fluid_roots.rs`. Its invariant is that the fluid positive-pivot count
 `C(x)` is nonincreasing in squared wavenumber, and an interval `[a, b]` owns
-exactly the root targets `C(b)..C(a)`. Shared bisections isolate one target per
-interval. The bottom-up fluid shooting function uses positive power-of-two
+exactly the root targets `C(b)..C(a)`. On meshes one and two, shared bisections
+isolate one target per interval. On mesh three onward, Neville interpolation in
+h² predicts each root from the **raw** earlier-mesh roots, never the Richardson
+rows. A local interval starts at the prediction ± `1e-6` of its magnitude,
+clipped to the current spectral limits, and can widen by four at most seven
+times. Its endpoint counts must be exactly `above + index + 1` and
+`above + index`: a sign change alone cannot establish mode identity.
+The bottom-up fluid shooting function uses positive power-of-two
 rescaling, carrying the exponent into safeguarded secant/Illinois steps. Its
 lane kernel keeps the recurrence in registers, tests every lane with one
 combined comparison per row and rescales in a cold, out-of-line function. Each
@@ -117,10 +123,18 @@ floats or a computed zero. Endpoint signs must oppose and be finite. Final
 Sturm counts must identify the same single target within one relative tolerance
 of the answer (clipped to its isolating interval).
 
-A failed count/sign/finiteness check, a stalled isolation or an iteration cap
-leaves the affected mode to the original 64-step full-interval bisection, not a
-partial bracket or a guessed root. This includes the rounded rigid/rigid plane
-endpoint. Cancellation and the 2.5-billion mesh-work limit remain errors, never
+A missing/nonfinite/out-of-range seed, a local bracket containing a different
+mode or multiple close modes, a failed count/sign/finiteness check, a stalled
+isolation or an iteration cap leaves the affected mode to the original 64-step
+full-interval bisection, not a partial bracket or a guessed root. This includes the rounded rigid/rigid plane
+endpoint. Counts at the **current** mesh's full spectral limits determine both
+the number of targets and their indices, independently of history length. Thus
+roots moving across cLow, cHigh or a cutoff cannot be silently retained or
+missed by a stale seed; new targets without history take the same fallback.
+If indices shift, even a converged prediction must pass the current-index check.
+A bracket spanning close roots is rejected rather than accepted on signs alone.
+The existing Modal refinement count-change policy below still applies.
+Cancellation and the 2.5-billion mesh-work limit remain errors, never
 fallback triggers. The search pays the original bisection's fixed charge before
 it starts, 64 steps plus the shape allowance per mode, so each mesh costs what it
 did before. That charge measures admission, not the search's own operations,
@@ -162,9 +176,9 @@ Shapes still come only from the first refinement mesh.
 - mesh multipliers remain 1, 2, 4, 8, 16;
 - raw root history is separate from the Richardson table, and includes
   cLow-excluded roots used for KRAKENC deflation;
-- finite-solid mesh two still uses the original scan; Neville seeds start on
-  mesh three. Real elastic tops first use Solve1's shared intervals and ZBRENTX,
-  then non-deflated Solve2; `selected_count` retains MINLOC's prior-row semantics;
+- fluid and finite-solid mesh two still use their original searches; Neville
+  seeds start on mesh three. Real elastic tops first use Solve1's shared
+  intervals and ZBRENTX, then non-deflated Solve2; `selected_count` retains MINLOC's prior-row semantics;
 - both backends retain surviving first-mesh shapes/group speeds/loss and
   Richardson columns when the current mesh's search reduces the spectrum,
   including original TLslices `double` (43 to 42). Count increases still reject
