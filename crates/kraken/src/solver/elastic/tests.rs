@@ -93,11 +93,17 @@ impl SolidMesh {
     }
 }
 
+// Finite values stay bit-identical; overflow tests compare NaN locations, not encodings.
 fn check(mesh: &SolidMesh, x: Complex64, y: [Complex64; 5], top: bool) -> i32 {
     let mut power = 17;
     let mut expected_power = power;
     let expected = mesh.reference_transfer(x, y, top, &mut expected_power);
     let actual = mesh.transfer(x, y, top, &mut power);
+    assert!(
+        expected
+            .iter()
+            .all(|v| v.re.is_finite() && v.im.is_finite())
+    );
     let bits = |values: [Complex64; 5]| values.map(|v| (v.re.to_bits(), v.im.to_bits()));
     assert_eq!(
         bits(actual),
@@ -115,7 +121,7 @@ fn random(seed: &mut u32) -> f64 {
 }
 
 #[test]
-fn real_transfer_matches_complex_state_bit_for_bit() {
+fn finite_real_transfer_matches_complex_state_bit_for_bit() {
     let mut seed = 737;
     for intervals in [1, 2, 3, 16, 201] {
         for sampled in [false, true] {
@@ -163,6 +169,9 @@ fn real_transfer_rescale_thresholds_and_signed_zeros() {
     };
     for (magnitude, expected_power) in [
         (0.0, -50),
+        (f64::from_bits(1), -50),
+        (f64::MIN_POSITIVE.next_down(), -50),
+        (f64::MIN_POSITIVE, -50),
         (1e-50_f64.next_down(), -50),
         (1e-50, 0),
         (1e-50_f64.next_up(), 0),
@@ -199,6 +208,62 @@ fn real_transfer_rescale_thresholds_and_signed_zeros() {
             assert_eq!(check(&mesh, (-0.0).into(), y, top), -200);
         }
     }
+}
+
+fn thin_elastic_case() -> crate::Case {
+    let fields = crate::json::load_case_document(
+        br#"{
+            "pelagic": 2, "model": "kraken", "title": "Elastic overflow",
+            "frequency": [1e-100], "interpolation": "c_linear",
+            "attenuation": {"unit": "db_per_wavelength"},
+            "media": [
+                {"to": 1e-300, "mesh": 10,
+                 "ssp": [[0, 3000, 1400, 1.8], [1e-300, 3000, 1400, 1.8]]},
+                {"to": 100, "mesh": 100, "ssp": [[1e-300, 1500], [100, 1500]]}
+            ],
+            "surface": "vacuum", "bottom": "rigid", "source": {"depth": [50]},
+            "receivers": {"depth": [50], "range": [1000]},
+            "kraken": {"solver": "kraken", "phase_speed": [1200, 3000],
+                       "max_range": 1000, "mode_limit": 100}
+        }"#,
+    )
+    .unwrap();
+    fields[0].profiles()[0].clone()
+}
+
+#[test]
+fn real_transfer_overflow_preserves_nan_locations_not_encodings() {
+    let mesh = SolidMesh::build(&thin_elastic_case(), 1, true, true)
+        .unwrap()
+        .remove(0);
+    assert!(mesh.coefficients.iter().all(|(b, rho)| {
+        rho.is_finite() && b.iter().all(|v| v.re.is_finite() && v.im.is_finite())
+    }));
+    let y = [1.0.into(), 0.0.into(), 0.0.into(), 0.0.into(), 0.0.into()];
+    for top in [false, true] {
+        let (mut power, mut expected_power) = (0, 0);
+        let expected = mesh.reference_transfer(0.0.into(), y, top, &mut expected_power);
+        let actual = mesh.transfer(0.0.into(), y, top, &mut power);
+        assert!(expected[1].re.is_nan(), "finite inputs must overflow");
+        assert_eq!(power, expected_power);
+        assert_eq!(power, -400);
+        for (actual, expected) in actual.into_iter().zip(expected) {
+            // Rust permits different NaN signs/payloads; elastic callers never inspect them.
+            assert_eq!(actual.re.is_nan(), expected.re.is_nan());
+            if !expected.re.is_nan() {
+                assert_eq!(actual.re.to_bits(), expected.re.to_bits());
+            }
+            assert_eq!(actual.im.to_bits(), expected.im.to_bits());
+        }
+    }
+}
+
+#[test]
+fn thin_elastic_case_keeps_non_finite_dispersion_diagnostic() {
+    assert_eq!(
+        crate::solve(&thin_elastic_case()).unwrap_err(),
+        crate::solver::error("KR0303", "non-finite elastic dispersion", "elastic_layers")
+    );
 }
 
 #[test]
