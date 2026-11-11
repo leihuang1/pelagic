@@ -74,7 +74,15 @@ Input materials convert each node independently at each solve frequency;
 coefficients. Automatic solid meshes use the last input shear speed, while
 spectral limits use the sampled minimum. Interpolated density, losses and bulk
 modulus are validated before shooting. Real/complex coefficient grouping and
-first-mesh normalization remain separate.
+first-mesh normalization remain separate. Real KRAKEN finite-solid transfers
+keep five real values from the Euler step through the midpoint recurrence and
+terminal filter, preserving GNU's distinct step groupings and the filter's
+`((previous + z) + 2 * y) * 0.25` ordering. Only non-unit rescaling runs, in a
+cold by-value helper to reduce x86 register spills; the `1e-50`/`1e50` thresholds
+and decimal power bookkeeping are unchanged. The complex Robin-data boundary
+retains imaginary zero signs. Bitwise tests compare this path with the original
+complex-state recurrence, including rescaling, both directions and signed zeros.
+KRAKENC keeps its separate complex transfer arithmetic.
 Their root searches, precision, work limits and deflation arithmetic remain
 separate Implementations. In single-layer lossless-water narrow spectra with a
 vacuum or rigid top, fluid A bottom and cHigh ≤ bottom cp (also ≤ 10 × cLow),
