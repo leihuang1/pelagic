@@ -20,6 +20,14 @@ Snapshots use the Debug format of the thread-invariance tests: shortest
 round-trip floats, including signed zero. Load errors, solve errors and timeouts
 are recorded as what they are and never count as numerical successes.
 
+## Pull-based Linux x86 experiments
+
+The [x86 kit](x86/README.md) clones pinned commits or PR refs, builds isolated CLI,
+solver and Fortran variants, and measures solver-only, single-case and one-thread-
+per-case sweep performance. It summarizes on the machine and transfers only a
+small archive of timings, provenance and output hashes. One command supports
+Colab CPU or Slurm, with phase/block resume, deadlines and a portable self-test.
+
 ## Check that results are unchanged
 
 Build each checkout into **its own target directory**. Cargo can reuse another
