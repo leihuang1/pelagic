@@ -5,7 +5,7 @@
 //! shooting function. Elastic impedance poles do not satisfy this invariant.
 //! Failed isolation, sign, finiteness or final count checks leave the affected
 //! targets to the original full-interval bisection, never to a guessed root.
-use super::{DiagnosticReport, Mesh, ROOT_LANES, ROOT_STEPS};
+use super::{DiagnosticReport, Mesh, ROOT_LANES, ROOT_STEPS, Refinement};
 
 const RELATIVE_WIDTH: f64 = 1e-13;
 const REFINE_STEPS: usize = 160;
@@ -198,6 +198,53 @@ impl Mesh<'_> {
         Ok(isolated)
     }
 
+    // Predictions are hints, never mode identities. Current-mesh counts must
+    // certify exactly the requested target, including at clipped spectral limits.
+    fn seed_fluid<const K: usize>(
+        &self,
+        seeds: &[Option<f64>],
+        whole: Interval,
+        start: usize,
+    ) -> Result<Vec<Option<Interval>>, DiagnosticReport> {
+        let x: [f64; K] =
+            std::array::from_fn(|k| seeds[k.min(seeds.len() - 1)].unwrap_or(f64::NAN));
+        let mut radius = x.map(|x| x.abs() * 1e-6);
+        let mut active: [bool; K] =
+            std::array::from_fn(|k| k < seeds.len() && x[k] > whole.a && x[k] < whole.b);
+        let mut brackets = vec![None; seeds.len()];
+        for _ in 0..8 {
+            if !active.contains(&true) {
+                break;
+            }
+            crate::cancellation::check()?;
+            let a = std::array::from_fn(|k| (x[k] - radius[k]).max(whole.a));
+            let b = std::array::from_fn(|k| (x[k] + radius[k]).min(whole.b));
+            let ca = self.count_lanes::<K>(a);
+            let cb = self.count_lanes::<K>(b);
+            for k in 0..seeds.len() {
+                if !active[k] {
+                    continue;
+                }
+                let target = whole.cb + start + k;
+                if a[k] < b[k] && ca[k] == target + 1 && cb[k] == target {
+                    brackets[k] = Some(Interval {
+                        a: a[k],
+                        b: b[k],
+                        ca: ca[k],
+                        cb: cb[k],
+                    });
+                    active[k] = false;
+                } else if ca[k] != cb[k] || ca[k] > whole.ca || cb[k] < whole.cb {
+                    // A wrong mode, cluster or inconsistent count: widening cannot certify it.
+                    active[k] = false;
+                } else {
+                    radius[k] *= 4.0;
+                }
+            }
+        }
+        Ok(brackets)
+    }
+
     #[allow(clippy::needless_range_loop)] // Each lane owns its bracket and stopping point.
     fn refine_fluid<const K: usize>(
         &self,
@@ -316,6 +363,7 @@ impl Mesh<'_> {
         high: f64,
         above: usize,
         count: usize,
+        refinement: &Refinement<f64>,
     ) -> Result<Vec<f64>, DiagnosticReport> {
         let whole = Interval {
             a: low,
@@ -323,18 +371,27 @@ impl Mesh<'_> {
             ca: above + count,
             cb: above,
         };
-        let isolated = self.isolate_fluid(whole)?;
+        let isolated = if refinement.seed(0, self.h).is_none() {
+            Some(self.isolate_fluid(whole)?)
+        } else {
+            None
+        };
         let groups = count.div_ceil(ROOT_LANES);
         let estimated_work = count.saturating_mul(self.b1.len()).saturating_mul(32);
         let mut roots = Vec::with_capacity(count);
         // Fixed groups: neither membership nor arithmetic depends on worker splits.
         for result in crate::parallelism::map(groups, estimated_work, |group| {
             let start = group * ROOT_LANES;
-            self.fluid_group(
-                &isolated[start..count.min(start + ROOT_LANES)],
-                whole,
-                start,
-            )
+            let end = count.min(start + ROOT_LANES);
+            if let Some(isolated) = &isolated {
+                self.fluid_group(&isolated[start..end], whole, start)
+            } else {
+                let seeds: Vec<_> = (start..end)
+                    .map(|index| refinement.seed(index, self.h).map(|x| x.re))
+                    .collect();
+                let brackets = self.seed_fluid::<ROOT_LANES>(&seeds, whole, start)?;
+                self.fluid_group(&brackets, whole, start)
+            }
         }) {
             crate::cancellation::check()?;
             roots.extend(result?);
@@ -602,7 +659,13 @@ mod tests {
                 .is_none()
         );
         let roots = mesh
-            .fluid_roots(whole.a, whole.b, whole.cb, whole.ca - whole.cb)
+            .fluid_roots(
+                whole.a,
+                whole.b,
+                whole.cb,
+                whole.ca - whole.cb,
+                &Refinement::default(),
+            )
             .unwrap();
         let exact = mesh.bisect::<1>(whole.a, whole.b, whole.cb, 0..1).unwrap();
         assert_eq!(roots[0].to_bits(), exact[0].to_bits());
@@ -621,15 +684,18 @@ mod tests {
         let original = count * mesh.b1.len() * (ROOT_STEPS + 5);
         let bits = |roots: &[f64]| roots.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
         let mut used = 0;
-        let expected = mesh.roots(&mut used).unwrap();
+        let expected = mesh.roots(&Refinement::default(), &mut used).unwrap();
         assert_eq!(used, original);
         for threads in [1, 2, 4] {
             crate::parallelism::with_threads(std::num::NonZeroUsize::new(threads).unwrap(), || {
                 let mut work = MAX_WORK - original;
-                assert_eq!(bits(&mesh.roots(&mut work).unwrap()), bits(&expected));
+                assert_eq!(
+                    bits(&mesh.roots(&Refinement::default(), &mut work).unwrap()),
+                    bits(&expected)
+                );
                 assert_eq!(work, MAX_WORK);
                 let mut work = MAX_WORK - original + 1;
-                let error = mesh.roots(&mut work).unwrap_err();
+                let error = mesh.roots(&Refinement::default(), &mut work).unwrap_err();
                 assert_eq!(error.diagnostics()[0].code, "KR0302");
             });
         }
@@ -669,7 +735,7 @@ mod tests {
             let meshes = Meshes::new(&case).unwrap();
             let mesh = Mesh::new(&meshes, 1).unwrap();
             let whole = interval(&mesh);
-            let roots = mesh.roots(&mut 0).unwrap();
+            let roots = mesh.roots(&Refinement::default(), &mut 0).unwrap();
             assert_eq!(roots.len(), whole.ca - whole.cb, "{}", env.display());
             for (group, chunk) in roots.chunks(ROOT_LANES).enumerate() {
                 let start = group * ROOT_LANES;
@@ -692,6 +758,164 @@ mod tests {
             checked += 1;
         }
         assert!(checked >= 65, "only {checked} fluid fixture meshes");
+    }
+
+    #[test]
+    fn raw_history_seeds_certify_later_meshes_and_keep_mode_order() {
+        for name in [
+            "Pekeris",
+            "LayeredFluidThree",
+            "SductTrapped",
+            "PekerisRigidPlane",
+        ] {
+            let mut definition = load(name).into_definition();
+            definition.max_range_m = 1e20;
+            let case = crate::Case::from_definition(definition).unwrap();
+            let meshes = Meshes::new(&case).unwrap();
+            let mut history = Refinement::<f64>::default();
+            let mut certified = 0;
+            for multiplier in [1, 2, 4, 8, 16] {
+                let mesh = Mesh::new(&meshes, multiplier).unwrap();
+                let whole = interval(&mesh);
+                let roots = mesh.roots(&history, &mut 0).unwrap();
+                assert_eq!(roots.len(), whole.ca - whole.cb);
+                assert!(roots.windows(2).all(|pair| pair[0] > pair[1]));
+                if multiplier < 4 {
+                    assert!(history.seed(0, mesh.h).is_none());
+                    let original = mesh.roots(&Refinement::default(), &mut 0).unwrap();
+                    assert_eq!(
+                        roots.iter().map(|x| x.to_bits()).collect::<Vec<_>>(),
+                        original.iter().map(|x| x.to_bits()).collect::<Vec<_>>()
+                    );
+                } else {
+                    for (group, chunk) in roots.chunks(ROOT_LANES).enumerate() {
+                        let start = group * ROOT_LANES;
+                        let seeds: Vec<_> = (start..start + chunk.len())
+                            .map(|i| history.seed(i, mesh.h).map(|x| x.re))
+                            .collect();
+                        let brackets = mesh.seed_fluid::<ROOT_LANES>(&seeds, whole, start).unwrap();
+                        for (k, bracket) in brackets.iter().enumerate() {
+                            if let Some(bracket) = bracket {
+                                certified += 1;
+                                assert_eq!(mesh.count(bracket.a), whole.cb + start + k + 1);
+                                assert_eq!(mesh.count(bracket.b), whole.cb + start + k);
+                            }
+                        }
+                        let exact = mesh
+                            .bisect::<ROOT_LANES>(
+                                whole.a,
+                                whole.b,
+                                whole.cb,
+                                start..start + chunk.len(),
+                            )
+                            .unwrap();
+                        for (&x, expected) in chunk.iter().zip(exact) {
+                            assert!(
+                                (x - expected).abs() <= 2.0 * expected.abs() * RELATIVE_WIDTH,
+                                "{name}, mesh {multiplier}: {x} vs {expected}"
+                            );
+                        }
+                    }
+                }
+                // Only the raw roots enter history; accept mutates a separate Richardson table.
+                history
+                    .accept(roots, Some(mesh.h), &case, |roots| mesh.modes(roots))
+                    .unwrap();
+            }
+            assert!(certified > 0, "{name}: no seeded brackets");
+        }
+    }
+
+    #[test]
+    fn invalid_missing_shifted_and_out_of_bounds_seeds_use_full_interval_fallback() {
+        let case = load("Pekeris");
+        let meshes = Meshes::new(&case).unwrap();
+        let mesh = Mesh::new(&meshes, 4).unwrap();
+        let whole = interval(&mesh);
+        let exact = mesh
+            .bisect::<ROOT_LANES>(whole.a, whole.b, whole.cb, 0..2)
+            .unwrap();
+        for seed in [
+            None,
+            Some(f64::NAN),
+            Some(f64::INFINITY),
+            Some(whole.a),
+            Some(whole.b),
+            Some(exact[1]),
+        ] {
+            let brackets = mesh.seed_fluid::<ROOT_LANES>(&[seed], whole, 0).unwrap();
+            assert!(brackets[0].is_none(), "{seed:?}");
+            let roots = mesh.fluid_group(&brackets, whole, 0).unwrap();
+            assert_eq!(roots[0].to_bits(), exact[0].to_bits());
+        }
+        // A seed from a different count/index cannot take the requested mode's place.
+        let shifted = Interval {
+            cb: whole.cb + 1,
+            ..whole
+        };
+        let brackets = mesh
+            .seed_fluid::<ROOT_LANES>(&[Some(exact[0])], shifted, 0)
+            .unwrap();
+        assert!(brackets[0].is_none());
+        assert_eq!(
+            mesh.fluid_group(&brackets, shifted, 0).unwrap()[0].to_bits(),
+            exact[1].to_bits()
+        );
+        // A clipped bracket can certify a root arbitrarily close to either limit.
+        let narrow = Interval {
+            a: exact[0] * (1.0 - 1e-9),
+            b: exact[0] * (1.0 + 1e-9),
+            ca: whole.cb + 1,
+            cb: whole.cb,
+        };
+        let brackets = mesh
+            .seed_fluid::<ROOT_LANES>(&[Some(exact[0])], narrow, 0)
+            .unwrap();
+        let bracket = brackets[0].unwrap();
+        assert_eq!(bracket.a.to_bits(), narrow.a.to_bits());
+        assert_eq!(bracket.b.to_bits(), narrow.b.to_bits());
+        assert_eq!(
+            (mesh.count(bracket.a), mesh.count(bracket.b)),
+            (narrow.ca, narrow.cb)
+        );
+        let token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let error = crate::cancellation::with_token(token, || {
+            mesh.seed_fluid::<ROOT_LANES>(&[Some(exact[0])], whole, 0)
+        })
+        .unwrap_err();
+        assert_eq!(error.diagnostics()[0].code, "KR0304");
+    }
+
+    #[test]
+    fn clustered_seed_brackets_fall_back_instead_of_returning_multiple_modes() {
+        let case = load("FluidBoundaryVV");
+        let meshes = Meshes::new(&case).unwrap();
+        let mut mesh = Mesh::new(&meshes, 4).unwrap();
+        let mut whole = interval(&mesh);
+        // Translate a vacuum/vacuum operator's spectrum: roots become close relative
+        // to their magnitude without changing their separation or boundary conditions.
+        let shift = 1e4;
+        for layer in &mesh.layers {
+            for b in
+                &mut mesh.b1[layer.coefficient_start..=layer.coefficient_start + layer.intervals]
+            {
+                *b += layer.h * layer.h * shift;
+            }
+        }
+        whole.a += shift;
+        whole.b += shift;
+        whole.ca = mesh.count(whole.a);
+        whole.cb = mesh.count(whole.b);
+        assert!(whole.ca - whole.cb >= 2);
+        let exact = mesh.bisect::<1>(whole.a, whole.b, whole.cb, 0..1).unwrap();
+        let brackets = mesh
+            .seed_fluid::<ROOT_LANES>(&[Some(exact[0])], whole, 0)
+            .unwrap();
+        assert!(brackets[0].is_none());
+        assert_eq!(
+            mesh.fluid_group(&brackets, whole, 0).unwrap()[0].to_bits(),
+            exact[0].to_bits()
+        );
     }
 
     #[test]

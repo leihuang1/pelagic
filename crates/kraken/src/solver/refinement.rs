@@ -36,7 +36,7 @@ pub(crate) struct Refinement<T> {
 impl<T> Refinement<T> {
     pub fn seed(&self, index: usize, h: f64) -> Option<Complex64> {
         // Solve2 keeps the original scan on mesh two. Mesh three is the first
-        // with two raw-root histories, including cLow-excluded deflation roots.
+        // with two raw-root histories (fluid too), including complex cLow-excluded roots.
         if self.seeds.len() < 2 {
             return None;
         }
@@ -270,6 +270,16 @@ fn neville_seeds_start_on_the_third_mesh_and_use_raw_roots() {
     assert_eq!(value.re.to_bits(), 6.25_f64.to_bits());
     assert_eq!(value.im.to_bits(), (-1.0625_f64).to_bits());
     assert_eq!(refinement.seed(1, 0.25), None);
+    // Real fluid predictions must not read the Richardson-mutated table either.
+    let mut real = Refinement::<f64> {
+        seeds: refinement.seeds,
+        table: vec![vec![999.0]],
+        ..Default::default()
+    };
+    assert_eq!(real.seed(0, 0.25), Some(value));
+    // A mode absent on any earlier mesh has no prediction, even if it reappears.
+    real.seeds[0].1.clear();
+    assert_eq!(real.seed(0, 0.25), None);
 }
 
 #[cfg(test)]

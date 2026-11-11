@@ -5,8 +5,8 @@
 //! Real, layered-fluid finite-difference path from KRAKEN v2023.5.
 //! Sturm counts isolate modes; inverse iteration samples the first mesh;
 //! Richardson extrapolation refines eigenvalues only, as in the reference.
-use crate::solver::profile::Profile;
 use crate::solver::{elastic::complex_speed, error};
+use crate::solver::{profile::Profile, refinement::Refinement};
 use crate::{
     BottomBoundary, Case, DiagnosticReport, MAX_MODE_LIMIT, ModeSet, NormalMode, SurfaceBoundary,
 };
@@ -47,7 +47,7 @@ pub(super) fn solve(case: &Case, mut root_limit: usize) -> Result<ModeSet, Diagn
         SurfaceBoundary::ElasticHalfSpace { .. }
     );
     let elastic_search = elastic_search(case);
-    let mut refinement = crate::solver::refinement::Refinement::<f64>::default();
+    let mut refinement = Refinement::<f64>::default();
     let mut work = 0_usize;
     for multiplier in crate::solver::refinement::MULTIPLIERS {
         crate::cancellation::check()?;
@@ -56,7 +56,7 @@ pub(super) fn solve(case: &Case, mut root_limit: usize) -> Result<ModeSet, Diagn
             if crate::solver::elastic::has_layers(case) || (elastic_top && multiplier > 2) {
                 mesh.solid_roots(&refinement, root_limit, &mut work)?
             } else {
-                mesh.roots(&mut work)?
+                mesh.roots(&refinement, &mut work)?
             };
         if elastic_top && !crate::solver::elastic::has_layers(case) {
             let low =
@@ -66,7 +66,7 @@ pub(super) fn solve(case: &Case, mut root_limit: usize) -> Result<ModeSet, Diagn
         if elastic_search {
             root_limit = roots.len();
         }
-        let seed_h = elastic_search.then(|| {
+        let seed_h = (elastic_search || !crate::solver::elastic::has_half_space(case)).then(|| {
             mesh.top_solids
                 .first()
                 .map_or(mesh.h, crate::solver::elastic::SolidMesh::spacing)
@@ -428,7 +428,7 @@ impl<'a> Mesh<'a> {
     #[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
     fn solid_roots(
         &self,
-        refinement: &crate::solver::refinement::Refinement<f64>,
+        refinement: &Refinement<f64>,
         root_limit: usize,
         work: &mut usize,
     ) -> Result<Vec<f64>, DiagnosticReport> {
@@ -832,7 +832,11 @@ impl<'a> Mesh<'a> {
 
     #[allow(clippy::float_cmp)]
     #[allow(clippy::too_many_lines)] // Keep pinned Solve1 isolation and boundary counting together.
-    fn roots(&self, work: &mut usize) -> Result<Vec<f64>, DiagnosticReport> {
+    fn roots(
+        &self,
+        refinement: &Refinement<f64>,
+        work: &mut usize,
+    ) -> Result<Vec<f64>, DiagnosticReport> {
         // Preserve Solve1's lower search guard, including its cutoff exclusion.
         let elastic = crate::solver::elastic::has_half_space(self.case);
         let c_high = if elastic {
@@ -926,7 +930,7 @@ impl<'a> Mesh<'a> {
             .filter(|n| *n <= MAX_WORK)
             .ok_or_else(|| error("KR0302", "modal mesh-work limit exceeded", "mesh_points"))?;
         if !elastic && !crate::solver::elastic::has_layers(self.case) {
-            return self.fluid_roots(low, high, above, count);
+            return self.fluid_roots(low, high, above, count, refinement);
         }
         // Each mode bisects the whole interval on its own, so groups of modes
         // may run concurrently. Fill every thread before widening the groups.
@@ -1738,7 +1742,7 @@ mod tests {
         MAX_MODE_LIMIT, MAX_WORK, Mesh, Meshes, SHAPE_LANES, brent, inverse_iteration,
         inverse_iteration_lanes, solve,
     };
-    use crate::solver::{elastic, layers, pekeris};
+    use crate::solver::{elastic, layers, pekeris, refinement::Refinement};
     use crate::{
         Case, DiagnosticReport, Interpolation, NormalMode, legacy::load_case,
         solver::profile::Profile,
@@ -1867,7 +1871,7 @@ mod tests {
                 .join(name);
             let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
             let mesh = fixture_mesh(&case, 1).unwrap();
-            let roots = mesh.roots(&mut 0).unwrap();
+            let roots = mesh.roots(&Refinement::default(), &mut 0).unwrap();
             let samples = mesh.sample_brackets();
             let expected = roots
                 .iter()
@@ -1928,7 +1932,7 @@ mod tests {
         input.mesh_points = 8192;
         let case = Case::from_definition(input).unwrap();
         let mut mesh = fixture_mesh(&case, 1).unwrap();
-        let x = mesh.roots(&mut 0).unwrap()[0];
+        let x = mesh.roots(&Refinement::default(), &mut 0).unwrap()[0];
         // Only post-processing reads omega on this fluid mesh: force its distinct
         // normalization error while leaving a successful inverse iteration intact.
         mesh.omega = f64::NAN;
@@ -1958,7 +1962,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Pekeris");
         let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
         let mesh = fixture_mesh(&case, 1).unwrap();
-        let x = mesh.roots(&mut 0).unwrap()[0];
+        let x = mesh.roots(&Refinement::default(), &mut 0).unwrap()[0];
         let (d, e) = mesh.mode_matrix(x);
         let phi = inverse_iteration(&d, &e).unwrap();
         let samples = mesh.sample_brackets();
@@ -2149,7 +2153,7 @@ mod tests {
         let case = load_case(root.with_extension("env"), root.with_extension("flp")).unwrap();
         let mesh = fixture_mesh(&case, 1).unwrap();
         let mut work = MAX_WORK;
-        let report = mesh.roots(&mut work).unwrap_err();
+        let report = mesh.roots(&Refinement::default(), &mut work).unwrap_err();
         assert_eq!(report.diagnostics()[0].code, "KR0302");
         assert!(
             report.diagnostics()[0].message.contains("work limit"),
