@@ -733,7 +733,8 @@ fn fingerprint(path: &Path, name: &str) -> Result<Artifact, String> {
     }
     let mut file = File::open(path).map_err(message)?;
     let mut hash = Sha256::new();
-    let mut buffer = [0; 8192];
+    // Large reads keep read-back to a few calls: a 4 MB SHD file takes 32 instead of 512.
+    let mut buffer = vec![0; 128 * 1024];
     loop {
         let count = file.read(&mut buffer).map_err(message)?;
         if count == 0 {
