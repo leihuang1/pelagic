@@ -85,7 +85,7 @@ A/A spread; the adverse interval is nevertheless retained, not erased by
 pooling runs. All 28 disassembled BELLHOP solver functions have identical
 instructions after normalizing addresses and constant references, with external
 call targets resolved by symbol. That does not compare constant data or rule
-out layout effects. Native x86 performance still needs measurement.
+out layout effects. The completed native x86 CLI measurement is recorded below.
 
 The test surface now compares the new row directly against the base scalar row
 with 1–17 ranges per segment, several profiles per block, complex shapes,
@@ -103,8 +103,54 @@ zero mismatches or unexpected outcomes. Legacy CLI checks on all seven ENV/FLP
 workflows, both engines and threads 1/4 also match every output file: 28
 base/candidate pairs, 224 file hashes including manifests and run reports.
 
-The implementation and measurement evidence are kept outside the repository in
-`pelagic-wt-adiab-scratch/`; native x86 timings remain a separate review step.
+The macOS implementation and measurement evidence against `14fd4b1` are kept
+outside the repository in `pelagic-wt-adiab-scratch/`. These measurements were
+not rerun against the later, test-only `f340749` parent of PR #96.
+
+### Native x86 CLI measurement
+
+**Indicative results from one machine**: Intel Core i5-14600KF, WSL2 Ubuntu 24.04, Linux 6.18, rustc 1.99.0. Both CLIs were built
+from source tarballs: `14fd4b1` as the base and the adiabatic-lane candidate
+subsequently committed for PR #96. The build command was:
+
+```sh
+RUSTFLAGS='-C target-cpu=x86-64-v3' cargo build --locked --release -p cli
+```
+
+Each KRAKEN trial started a fresh process, pinned to logical CPU 2, with a fresh
+output directory:
+
+```sh
+taskset -c 2 pelagic kraken run <env> -o <fresh-dir> \
+  --format legacy --threads 1 --no-sync
+```
+
+Unlike the macOS solver measurements above, these are whole CLI times, including
+parsing and legacy output. Ratios here are **new/base time**, so below 1 is
+faster. A mixed run of 21 interleaved trials per case gave these medians:
+
+| Case | Base ms | New ms | New/base |
+|---|---:|---:|---:|
+| Gulf adiabatic | 79.37 | 56.41 | 0.711 |
+| BELLHOP Munk TL (BELLHOP CLI) | 375.08 | 374.92 | 1.000 |
+
+The other KRAKEN cases ranged from 0.998 to 1.044 in that mixed run. Separate
+single-case controls used 61 interleaved trials per binary, in random order,
+with the base, a byte-identical copy under another path, and the candidate:
+
+| Case | Copy/base | New/base |
+|---|---:|---:|
+| Munk | 1.001 | 1.005 |
+| Elastic sediment | 1.000 | 0.998 |
+| Broadband | 0.997 | 0.998 |
+| Surface duct | 1.003 | 1.001 |
+
+The mixed run's Munk +4.4% did not survive the single-case control: it was an
+interleaving artefact, not a reproduced solver regression. Legacy CLI output
+matched the base for all six KRAKEN timing examples at threads 1 and 4. Gulf's
+minor page faults (4,703 → 4,691) and peak RSS (23.4 → 23.1 MB) were effectively
+unchanged. These numbers support the changelog's 0.71 on this machine; they are
+not a general x86 guarantee.
 
 ## Change and scope
 

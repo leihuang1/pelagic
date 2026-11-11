@@ -1291,6 +1291,255 @@ mod range_lane_tests {
             .collect()
     }
 
+    /// The f340749 march and factor builder, using the independent scalar row above.
+    mod adiabatic_march_tests {
+        use super::{scalar_adiabatic_row as adiabatic_row, *};
+
+        #[rustfmt::skip] // Keep the parent oracle verbatim apart from indentation.
+        impl AdiabaticRange {
+            /// The range with each mode's phase integral replaced by its range factor.
+            #[allow(clippy::float_cmp)]
+            fn with_factors(&self, first: &Case, modes: &[ModeSet], constants: &[Complex64]) -> Self {
+                let incoherent = first.mode_addition == ModeAddition::Incoherent;
+                let factors = self
+                    .terms
+                    .iter()
+                    .enumerate()
+                    .map(|(m, integral)| {
+                        let k = interpolate(
+                            single(modes[self.segment].modes[m].horizontal_wavenumber_rad_per_m),
+                            single(modes[self.right].modes[m].horizontal_wavenumber_rad_per_m),
+                            self.w,
+                        );
+                        let phase =
+                            Complex64::new(integral.im, if incoherent { 0.0 } else { -integral.re });
+                        let h = constants[m]
+                            * if incoherent {
+                                phase.exp()
+                            } else {
+                                double(single(phase.exp()))
+                            };
+                        match first.source_geometry {
+                            SourceGeometry::Line => h / double(k),
+                            SourceGeometry::Point if self.range == 0.0 => Complex64::new(0.0, 0.0),
+                            SourceGeometry::Point => h / (double(k) * self.range).sqrt(),
+                            SourceGeometry::ScaledCylindrical => h / double(k.sqrt()),
+                        }
+                    })
+                    .collect();
+                Self {
+                    terms: factors,
+                    ..*self
+                }
+            }
+        }
+
+        #[rustfmt::skip]
+        fn adiabatic(
+            case: &FieldCase,
+            modes: &[ModeSet],
+            excitation: &[Complex32],
+            pressure: &mut [Complex64],
+            table_values: usize,
+        ) -> Result<(), DiagnosticReport> {
+            let first = &case.profiles[0];
+            let incoherent = first.mode_addition == ModeAddition::Incoherent;
+            let mut count = excitation.len().min(modes[1].modes.len());
+            let largest = modes.iter().map(|m| m.modes.len()).max().unwrap_or(0);
+            let constants: Vec<_> = excitation.iter().map(|s| double(factor() * s)).collect();
+            let mut integral = vec![Complex64::new(0.0, 0.0); excitation.len()];
+            let mut segment = 0;
+            let mut previous = 0.0_f64;
+            let range_count = first.receiver_ranges_m.len();
+            let block_len = (table_values / excitation.len().max(1)).clamp(1, range_count.max(1));
+            for (block_index, ranges) in first.receiver_ranges_m.chunks(block_len).enumerate() {
+                // The phase integral runs on from range to range, so the march is sequential.
+                let mut steps = Vec::with_capacity(ranges.len());
+                for &range in ranges {
+                    crate::cancellation::check()?;
+                    let mut left = previous.max(case.ranges_m[segment]);
+                    while segment + 1 < modes.len() && range > case.ranges_m[segment + 1] {
+                        let boundary = case.ranges_m[segment + 1];
+                        integrate(
+                            modes,
+                            &case.ranges_m,
+                            segment,
+                            left,
+                            boundary,
+                            &mut integral[..count],
+                        );
+                        left = boundary;
+                        segment += 1;
+                        if segment + 1 < modes.len() {
+                            count = count.min(modes[segment + 1].modes.len());
+                        }
+                    }
+                    integrate(
+                        modes,
+                        &case.ranges_m,
+                        segment,
+                        left,
+                        range,
+                        &mut integral[..count],
+                    );
+                    let right = (segment + 1).min(modes.len() - 1);
+                    let w = if right == segment {
+                        0.0
+                    } else {
+                        (range - case.ranges_m[segment]) / (case.ranges_m[right] - case.ranges_m[segment])
+                    };
+                    steps.push(AdiabaticRange {
+                        segment,
+                        right,
+                        w,
+                        range,
+                        terms: integral[..count].to_vec(),
+                    });
+                    previous = range;
+                }
+                let steps = crate::parallelism::map(
+                    steps.len(),
+                    steps.len().saturating_mul(excitation.len()),
+                    |index| steps[index].with_factors(first, modes, &constants),
+                );
+                let block = (block_index * block_len, ranges.len());
+                fill_rows(
+                    pressure,
+                    &first.receiver_depths_m,
+                    range_count,
+                    block,
+                    table_values,
+                    largest,
+                    |depth| adiabatic_row(&steps, modes, depth, incoherent),
+                )?;
+            }
+            Ok(())
+        }
+
+        #[test]
+        #[allow(clippy::too_many_lines)]
+        fn adiabatic_field_matches_parent_march() {
+            let root =
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ProfilesAd");
+            let original = crate::legacy::load_field_cases(
+                root.with_extension("env"),
+                root.with_extension("flp"),
+                crate::ModeSolver::Kraken,
+            )
+            .unwrap()
+            .remove(0);
+            let solved = solve_field(&original).unwrap();
+            // Retain 64 modes initially, then 32; later larger profiles must not restore modes.
+            let counts = [64_u16, 96, 32, 96, 48, 80];
+            let profile_ranges: Vec<_> = (0..counts.len())
+                .map(|i| f64::from(u32::try_from(i).unwrap()) * 1000.0)
+                .collect();
+            let modes: Vec<_> = counts
+                .iter()
+                .enumerate()
+                .map(|(profile, &count)| {
+                    let mut set = solved.modes[profile % solved.modes.len()].clone();
+                    set.modes = set
+                        .modes
+                        .iter()
+                        .cycle()
+                        .take(usize::from(count))
+                        .cloned()
+                        .collect();
+                    for (index, mode) in set.modes.iter_mut().enumerate() {
+                        for value in &mut mode.eigenfunction {
+                            value.im = value.re
+                                * f64::from(u16::try_from(index + profile + 1).unwrap())
+                                / 7.0;
+                        }
+                    }
+                    set
+                })
+                .collect();
+            let excitation: Vec<_> = (0..counts[0])
+                .map(|m| Complex32::new(0.3 + f32::from(m) / 7.0, -0.125))
+                .collect();
+            let grids = [
+                // Skip four profiles, then exercise lanes and a scalar tail beyond the last.
+                [0.0, 1000.0]
+                    .into_iter()
+                    .chain((0..17).map(|i| 5500.0 + f64::from(i)))
+                    .collect::<Vec<_>>(),
+                (0..=1400).map(|i| f64::from(i) * 5.0).collect(),
+            ];
+            let groups = range_blocks::<ADIABATIC_RANGE_LANES>(
+                &grids[1],
+                &profile_ranges[1..],
+                TABLE_VALUES / excitation.len(),
+                MIN_ADIABATIC_RANGES,
+            )
+            .next()
+            .unwrap();
+            // The dense first block exceeds parallelism's 32,768-term inline cutoff.
+            assert!(groups.len() >= 4);
+            assert!(groups.iter().map(|g| g.len).sum::<usize>() * excitation.len() > 1 << 15);
+            for ranges in grids {
+                for geometry in [
+                    SourceGeometry::Point,
+                    SourceGeometry::Line,
+                    SourceGeometry::ScaledCylindrical,
+                ] {
+                    for addition in [ModeAddition::Coherent, ModeAddition::Incoherent] {
+                        let profiles = (0..counts.len())
+                            .map(|i| {
+                                let mut input = original.profiles[i % original.profiles.len()]
+                                    .clone()
+                                    .into_definition();
+                                input.receiver_ranges_m.clone_from(&ranges);
+                                input.receiver_depths_m = vec![0.0, 31.25, 75.0];
+                                input.receiver_offsets_m = vec![0.0; 3];
+                                input.source_geometry = geometry;
+                                input.mode_addition = addition;
+                                input.mode_limit = 128;
+                                Case::from_definition(input).unwrap()
+                            })
+                            .collect();
+                        let case = FieldCase::new(
+                            profiles,
+                            profile_ranges.clone(),
+                            FieldPropagation::Adiabatic,
+                        )
+                        .unwrap();
+                        let mut expected = vec![Complex64::new(1.0, 1.0); ranges.len() * 3];
+                        adiabatic(&case, &modes, &excitation, &mut expected, TABLE_VALUES).unwrap();
+                        let expected = bits(&expected);
+                        for threads in [1, 4] {
+                            for budget in
+                                [7 * excitation.len(), 17 * excitation.len(), TABLE_VALUES]
+                            {
+                                let mut actual = vec![Complex64::new(1.0, 1.0); expected.len()];
+                                crate::parallelism::with_threads(
+                                    NonZeroUsize::new(threads).unwrap(),
+                                    || {
+                                        super::super::adiabatic(
+                                            &case,
+                                            &modes,
+                                            &excitation,
+                                            &mut actual,
+                                            budget,
+                                        )
+                                        .unwrap();
+                                    },
+                                );
+                                assert_eq!(
+                                    bits(&actual),
+                                    expected,
+                                    "{} ranges, {geometry:?}, {addition:?}, threads={threads}, budget={budget}",
+                                    ranges.len()
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     #[allow(clippy::too_many_lines)]
     fn adiabatic_rows_match_the_base_scalar_row_bits() {
