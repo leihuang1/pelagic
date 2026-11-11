@@ -220,12 +220,26 @@ receiver rows retain their separate budget in `fill_rows`. As before, an
 artificially smaller-than-one-mode-vector test budget still admits one scalar
 range. These are per-table bounds, not a total-process memory ceiling.
 
-Adiabatic FIELD retains its scalar receiver row and existing blocked range
-factors. With one worker its row iterator writes directly into the result instead
-of allocating a temporary pressure row; parallel rows retain their bounded ordered
-collection. A separate lane prototype was measured but not retained; see the
-[range-dependent FIELD record](../history/kraken-rd-field-lanes.md) for the
-threshold evidence, timings and full-result identity checks.
+Adiabatic FIELD uses eight f64 range lanes in the same `RangePhaseLanes` and
+`RangeValues` layouts. Its groups split at profile ranges, not coupled midpoints;
+exact endpoints still belong to the segment on their left. Only full eight-range
+groups use lanes. Short segments, tails and budget-limited groups stay scalar.
+The phase integral still marches sequentially, including across skipped profiles.
+Factors are written directly into their final layout from the bounded integral
+snapshots, which are released before filling rows. The range capacity uses the
+initial excitation count instead of the largest profile count, since the retained
+adiabatic mode count can only decrease.
+
+Each lane preserves `double(single(base + w * slope))`, the f64 complex product,
+mode order and final f32/f64 conversion. Coherent sums start at +0.0; incoherent
+norm-squared sums start at -0.0, including an empty mode set. Eight lanes keep the
+AVX2 modal-loop accumulators in registers; sixteen spill. Full eight-range groups
+also have a measured margin on M4, unlike shorter groups. With one worker the row
+iterator yields stack-buffered pressures directly into the result, without a
+heap-allocated pressure row; the existing profile-sampling vectors remain.
+Parallel rows retain their bounded ordered collection. See the
+[range-dependent FIELD record](../history/kraken-rd-field-lanes.md#adiabatic-lanes-on-14fd4b1)
+for the new measurements and the earlier, unretained 16-lane prototype.
 No numerical selector or adapter-specific path was added.
 
 `tests/refactoring.rs` characterizes the Case/load/solve Interfaces; existing

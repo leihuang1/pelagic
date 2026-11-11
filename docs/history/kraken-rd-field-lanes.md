@@ -12,8 +12,99 @@ not measurements of the merged code.
 times faster with the default build and 1.30 times faster with the x86-64-v3
 build. No
 other example has a slowdown that a rerun reproduces. Full results are
-bit-for-bit unchanged. Adiabatic lanes were tried in the earlier experiment and
-not retained.
+bit-for-bit unchanged. Adiabatic lanes were not retained in that coupled change;
+a new eight-wide implementation is described next. The EPYC measurements below
+remain measurements of coupled lanes, not of the new adiabatic kernel.
+
+## Adiabatic lanes on `14fd4b1`
+
+The new adiabatic kernel builds on the mode-shape scratch reuse and direct
+one-thread receiver-row path in `14fd4b1`. It reuses `RangePhaseLanes`,
+`RangeValues` and the range planner, with f64 factors and eight lanes instead of
+the coupled kernel's f32 factors and sixteen lanes. Only full eight-range groups
+use lanes; partial groups remain scalar. The coupled and range-independent lane
+widths and thresholds are unchanged.
+
+The phase march and its range-factor formulas are unchanged. Adiabatic groups
+split at profile endpoints, retaining exact endpoints on the left, rather than
+at coupled midpoints. Factors are produced directly in the scalar/lane layout,
+not copied from a second factor table. Each table retains its existing bound,
+including charged lane slots and the one-scalar-range fallback for a tiny test
+budget. Integral snapshots are dropped before receiver rows. The one-thread row
+iterator returns stack-buffered pressures directly to the result; it adds no
+heap-allocated pressure row. The existing profile-sampling vectors remain.
+
+Every lane retains the mode order, `double(single(base + w * slope))`, complex
+product and final f32/f64 conversion. Incoherent norm-squared sums start at -0.0,
+not the coherent sum's +0.0. No fast-math, FMA contraction, unsafe code,
+dependency or public numerical selector was added.
+
+### Width and threshold
+
+Cross-compiling the actual `kraken` library with Rust 1.99.0 / LLVM 23.1.1 for
+`x86_64-unknown-linux-gnu`, using `-C target-cpu=x86-64-v3`, gives four doubles
+per AVX2 register. The eight-wide coherent loop keeps four accumulator vectors
+in registers; neither addition mode references the stack in its modal loop.
+The sixteen-wide coherent loop spills three accumulator vectors. Both retain
+separate multiply/add instructions and f64-to-f32-to-f64 rounding.
+
+**Indicative, macOS, shared machine:** current direct-row microbenchmarks on an
+Apple M4 Pro used 11 alternating blocks, 2,000 row calls per block after ten
+warmups, and bitwise assertions before timing. They include shape sampling and
+iterator consumption, but exclude table construction; these are not solver
+speedups. All lengths 1–17 were measured with 2, 64 and 128 modes and both
+addition modes. For 64/128 modes, eight-wide groups with four live ranges lose
+(0.79–0.86× scalar/lane), six are borderline (0.98–1.05×), seven gain only
+1.07–1.13×, and eight gain 1.14–1.24×. Sixteen-wide groups still lose with eight
+live ranges (0.75–0.81×); sixteen live ranges perform about like two eight-wide
+groups. Hence full eight-wide groups, not the earlier prototype's width 16 and
+threshold 12. Forced lanes with only two modes lose in this microbenchmark;
+this is not a universal speedup claim for tiny fields.
+
+### Solver measurements and identity
+
+**Indicative, macOS, shared machine:** 11 seeded, interleaved rounds of
+`tools/perf/run.py bench`, all 12 `tools/perf/cases.json` inputs, one solver
+thread, one warmup and three timed repetitions per process. The third binary
+is a byte-identical copy of the archived `14fd4b1` base. Ratios are medians of
+paired process-block ratios, with pointwise 95% block-bootstrap intervals
+(4,000 resamples). Gulf adiabatic improves 1.1541 [1.1509, 1.1798]× against the
+base and 1.1700 [1.1496, 1.1796]× against the copy. The identical bases compare
+at 1.0047 [0.9903, 1.0086]×. Pooled median times are 58.999 and 50.323 ms.
+These are solver-only measurements, not CLI times or an x86 speedup claim.
+
+**Indicative, macOS, shared machine:** a separate 33-round rerun of both Gulf
+cases and the three initially adverse cases confirms Gulf adiabatic at
+1.1689 [1.1670, 1.1702]× against the base and 1.1665 [1.1631, 1.1680]× against
+the copy. Broadband and Sduct's initial adverse comparisons do not reproduce;
+Gulf coupled is unchanged within the intervals. BELLHOP Munk retains a small
+adverse comparison against the base, 0.9986 [0.9979, 0.9994]×, but not the copy,
+0.9998 [0.9986, 1.0001]×. Its identical-base control is
+0.9994 [0.9981, 1.0001]×, so this 0.14% point estimate is within the observed
+A/A spread; the adverse interval is nevertheless retained, not erased by
+pooling runs. All 28 disassembled BELLHOP solver functions have identical
+instructions after normalizing addresses and constant references, with external
+call targets resolved by symbol. That does not compare constant data or rule
+out layout effects. Native x86 performance still needs measurement.
+
+The test surface now compares the new row directly against the base scalar row
+with 1–17 ranges per segment, several profiles per block, complex shapes,
+0/1/64 modes, both addition modes and direct/parallel row filling. Existing
+whole-field scalar/lane checks cover point, line and scaled sources and tiny,
+threshold and large table budgets. Planner checks pin contiguous coverage,
+charged slots and exact profile ownership. All comparisons use floating-point
+bits, including empty incoherent sums.
+
+Full-result checks cover all 12 performance inputs and all seven multi-profile
+fixture/example ENV/FLP workflows under both KRAKEN and KRAKENC: 26 inputs in
+all. The candidate at threads 1, 2 and 4 matches both the archived `14fd4b1`
+base and the supplied `737ca20` binary: 78/78 complete results against each,
+zero mismatches or unexpected outcomes. Legacy CLI checks on all seven ENV/FLP
+workflows, both engines and threads 1/4 also match every output file: 28
+base/candidate pairs, 224 file hashes including manifests and run reports.
+
+The implementation and measurement evidence are kept outside the repository in
+`pelagic-wt-adiab-scratch/`; native x86 timings remain a separate review step.
 
 ## Change and scope
 
@@ -252,7 +343,9 @@ but its estimated 1.21–1.31× Gulf adiabatic gain was not borne out:
 
 The combined prototype also had additional off-path performance deficits.
 Its f64 factor layout and row kernel were removed rather than bundled into the
-coupled change. Other adiabatic lane widths were not investigated.
+coupled change. Other adiabatic lane widths were not investigated in that
+experiment; the [new eight-wide kernel](#adiabatic-lanes-on-14fd4b1) revisits this
+decision on the later base.
 
 ### Verification
 

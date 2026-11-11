@@ -7,6 +7,13 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster adiabatic range-dependent KRAKEN FIELD.** Adiabatic FIELD now adds
+  modes for eight receiver ranges at once, without changing their addition
+  order. With the x86-64-v3 CLI on an Intel Core i5-14600KF (WSL2), Gulf's whole
+  `kraken run --threads 1 --no-sync` takes 0.71 of its previous time; its
+  one-thread solver is about 1.15 times faster on an Apple M4 Pro. Results are
+  bit-for-bit unchanged. See the
+  [measurement record](docs/history/kraken-rd-field-lanes.md#adiabatic-lanes-on-14fd4b1).
 - **Less KRAKEN heap churn.** Mode shapes reuse worker-local scratch and share
   each mesh's off-diagonal coefficients. On Linux, glibc no longer returns the
   heap to the kernel after every batch of modes and faults it back in on the
