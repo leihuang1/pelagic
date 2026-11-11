@@ -153,9 +153,12 @@ can succeed, but a bracket that only becomes narrow then is not checked again.
 The tail steps down to eight or four shooting lanes. Successful answers' final
 count checks are packed too, with the original interval clipping and target rule.
 One-thread meshes share one queue; with multiple workers the ordered map uses
-fixed chunks of 64 modes, independent of worker count. Fallback and error
-collection remain in mode order. The original eight-lane group loop remains a
-test-only bitwise oracle; scheduling, lane width and worker count do not change
+fixed chunks of 16 modes, independent of worker count, so even 62–63-mode
+profiles have four refinement work items. Fallback and error collection remain
+in mode order. Cancellation is polled at batch boundaries and lane admission;
+a shooting pass can evaluate 16 points, so polling is not identical per lane
+evaluation to the old eight-lane loop. The original eight-lane group loop remains
+a test-only bitwise oracle; scheduling, lane width and worker count do not change
 a mode's arithmetic or result.
 There are no adapter-specific paths or runtime numerical selectors.
 

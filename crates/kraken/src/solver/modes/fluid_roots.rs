@@ -10,7 +10,8 @@ use super::{DiagnosticReport, Mesh, ROOT_LANES, ROOT_STEPS, Refinement};
 const RELATIVE_WIDTH: f64 = 1e-13;
 const REFINE_STEPS: usize = 160;
 const SHOOT_LANES: usize = 16;
-const REFINE_CHUNK: usize = 64;
+// Keep enough independent chunks for multi-threaded profiles with only 62–63 modes.
+const REFINE_CHUNK: usize = 16;
 
 #[derive(Clone, Copy, Debug)]
 struct Interval {
@@ -833,6 +834,96 @@ mod tests {
         }
     }
 
+    fn original_fluid_roots(
+        mesh: &Mesh<'_>,
+        whole: Interval,
+        history: &Refinement<f64>,
+    ) -> Vec<f64> {
+        let count = whole.ca - whole.cb;
+        let isolated = history
+            .seed(0, mesh.h)
+            .is_none()
+            .then(|| mesh.isolate_fluid(whole).unwrap());
+        let mut roots = Vec::with_capacity(count);
+        for start in (0..count).step_by(ROOT_LANES) {
+            let end = count.min(start + ROOT_LANES);
+            let brackets = if let Some(isolated) = &isolated {
+                isolated[start..end].to_vec()
+            } else {
+                let seeds: Vec<_> = (start..end)
+                    .map(|mode| history.seed(mode, mesh.h).map(|x| x.re))
+                    .collect();
+                mesh.seed_fluid::<ROOT_LANES>(&seeds, whole, start).unwrap()
+            };
+            let answers = mesh
+                .refine_fluid_original::<ROOT_LANES>(&brackets, whole)
+                .unwrap();
+            for (k, answer) in answers.into_iter().take(brackets.len()).enumerate() {
+                let mode = start + k;
+                roots.push(answer.unwrap_or_else(|| {
+                    mesh.bisect::<1>(whole.a, whole.b, whole.cb, mode..mode + 1)
+                        .unwrap()[0]
+                }));
+            }
+        }
+        roots
+    }
+
+    #[test]
+    fn fluid_roots_dispatch_matches_original_groups_across_chunk_and_seed_boundaries() {
+        let mut definition = load("MunkLossless").into_definition();
+        definition.max_range_m = 1e20;
+        let case = crate::Case::from_definition(definition).unwrap();
+        let meshes = Meshes::new(&case).unwrap();
+        let mut history = Refinement::<f64>::default();
+        let bits = |roots: &[f64]| roots.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        for multiplier in [1, 2, 4] {
+            let mesh = Mesh::new(&meshes, multiplier).unwrap();
+            let full = interval(&mesh);
+            assert_eq!(history.seed(0, mesh.h).is_some(), multiplier == 4);
+            let original = original_fluid_roots(&mesh, full, &history);
+            assert!(original.len() > 3 * REFINE_CHUNK + 1);
+            for count in [
+                REFINE_CHUNK - 1,
+                REFINE_CHUNK,
+                REFINE_CHUNK + 1,
+                3 * REFINE_CHUNK - 1,
+                3 * REFINE_CHUNK,
+                3 * REFINE_CHUNK + 1,
+                original.len(),
+            ] {
+                let whole = if count == original.len() {
+                    full
+                } else {
+                    Interval {
+                        a: original[count - 1].midpoint(original[count]),
+                        ca: full.cb + count,
+                        ..full
+                    }
+                };
+                assert_eq!(mesh.count(whole.a), whole.ca);
+                let expected = original_fluid_roots(&mesh, whole, &history);
+                for threads in [1, 4] {
+                    let actual = crate::parallelism::with_threads(
+                        std::num::NonZeroUsize::new(threads).unwrap(),
+                        || {
+                            mesh.fluid_roots(whole.a, whole.b, whole.cb, count, &history)
+                                .unwrap()
+                        },
+                    );
+                    assert_eq!(
+                        bits(&actual),
+                        bits(&expected),
+                        "mesh {multiplier}, modes {count}, threads {threads}"
+                    );
+                }
+            }
+            history
+                .accept(original, Some(mesh.h), &case, |roots| mesh.modes(roots))
+                .unwrap();
+        }
+    }
+
     #[test]
     fn refill_matches_original_groups_bit_for_bit() {
         for name in [
@@ -915,7 +1006,7 @@ mod tests {
     }
 
     #[test]
-    fn iteration_cap_matches_the_original_loop() {
+    fn iteration_cap_matches_the_original_loop_with_lane_refills() {
         let case = load("FluidBoundaryVV");
         let meshes = Meshes::new(&case).unwrap();
         let mut mesh = Mesh::new(&meshes, 1).unwrap();
@@ -948,6 +1039,64 @@ mod tests {
         assert!(state.answer.is_none());
         assert!(oracle(&mesh, &[Some(whole)], whole)[0].is_none());
         assert_oracle(&mesh, &[Some(whole)], whole);
+        let zero = Interval {
+            a: 1.0,
+            b: 3.0,
+            ca: mesh.count(1.0),
+            cb: mesh.count(3.0),
+        };
+        assert_eq!(
+            mesh.fluid_dispersion([2.0])[0].value.abs().to_bits(),
+            0.0_f64.to_bits()
+        );
+        // Cap modes outnumber the lanes; first-trial zeros refill beside them and after them.
+        let brackets: Vec<_> = (0..4 * SHOOT_LANES + 2)
+            .map(|mode| match mode % 4 {
+                0 => Some(whole),
+                1 => Some(zero),
+                2 => None,
+                _ => Some(Interval { a: 2.0, ..zero }), // A zero endpoint rejects refinement.
+            })
+            .collect();
+        for (mode, answer) in oracle(&mesh, &brackets, whole).into_iter().enumerate() {
+            assert_eq!(
+                answer.map(f64::to_bits),
+                (mode % 4 == 1).then_some(2.0_f64.to_bits())
+            );
+        }
+        assert_oracle(&mesh, &brackets, whole);
+    }
+
+    #[test]
+    fn nonfinite_interior_values_reject_an_active_refinement() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut state = RootState {
+                a: 1.0,
+                b: 2.0,
+                fa: Value {
+                    value: -f64::MIN_POSITIVE,
+                    power: -1000,
+                },
+                fb: Value {
+                    value: 1.0,
+                    power: 1000,
+                },
+                last: 0,
+                iteration: 0,
+                answer: None,
+            };
+            assert!(state.fa.opposite(state.fb));
+            let x = state.trial().unwrap();
+            // An underflowed secant fraction rounds to a; the guard must pick an interior midpoint.
+            assert_eq!(x.to_bits(), 1.5_f64.to_bits());
+            assert_eq!(state.iteration, 1);
+            assert!(!state.accept(x, Value { value, power: 0 }));
+            assert!(state.answer.is_none());
+            assert_eq!(
+                (state.a.to_bits(), state.b.to_bits(), state.last),
+                (1.0_f64.to_bits(), 2.0_f64.to_bits(), 0)
+            );
+        }
     }
 
     #[test]
