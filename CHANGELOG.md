@@ -7,6 +7,12 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster finite elastic KRAKEN layers.** Their transfer now keeps its state
+  in real arithmetic and skips unit rescaling; KRAKENC's complex arithmetic is
+  unchanged. On one thread, the elastic-sediment example's solver-only run is
+  about 1.77 times faster on an Apple M4 Pro, and its whole `kraken run` with the
+  x86-64-v3 CLI about 1.45 times faster on an Intel Core i5-14600KF (WSL2).
+  Results are bit-for-bit unchanged.
 - **Opt-in `--no-sync` for scratch output.** KRAKEN and BELLHOP `run` and
   `run-many` can skip per-file syncs and Apple's shared drive-cache flush.
   The default stays durable; verification, quotas, locks, backups, installation,

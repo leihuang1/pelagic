@@ -6,6 +6,9 @@ use crate::{Boundary, CaseDefinition, DiagnosticReport, Interpolation, ModeSolve
 use num_complex::Complex64;
 use std::f64::consts::PI;
 
+#[cfg(test)]
+mod tests;
+
 #[allow(clippy::float_cmp, clippy::too_many_lines)] // Depth bounds and scalar/profile agreement are exact.
 pub(crate) fn validate(case: &CaseDefinition, diagnostics: &mut DiagnosticReport) {
     if case.mode_solver == ModeSolver::Kraken
@@ -502,6 +505,24 @@ fn sampled_material(
         .collect())
 }
 
+// Keep rare scaling out of the loop: inlining it spills the real state on x86-64.
+#[cold]
+#[inline(never)]
+fn rescale_real(mut y: [f64; 5], mut z: [f64; 5], mut power: i32) -> ([f64; 5], [f64; 5], i32) {
+    let scale = if z[1].abs() < 1e-50 {
+        power -= 50;
+        1e50
+    } else {
+        power += 50;
+        1e-50
+    };
+    for i in 0..5 {
+        y[i] *= scale;
+        z[i] *= scale;
+    }
+    (y, z, power)
+}
+
 impl SolidMesh {
     #[allow(clippy::cast_precision_loss, clippy::too_many_lines)] // Keep pinned coefficient grouping together.
     pub(crate) fn build(
@@ -629,35 +650,59 @@ impl SolidMesh {
         self.h
     }
 
-    fn step(&self, x: Complex64, y: [Complex64; 5], node: usize, euler: bool) -> [Complex64; 5] {
+    #[inline]
+    fn real_step(&self, x: f64, y: [f64; 5], node: usize, euler: bool) -> [f64; 5] {
         let (b, rho) = self.coefficients[node.min(self.coefficients.len() - 1)];
-        if self.real {
-            // GNU's real ElasticUP/DN group Euler and midpoint steps differently.
-            // Keep KRAKENC's separate complex arithmetic unchanged.
-            let [b1, b2, b3, b4] = b.map(|b| b.re);
-            let y = y.map(|y| y.re);
-            let two_x = 2.0 * x.re;
-            let four_h_x = self.h * (4.0 * x.re);
-            let xb3 = x.re * b3 - rho;
-            let fourth = if euler {
-                xb3 * y[0] + (b2 * y[1] - b4 * (two_x * y[2]))
+        let [b1, b2, b3, b4] = b.map(|b| b.re);
+        let two_x = 2.0 * x;
+        let four_h_x = self.h * (4.0 * x);
+        let xb3 = x * b3 - rho;
+        // GNU's real ElasticUP/DN group Euler and midpoint steps differently.
+        let fourth = if euler {
+            xb3 * y[0] + (b2 * y[1] - b4 * (two_x * y[2]))
+        } else {
+            b2 * y[1] + (xb3 * y[0] - two_x * (b4 * y[2]))
+        };
+        let fifth = if euler {
+            (rho * y[0] - four_h_x * y[2]) - b1 * y[1]
+        } else {
+            (rho * y[0] - b1 * y[1]) - four_h_x * y[2]
+        };
+        [
+            b1 * y[3] - b2 * y[4],
+            -(rho * y[3] + xb3 * y[4]),
+            2.0 * self.h * y[3] + b4 * y[4],
+            fourth,
+            fifth,
+        ]
+    }
+
+    #[allow(clippy::manual_range_contains)] // NaN must not trigger rescaling.
+    fn real_transfer(&self, x: f64, mut y: [f64; 5], top: bool, power: &mut i32) -> [f64; 5] {
+        let sign = if top { 1.0 } else { -1.0 };
+        let delta = self.real_step(x, y, if top { 0 } else { self.intervals }, true);
+        let mut z = std::array::from_fn(|i| y[i] + sign * 0.5 * delta[i]);
+        let mut previous = y;
+        for step in 0..self.intervals {
+            previous = y;
+            y = z;
+            let node = if top {
+                step + 1
             } else {
-                b2 * y[1] + (xb3 * y[0] - two_x * (b4 * y[2]))
+                self.intervals - step - 1
             };
-            let fifth = if euler {
-                (rho * y[0] - four_h_x * y[2]) - b1 * y[1]
-            } else {
-                (rho * y[0] - b1 * y[1]) - four_h_x * y[2]
-            };
-            return [
-                b1 * y[3] - b2 * y[4],
-                -(rho * y[3] + xb3 * y[4]),
-                2.0 * self.h * y[3] + b4 * y[4],
-                fourth,
-                fifth,
-            ]
-            .map(Complex64::from);
+            let delta = self.real_step(x, y, node, false);
+            z = std::array::from_fn(|i| previous[i] + sign * delta[i]);
+            let magnitude = z[1].abs();
+            if step + 1 != self.intervals && (magnitude < 1e-50 || magnitude > 1e50) {
+                (y, z, *power) = rescale_real(y, z, *power);
+            }
         }
+        std::array::from_fn(|i| ((previous[i] + z[i]) + 2.0 * y[i]) * 0.25)
+    }
+
+    fn step(&self, x: Complex64, y: [Complex64; 5], node: usize) -> [Complex64; 5] {
+        let (b, rho) = self.coefficients[node.min(self.coefficients.len() - 1)];
         let [b1, b2, b3, b4] = b;
         let xb3 = x * b3 - rho;
         [
@@ -676,8 +721,15 @@ impl SolidMesh {
         top: bool,
         power: &mut i32,
     ) -> [Complex64; 5] {
+        if self.real {
+            // Real cap seeds have zero imaginary parts; retain even their zero signs.
+            debug_assert!(y.iter().all(|v| v.im == 0.0));
+            let result = self.real_transfer(x.re, y.map(|v| v.re), top, power);
+            let zero = if top { 0.0 } else { -0.0 };
+            return std::array::from_fn(|i| Complex64::new(result[i], y[i].im + zero));
+        }
         let sign = if top { 1.0 } else { -1.0 };
-        let delta = self.step(x, y, if top { 0 } else { self.intervals }, true);
+        let delta = self.step(x, y, if top { 0 } else { self.intervals });
         let mut z = std::array::from_fn(|i| y[i] + sign * 0.5 * delta[i]);
         let mut previous = y;
         for step in 0..self.intervals {
@@ -688,7 +740,7 @@ impl SolidMesh {
             } else {
                 self.intervals - step - 1
             };
-            let delta = self.step(x, y, node, false);
+            let delta = self.step(x, y, node);
             z = std::array::from_fn(|i| previous[i] + sign * delta[i]);
             if step + 1 != self.intervals {
                 let scale = if z[1].re.abs() < 1e-50 {
@@ -706,13 +758,7 @@ impl SolidMesh {
                 }
             }
         }
-        std::array::from_fn(|i| {
-            if self.real {
-                ((previous[i] + z[i]) + 2.0 * y[i]) * 0.25
-            } else {
-                (previous[i] + 2.0 * y[i] + z[i]) / 4.0
-            }
-        })
+        std::array::from_fn(|i| (previous[i] + 2.0 * y[i] + z[i]) / 4.0)
     }
 }
 
