@@ -45,15 +45,22 @@ binaries. Changes to the input fixtures of subsequent refs are not benchmarked.
   contains sources, the Cargo home/cache, targets, subprocess `TMPDIR`, and Fortran
   trees, as well as results. Allow several GB; don't use a production directory.
 - Ambient `CARGO_BUILD_*`, `CARGO_TARGET_*`, `CARGO_PROFILE_*`, encoded Rust flags,
-  `RUSTFLAGS`, `RUSTDOCFLAGS`, `RUSTC*` (including wrappers), and native compiler/flag
-  overrides are removed. The kit sets its own target directory and
-  `CARGO_INCREMENTAL=0`. Module `PATH`/library paths and proxy/registry settings
+  `RUSTFLAGS`, `RUSTDOCFLAGS`, `RUSTC*` (including wrappers), native compiler flags,
+  `CMAKE_*`, and make controls (`MAKEFILES`, `GNUMAKEFLAGS`, `MAKEFLAGS`, `MFLAGS`)
+  are removed. `CC`/`CXX` compiler selections are preserved: use executable names
+  or paths, not commands with flags. Preflight and provenance use those compilers,
+  falling back to `cc`/`c++` when unset or empty; Rust's linker uses the selected C
+  compiler too. Fortran stays pinned to `gfortran`, with kit flags on make's command
+  line. The kit sets its own target directory and `CARGO_INCREMENTAL=0`.
+  Module `PATH`/library paths and proxy/registry settings
   (`CARGO_HTTP_*`, `CARGO_NET_*`, `CARGO_REGISTRIES_*`) are retained; provenance
   records network variable **names only**, never their values.
 - Builds refuse `.cargo/config` or `.cargo/config.toml` in the source tree or any
   ancestor, and `config`/`config.toml` in the private Cargo home: these can silently
-  override the recorded variants. Move `--out` outside that ancestry, or move the
-  config before building. The kit does not edit or temporarily hide user configs.
+  override the recorded variants. For ancestor/private-home configs, move `--out`
+  outside that ancestry, or move the config before building. **Refs with their own
+  Cargo config are not supported yet**: choose another ref, rather than editing
+  the pinned source. The kit does not edit or temporarily hide user configs.
 - The default and `codegen-units=1` builds also work on arm64 for smoke testing.
   v3 builds run only when Linux exposes all required x86-64-v3 CPU/OS features.
   Unsupported v3 is explicitly recorded, not replaced by `native`.
@@ -88,6 +95,10 @@ receive the same bytes. BELLHOP uses the Munk TL ENV. Inputs are hashed before u
 
 Every trial parses **every SHD** and checks record completeness, frequencies from
 its frequency vector (not FIELD's unset `freq0`), and the six geometry dimensions.
+Source-depth and receiver-depth vectors must fit their records. Only rectilinear
+layouts are supported: `rectilin`, plus the pinned FIELD writer's exact ten-space
+legacy tag **only for Fortran KRAKEN/FIELD**. Irregular, unknown, and all-NUL tags
+are rejected as workload errors; Pelagic and BELLHOP must use `rectilin`.
 Coverage is the sorted list of `(frequency, geometry dimensions)` entries across
 all SHDs. One multi-frequency file and many indexed single-frequency files can
 therefore match. This handles current grouped broadband output and older layouts.
@@ -191,8 +202,10 @@ python3 tools/perf/x86/run.py \
   `archive.json` records its size, SHA-256 and outcome. Exceeding the cap fails
   packaging; it never silently drops observations. Sources, targets, raw outputs
   and verbose build logs are not transferred. Absolute output paths become `<out>`
-  and home paths become `~` in transfer copies only. Tar owners are uid/gid 0 with
-  empty user/group names. Keep the original output tree to resume.
+  and non-root home paths become `~` at path boundaries in transfer copies only.
+  `HOME=/` is never substituted; normalization refuses dictionary-key collisions
+  rather than losing evidence. Tar owners are uid/gid 0 with empty user/group
+  names. Keep the original output tree to resume.
 - **Failed-run archives include diagnostic log tails** (about 4 KB each), including
   failed commands and interrupted measurements. Earlier failed attempts' tails can
   also remain after successful resume. Known network environment values are removed
@@ -282,11 +295,16 @@ and time/memory to the cluster. Submit this from a checkout containing the kit:
 #SBATCH --time=02:00:00
 set -eu
 module load python/3.11 gcc cmake rust/1.99.0  # site-specific; no apt-get
+export CC="${CC:-gcc}" CXX="${CXX:-g++}"  # keep module selections; no cc alias needed
 cd "$SLURM_SUBMIT_DIR"
 python3 tools/perf/x86/run.py \
   --ref main=7ac64e127ab103ea6123037cc3945e53eae376cc \
   --out "$SCRATCH/pelagic-x86-$SLURM_JOB_ID" --deadline-minutes 60
 ```
+
+The module must also provide `gfortran`; `FC` does not override the reference
+compiler. Compiler flags, make controls and `CMAKE_*` remain scrubbed, while
+module compiler selections and library search paths are preserved.
 
 Allow time after the measurement deadline for hashing/summarizing and note that
 builds precede that budget. To resume after scheduler interruption, reuse the

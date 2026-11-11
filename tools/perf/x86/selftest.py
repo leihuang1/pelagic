@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from run import FLAGS, Kit, append, check_cargo_config, check_cmake, command, load, parse_args, save, topology, unpack
-from measure import (Deadline, E2E, aggregate, cases, cli_trial, identity_summary, interleave,
+from measure import (Deadline, E2E, WorkloadError, aggregate, archive_value, cases, cli_trial, identity_summary, interleave,
                      measure, shd_coverage, summarize)
 
 SHA = "7ac64e127ab103ea6123037cc3945e53eae376cc"
@@ -29,11 +29,12 @@ def kit_at(out):
     return kit
 
 
-def shd(frequencies, depths=1):
+def shd(frequencies, depths=1, sources=1, plot=b"rectilin  "):
     record = max(128, 8 * len(frequencies))
-    data = bytearray(record * (10 + len(frequencies) * depths))
+    data = bytearray(record * (10 + len(frequencies) * sources * depths))
     struct.pack_into("<i", data, 0, record // 4)
-    struct.pack_into("<7i", data, 2 * record, len(frequencies), 1, 1, 1, 1, depths, 1)
+    data[record:record + 10] = plot.ljust(10, b" ")
+    struct.pack_into("<7i", data, 2 * record, len(frequencies), 1, 1, 1, sources, depths, 1)
     struct.pack_into("<d", data, 2 * record + 28, float("nan"))  # Unset freq0 is not coverage.
     struct.pack_into("<" + str(len(frequencies)) + "d", data, 3 * record, *frequencies)
     return bytes(data)
@@ -113,7 +114,7 @@ def test_workloads(out):
     env = out / "broadband.env"
     env.write_text("synthetic input")
     item = dict(key="broadband", model="kraken", env=env, files=[env])
-    def trial(label, files, kind="cli", workers=None, count=1, status="ok"):
+    def trial(label, files, kind="cli", workers=None, count=1, status="ok", model="kraken"):
         def fake_timed(kit, commands, cwd, log, stdin=None):
             root = log.parent / ("inputs/case-0000" if kind == "fortran" else "out")
             root.mkdir(parents=True, exist_ok=True)
@@ -126,12 +127,17 @@ def test_workloads(out):
             log.write_text("synthetic successful process")
             return dict(status="ok", wall_ns=1_000_000, exit_codes=[0] * len(commands), commands=commands)
         with patch("measure.timed", fake_timed), patch("os.sched_getaffinity", return_value={0}, create=True):
-            return cli_trial(kit, out, item, label, dict(kind=kind, binary="pelagic", tree="/reference"), workers, count, False, 0)
+            return cli_trial(kit, out, dict(item, model=model), label, dict(kind=kind, binary="pelagic", tree="/reference"), workers, count, False, 0)
     flattened = {f"f{f}.{suffix}": shd([f]) if suffix == "shd" else b"mod" for f in range(50, 151) for suffix in ("shd", "mod")}
     grouped = {"all.shd": shd(list(range(50, 151))), "all.mod": b"mod"}
     assert trial("old-layout", flattened)["status"] == "ok"
     assert trial("new-layout", grouped)["status"] == "ok"
     assert trial("fortran", grouped, "fortran")["status"] == "ok"
+    blank = dict(grouped, **{"all.shd": shd(list(range(50, 151)), plot=b" " * 10)})
+    assert trial("blank-field", blank, "fortran")["status"] == "ok"
+    assert trial("blank-cli", blank)["status"] == "workload-error"
+    assert trial("blank-bellhop", blank, "fortran", model="bellhop")["status"] == "workload-error"
+    assert trial("nul-field", dict(grouped, **{"all.shd": shd([50], plot=b"\0" * 10)}), "fortran")["status"] == "workload-error"
     for label, payload in (("one-frequency", shd([50])), ("wrong-geometry", shd(list(range(50, 151)), depths=2)), ("truncated", b"x")):
         row = trial(label, {"r.shd": payload, "r.mod": b"mod"}, "fortran")
         assert row["status"] == "workload-error" and row["process_status"] == "ok"
@@ -156,6 +162,27 @@ def test_workloads(out):
     assert next(w for w in load(out / "workloads.json") if w["case"] == "broadband")["status"] == "failed"
 
 
+def test_shd_headers(out):
+    path = out / "test.shd"
+    for sources, depths in ((32, 1), (1, 32)):
+        path.write_bytes(shd([50], sources=sources, depths=depths))
+        assert shd_coverage(path) == [[50.0, 1, 1, 1, sources, depths, 1]]
+    irregular = bytearray(shd([50], plot=b"irregular"))
+    struct.pack_into("<7i", irregular, 256, 1, 1, 1, 1, 1, 3, 3)  # Irregular has one pressure row, not three.
+    for payload, message in ((shd([50], sources=33), "declared shape"),
+                             (shd([50], depths=33), "declared shape"),
+                             (shd([50], plot=b"garbage"), "plot type"), (irregular, "plot type"),
+                             (shd([50], plot=b"\0" * 10), "plot type")):
+        path.write_bytes(payload)
+        for field in (False, True):
+            try:
+                shd_coverage(path, field=field)
+            except WorkloadError as exc:
+                assert message in str(exc), str(exc)
+            else:
+                raise AssertionError("invalid SHD header accepted")
+
+
 def test_identity(out):
     same = [dict(ROW, variant="base-cli-" + v) for v in ("default", "v3", "cgu1", "default-nosync")]
     assert not identity_summary(same, [])["failed"]
@@ -178,13 +205,15 @@ def test_identity(out):
 def test_environment(out):
     controls = ("RUSTFLAGS", "RUSTDOCFLAGS", "RUSTC", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "CARGO_ENCODED_RUSTFLAGS",
                 "CARGO_BUILD_RUSTFLAGS", "CARGO_BUILD_RUSTC", "CARGO_BUILD_RUSTC_WRAPPER", "CARGO_BUILD_TARGET",
-                "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS", "CARGO_TARGET_DIR", "CARGO_PROFILE_RELEASE_OPT_LEVEL", "CARGO_PROFILE_DEV_DEBUG")
+                "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS", "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER", "CARGO_TARGET_DIR", "CARGO_PROFILE_RELEASE_OPT_LEVEL", "CARGO_PROFILE_DEV_DEBUG",
+                "CFLAGS", "CXXFLAGS", "CPPFLAGS", "FFLAGS", "FCFLAGS", "LDFLAGS", "CMAKE_TOOLCHAIN_FILE", "FC", "AR")
     network = {k: "secret-" + k for k in ("https_proxy", "NO_PROXY", "CARGO_HTTP_PROXY", "CARGO_NET_GIT_FETCH_WITH_CLI", "CARGO_REGISTRIES_PRIVATE_TOKEN")}
     ambient = dict.fromkeys(controls, "injected")
-    ambient.update(network, PATH="/module/bin", LD_LIBRARY_PATH="/module/lib", RUSTUP_HOME="/shared/rustup", CARGO_HOME="/shared/cargo", CARGO_INCREMENTAL="1")
+    ambient.update(network, PATH="/module/bin", LD_LIBRARY_PATH="/module/lib", RUSTUP_HOME="/shared/rustup", CARGO_HOME="/shared/cargo", CARGO_INCREMENTAL="1", CC="gcc", CXX="g++")
     with patch.dict(os.environ, ambient, clear=True):
         kit = kit_at(out)
     assert all(k not in kit.env for k in controls)
+    assert kit.env["CC"] == "gcc" and kit.env["CXX"] == "g++"
     assert all(kit.env[k] == v for k, v in network.items())
     assert kit.env["PATH"].endswith("/module/bin") and kit.env["LD_LIBRARY_PATH"] == "/module/lib"
     assert kit.env["CARGO_INCREMENTAL"] == "0" and kit.env["RUSTUP_HOME"] == "/shared/rustup"
@@ -213,7 +242,12 @@ def test_environment(out):
                 try:
                     check_cargo_config(tree, cargo)
                 except RuntimeError as exc:
-                    assert str(config) in str(exc) and "move --out" in str(exc) and "move the config" in str(exc)
+                    assert str(config) in str(exc)
+                    if base == tree / ".cargo":
+                        assert "refs with their own Cargo config" in str(exc) and "not supported" in str(exc)
+                        assert "move" not in str(exc) and "pinned ref" in str(exc)
+                    else:
+                        assert "move --out" in str(exc) and "move the config" in str(exc)
                 else:
                     raise AssertionError("Cargo config accepted")
                 config.unlink()
@@ -226,13 +260,77 @@ def test_environment(out):
             binary.write_bytes(b"synthetic binary")
             assert cmd[:4] == ["cargo", "build", "--release", "--locked"]
         def fake_command(cmd, **kwargs):
-            return "--no-sync" if cmd[-1] == "--help" else "cmake version 3.31.10" if cmd[0] == "cmake" else "cargo 1.99.0" if cmd[0] == "cargo" else "rustc 1.99.0 (synthetic)"
+            return "--no-sync" if cmd[-1] == "--help" else "cmake version 3.31.10" if cmd[0] == "cmake" else "cargo 1.99.0" if cmd[0] == "cargo" else "rustc 1.99.0 (synthetic)\nhost: x86_64-unknown-linux-gnu"
         with patch("run.command", fake_command), patch("run.shutil.which", return_value="/module/bin/tool"), patch.object(kit, "run", fake_run):
             kit.build()
     assert len(captured) == 5 and len({e["CARGO_TARGET_DIR"] for e in captured}) == 5
     assert all(e["CARGO_HOME"] == str(cargo) and e["CARGO_INCREMENTAL"] == "0" for e in captured)
+    assert all(e["CC"] == "gcc" and e["CXX"] == "g++" and e["CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER"] == "/module/bin/tool" for e in captured)
+    assert all(b["linker"] == "/module/bin/tool" for b in kit.p["builds"].values() if b.get("kind") in ("cli", "solver"))
     assert kit.p["environment"]["network_names"] == sorted(network)
     assert all(v not in json.dumps(kit.p) for v in network.values())
+
+
+def test_compilers(out):
+    class PreflightComplete(Exception):
+        pass
+    for index, selectors in enumerate(({}, {"CC": "gcc", "CXX": "g++"}, {"CC": "/module/bin/gcc", "CXX": "/module/bin/g++"})):
+        with patch.dict(os.environ, dict(PATH="/module/bin", **selectors), clear=True):
+            kit = kit_at(out / str(index))
+        selected = [selectors.get("CC", "cc"), selectors.get("CXX", "c++")]
+        checked, queried = [], []
+        def which(name, path=None):
+            assert path == kit.env["PATH"]
+            checked.append(name)
+            return None if selectors and name in ("cc", "c++") else "/module/bin/" + Path(name).name
+        def metadata(cmd, **kwargs):
+            queried.append(cmd)
+            return "cmake version 3.31.10" if cmd[0] == "cmake" else cmd[0] + " version synthetic"
+        def save_machine(path, value):
+            assert path.name == "machine.json"
+            assert value["cc"] == selected[0] + " version synthetic" and value["c++"] == selected[1] + " version synthetic"
+            assert value["executables"]["cc"] == "/module/bin/" + Path(selected[0]).name
+            assert value["executables"]["c++"] == "/module/bin/" + Path(selected[1]).name
+            raise PreflightComplete()
+        with patch("run.shutil.which", which), patch("run.command", metadata), \
+                patch("run.topology", return_value={}), patch("run.save", save_machine):
+            try:
+                kit.setup()
+            except PreflightComplete:
+                pass
+            else:
+                raise AssertionError("setup did not reach machine provenance")
+        assert all(name in checked and [name, "--version"] in queried for name in selected)
+        assert not selectors or not any(name in checked for name in ("cc", "c++"))
+
+
+def test_make_environment(out):
+    poison = out / "site.mk"
+    poison.write_text("override FC := synthetic-broken-compiler\noverride FFLAGS := -O0\n")
+    controls = dict(MAKEFILES=str(poison), GNUMAKEFLAGS="-e", MAKEFLAGS="-e", MFLAGS="-e", FC="wrong-compiler", FFLAGS="-O0")
+    with patch.dict(os.environ, controls):
+        kit = kit_at(out)
+    kit.p.update(sources={}, fortran=dict(archive=str(out / "unused.tar")))
+    captured = []
+    def fake_unpack(archive, tree):
+        for directory in ("misc", "Kraken", "KrakenField", "Bellhop"):
+            (tree / directory).mkdir(parents=True)
+    def fake_run(cmd, cwd=None, env=None):
+        env = env or kit.env
+        assert not set(controls).intersection(env), "inherited makefile/flags reached Fortran make"
+        assert cmd[:2] == ["make", "-C"] and "FC=gfortran" in cmd
+        optimization = "-O3 -march=native" if cwd.name == "fortran-O3" else "-O1"
+        expected = optimization + " -ffast-math -funroll-all-loops -fomit-frame-pointer -std=gnu"
+        assert cmd[-1] == "FFLAGS=" + expected + (" -I../misc" if cmd[2] != "misc" else "")
+        if cmd[2] != "misc":
+            (cwd / cmd[2] / cmd[3]).write_bytes(b"synthetic Fortran binary")
+        captured.append(cmd)
+    with patch.object(kit, "prepare_rust"), patch.object(kit, "run", fake_run), patch("run.unpack", fake_unpack), \
+            patch("run.command", return_value="cmake version 3.31.10"), patch("run.shutil.which", return_value="/module/bin/compiler"):
+        kit.build()
+    assert len(captured) == 8 and len(kit.p["builds"]) == 2
+    assert set(controls).issubset(kit.p["environment"]["removed_names"])
+    assert poison.read_text().startswith("override FC := synthetic-broken-compiler")
 
 
 def test_checkpoints(out, keep_raw=False):
@@ -339,6 +437,36 @@ def test_quick_scope(out):
     assert max(i for i, (_, w, _, b) in enumerate(seen) if b and w is None) < min(i for i, (_, w, _, b) in enumerate(seen) if b and w)
 
 
+def test_normalization(out):
+    kit = kit_at(out)
+    unchanged = {"/a/b": "first", "/a~b": "second", "url": "https://github.com/a/b", "shape": [1, 2, 3]}
+    with patch.dict(os.environ, HOME="/"):
+        assert archive_value(kit, unchanged) == unchanged
+        assert archive_value(kit, str(out / "file")) == "<out>/file"
+        with patch.object(kit, "out", Path("/")):
+            assert archive_value(kit, unchanged) == unchanged
+    home = out.parent / "user"
+    with patch.dict(os.environ, HOME=str(home)):
+        original = {str(home / "file"): str(out / "file"), "text": f"'{home}' --out={out}/file\n{home}/log",
+                    "prefixes": [str(home) + "land/file", str(out) + "side/file", "/prefix" + str(home), "https://example.org" + str(home)]}
+        normalized = archive_value(kit, original)
+        assert len(normalized) == len(original) and normalized["~/file"] == "<out>/file"
+        assert normalized["text"] == "'~' --out=<out>/file\n~/log"
+        assert normalized["prefixes"] == original["prefixes"]
+        for collision in ({str(home / "x"): 1, "~/x": 2}, {str(out / "x"): 1, "<out>/x": 2}):
+            try:
+                archive_value(kit, collision)
+            except ValueError as exc:
+                assert "dictionary keys" in str(exc)
+            else:
+                raise AssertionError("normalization silently merged dictionary keys")
+            assert len(collision) == 2
+    with patch.dict(os.environ, HOME="/work"):
+        assert archive_value(kit, str(out / "work/file")) == "<out>/work/file", "normalized a replacement twice"
+    with patch.dict(os.environ, HOME=str(out.parent)):
+        assert archive_value(kit, str(out / "file")) == "<out>/file", "home swallowed the more specific output path"
+
+
 def test_archive(out):
     kit = kit_at(out)
     home = out.parent / "private-home"
@@ -377,7 +505,8 @@ def test_archive(out):
 
 
 def self_test():
-    tests = (test_core, test_safety, test_workloads, test_identity, test_environment, test_checkpoints, test_keep_raw, test_quick_scope, test_archive)
+    tests = (test_core, test_safety, test_workloads, test_shd_headers, test_identity, test_environment, test_compilers,
+             test_make_environment, test_checkpoints, test_keep_raw, test_quick_scope, test_normalization, test_archive)
     with tempfile.TemporaryDirectory() as tmp:
         for test in tests:
             # Resolve symlinks (macOS's /var -> /private/var), as the kit resolves --out.

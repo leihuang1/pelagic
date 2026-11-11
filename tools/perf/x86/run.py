@@ -64,11 +64,14 @@ def network_names(env):
 
 
 def check_cargo_config(tree, cargo_home):
-    paths = [parent / ".cargo" / name for parent in (tree.resolve(), *tree.resolve().parents)
+    tree = tree.resolve()
+    paths = [parent / ".cargo" / name for parent in (tree, *tree.parents)
              for name in ("config", "config.toml")]
     paths += [cargo_home / name for name in ("config", "config.toml")]
     for path in paths:
         if path.exists() or path.is_symlink():
+            if path.parent == tree / ".cargo":
+                raise RuntimeError(f"Cargo config {path}: refs with their own Cargo config are not supported yet; choose a ref without one instead of editing the pinned ref")
             raise RuntimeError(f"Cargo config {path} could override the recorded build settings; move --out outside its ancestry, or move the config before building")
 
 
@@ -108,6 +111,17 @@ def parse_args(argv=None):
 
 def command(cmd, cwd=None, *, env):
     return subprocess.check_output(cmd, cwd=cwd, env=env, text=True, stderr=subprocess.STDOUT).strip()
+
+
+def native_tools(env):
+    return {"cmake": "cmake", "gfortran": "gfortran", "cc": env.get("CC") or "cc", "c++": env.get("CXX") or "c++"}
+
+
+def compiler_inventory(env):
+    tools = native_tools(env)
+    versions = {name: command([executable, "--version"], env=env) for name, executable in tools.items()}
+    versions["executables"] = {name: shutil.which(executable, path=env["PATH"]) for name, executable in tools.items()}
+    return versions
 
 
 def check_cmake(version):
@@ -182,8 +196,8 @@ class Kit:
         self.env = dict(os.environ)
         for key in list(self.env):
             if key.startswith(("PELAGIC_", "RUSTC", "CARGO_BUILD_", "CARGO_TARGET_", "CARGO_PROFILE_", "CARGO_ENCODED_", "CMAKE_")) or key in (
-                    "RUSTFLAGS", "RUSTDOCFLAGS", "RUSTUP_TOOLCHAIN", "CC", "CXX", "FC", "AR", "CFLAGS", "CXXFLAGS",
-                    "CPPFLAGS", "FFLAGS", "FCFLAGS", "LDFLAGS", "MAKEFLAGS", "MFLAGS"):
+                    "RUSTFLAGS", "RUSTDOCFLAGS", "RUSTUP_TOOLCHAIN", "FC", "AR", "CFLAGS", "CXXFLAGS",
+                    "CPPFLAGS", "FFLAGS", "FCFLAGS", "LDFLAGS", "MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS"):
                 del self.env[key]
         removed = sorted(set(os.environ) - set(self.env))
         for name, directory in (("CARGO_HOME", "cargo"), ("TMPDIR", "tmp")):
@@ -232,8 +246,8 @@ class Kit:
             raise RuntimeError(f"command failed ({process.returncode}): {row['command']}; see {log} and commands.jsonl's diagnostic_tail")
 
     def setup(self):
-        missing = [name for name in ("git", "gfortran", "cmake", "make", "cc", "c++", "curl", "xargs", "lscpu", "findmnt")
-                   if not shutil.which(name)]
+        missing = [name for name in ("git", "make", "curl", "xargs", "lscpu", "findmnt", *native_tools(self.env).values())
+                   if not shutil.which(name, path=self.env["PATH"])]
         if missing and self.a.install_system:
             if not shutil.which("apt-get"):
                 raise RuntimeError("--install-system supports apt-get only; load/install the missing tools: " + ", ".join(missing))
@@ -243,12 +257,13 @@ class Kit:
                                "ca-certificates", "util-linux", "findutils"])
         elif missing:
             raise RuntimeError("Missing tools: " + ", ".join(missing) + "; load modules or explicitly allow --install-system. No system packages installed.")
-        check_cmake(command(["cmake", "--version"], env=self.env))
+        compilers = compiler_inventory(self.env)
+        check_cmake(compilers["cmake"])
         self.p["topology"] = topology()
         machine = {name: command(cmd, env=self.env) for name, cmd in {
             "lscpu": ["lscpu"], "lscpu_e": ["lscpu", "-e"], "kernel": ["uname", "-a"],
-            "output_filesystem": ["findmnt", "-T", str(self.out), "-o", "TARGET,SOURCE,FSTYPE,OPTIONS"],
-            "gfortran": ["gfortran", "--version"], "cmake": ["cmake", "--version"], "cc": ["cc", "--version"]}.items()}
+            "output_filesystem": ["findmnt", "-T", str(self.out), "-o", "TARGET,SOURCE,FSTYPE,OPTIONS"]}.items()}
+        machine.update(compilers)
         for name, path in {"memory": "/proc/meminfo", "mounts": "/proc/mounts", "cpuinfo": "/proc/cpuinfo",
                            "boot_id": "/proc/sys/kernel/random/boot_id", "cpu_quota": "/sys/fs/cgroup/cpu.max"}.items():
             machine[name] = Path(path).read_text() if Path(path).exists() else "unavailable"
@@ -336,6 +351,7 @@ class Kit:
             if not version.startswith("rustc " + channel + " "):
                 raise RuntimeError(f"Rust {channel} required, found {version}; load the pinned module or rustup")
             source["rustc"] = version
+            source["host"] = re.search(r"^host: (\S+)$", version, re.M).group(1)
             source["cargo"] = command(["cargo", "--version"], env=env)
         self.persist()
 
@@ -343,7 +359,7 @@ class Kit:
         for source in self.p["sources"].values():
             check_cargo_config(Path(source["tree"]), Path(self.env["CARGO_HOME"]))
         self.prepare_rust()
-        compilers = {name: command([name, "--version"], env=self.env) for name in ("cmake", "gfortran", "cc", "c++")}
+        compilers = compiler_inventory(self.env)
         check_cmake(compilers["cmake"])
         for label, source in self.p["sources"].items():
             tree = Path(source["tree"])
@@ -357,6 +373,8 @@ class Kit:
                         continue
                     target = self.work / "targets" / key
                     env = dict(self.env, CARGO_TARGET_DIR=str(target), RUSTFLAGS=FLAGS[variant], RUSTUP_TOOLCHAIN=source["toolchain"])
+                    # Rust otherwise invokes cc even when the site's C compiler is selected with CC.
+                    env["CARGO_TARGET_" + source["host"].upper().replace("-", "_") + "_LINKER"] = compilers["executables"]["cc"]
                     cmd = ["cargo", "build", "--release", "--locked"] + (["-p", "cli"] if kind == "cli" else
                            ["--manifest-path", "tools/perf/Cargo.toml", "--bin", "pelagic-perf"])
                     self.state("build " + key)
@@ -364,7 +382,7 @@ class Kit:
                     binary = target / "release" / ("pelagic" if kind == "cli" else "pelagic-perf")
                     record = dict(ref=label, kind=kind, variant=variant, binary=str(binary), sha256=digest(binary),
                                   source_commit=source["commit"], source_dirty=False, flags=FLAGS[variant],
-                                  toolchain=source["rustc"], build_command=cmd, target=str(target), compilers=compilers)
+                                  toolchain=source["rustc"], build_command=cmd, target=str(target), compilers=compilers, linker=compilers["executables"]["cc"])
                     if kind == "cli":
                         record["no_sync"] = {f"{model}/{action}": "--no-sync" in command([str(binary), model, action, "--help"], env=self.env)
                                              for model in ("kraken", "bellhop") for action in ("run", "run-many")}

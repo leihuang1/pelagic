@@ -7,6 +7,7 @@ import math
 import os
 from pathlib import Path
 import random
+import re
 import shutil
 import signal
 import statistics
@@ -99,18 +100,22 @@ def retire(kit, directory, name, retain=False, failed=False):
             finish_raw(kit, directory)
 
 
-def shd_coverage(path):
-    """Flatten the previous kit's supported SHD shapes, ignoring FIELD's unset freq0."""
+def shd_coverage(path, *, field=False):
+    """Flatten supported rectilinear SHD shapes, ignoring FIELD's unset freq0."""
     try:
         data = path.read_bytes()
         record = 4 * struct.unpack_from("<i", data)[0]
         if record < 100 or len(data) < 10 * record or len(data) % record:
             raise ValueError("invalid record length or truncated file")
+        plot = data[record:record + 10]
+        # Pinned FIELD initializes its tag to ten spaces but writes only rectilinear pressure rows.
+        if plot.rstrip(b" \0") != b"rectilin" and not (field and plot == b" " * 10):
+            raise ValueError("unsupported SHD plot type (expected rectilin): " + repr(plot))
         dims = struct.unpack_from("<7i", data, 2 * record)
         if any(n <= 0 for n in dims) or dims[1:4] != (1, 1, 1):
             raise ValueError("invalid or unsupported geometry dimensions")
-        if max(8 * dims[0], 8 * dims[6]) > record or len(data) // record != 10 + dims[0] * dims[4] * dims[5]:
-            raise ValueError("frequency/pressure records do not cover the declared shape")
+        if max(8 * dims[0], 4 * dims[4], 4 * dims[5], 8 * dims[6]) > record or len(data) // record != 10 + dims[0] * dims[4] * dims[5]:
+            raise ValueError("frequency/geometry/pressure records do not cover the declared shape")
         frequencies = struct.unpack_from("<" + str(dims[0]) + "d", data, 3 * record)
         if not all(math.isfinite(f) for f in frequencies):
             raise ValueError("non-finite frequency vector")
@@ -119,7 +124,7 @@ def shd_coverage(path):
         raise WorkloadError(f"cannot parse SHD {path}: {exc}") from exc
 
 
-def workload_products(root, products, model, stems=None, status_file=None):
+def workload_products(root, products, model, stems=None, status_file=None, *, field=False):
     groups = {stem: {} for stem in stems} if stems is not None else {"": products}
     if stems is not None:
         for path, value in products.items():
@@ -135,7 +140,7 @@ def workload_products(root, products, model, stems=None, status_file=None):
             if not matching or any(v["bytes"] == 0 for v in matching):
                 raise WorkloadError(f"{stem or 'single case'}: missing/empty {suffix} products")
         coverage[stem] = sorted(entry for p in files if Path(p).suffix.lower() == ".shd"
-                                for entry in shd_coverage(root / stem / p))
+                                for entry in shd_coverage(root / stem / p, field=field))
     if status_file is not None:
         try:
             statuses = [json.loads(line) for line in status_file.read_text().splitlines()]
@@ -234,7 +239,8 @@ def cli_trial(kit, directory, item, label, build, workers, count, warmup, block)
     try:
         stems = [f"case-{i:04d}" for i in range(count)] if sweep else None
         groups, coverage = workload_products(root, row["products"], item["model"], stems,
-                                             output / "status.ndjson" if sweep and not fortran else None)
+                                             output / "status.ndjson" if sweep and not fortran else None,
+                                             field=fortran and item["model"] == "kraken")
         row["coverage_by_case"] = coverage
         if sweep:
             row["case_products"] = groups
@@ -479,12 +485,24 @@ def workload_summary(rows):
 
 def archive_value(kit, value, diagnostic=False):
     if isinstance(value, dict):
-        return {archive_value(kit, k): archive_value(kit, v, diagnostic or k in
-                ("error", "stderr", "stdout", "diagnostic_tail", "diagnostic_tails", "workload_error")) for k, v in value.items()}
+        normalized = {}
+        for key, item in value.items():
+            name = archive_value(kit, key)
+            if name in normalized:
+                raise ValueError("archive path normalization would merge dictionary keys: " + repr(name))
+            normalized[name] = archive_value(kit, item, diagnostic or key in
+                    ("error", "stderr", "stdout", "diagnostic_tail", "diagnostic_tails", "workload_error"))
+        return normalized
     if isinstance(value, list):
         return [archive_value(kit, v, diagnostic) for v in value]
     if isinstance(value, str):
-        value = value.replace(str(kit.out), "<out>").replace(str(Path.home()), "~")
+        roots = {str(p): marker for p, marker in ((Path.home(), "~"), (kit.out, "<out>"))
+                 if p.is_absolute() and p != Path(p.anchor)}
+        if roots:
+            # Match whole path prefixes once; never rewrite URLs, sibling names or replacement text.
+            prefixes = "|".join(re.escape(p) for p in sorted(roots, key=len, reverse=True))
+            pattern = r"(^|[\s'\"`=:(\[{,;])(" + prefixes + r")(?=$|[/\s'\"`):\]},;])"
+            value = re.sub(pattern, lambda m: m[1] + roots[m[2]], value)
         if diagnostic:
             for key in network_names(kit.env):
                 if kit.env[key]:
