@@ -12,10 +12,12 @@ in the [interface contract](docs/development/interface-contract.md).
   heap to the kernel after every batch of modes and faults it back in on the
   next. One-thread adiabatic FIELD also writes receiver rows directly into the
   result. With the x86-64-v3 CLI on an Intel Core i5-14600KF (WSL2), whole
-  `kraken run`s take 0.72 of their previous time for surface duct, 0.74 for
-  Munk and 0.87 for Gulf, with 76–87% fewer page faults; 20-worker `run-many`
-  sweeps of surface duct and Munk take 0.78 and 0.72 of their previous time.
-  Results are bit-for-bit unchanged.
+  `kraken run --threads 1 --no-sync` runs take 0.72 of their previous time for
+  surface duct, 0.74 for Munk and 0.87 for Gulf, with 76–87% fewer page faults.
+  Sweeps using `run-many --workers 20 --threads 1 --no-sync` take 0.78 and 0.72
+  of their previous time for surface duct and Munk. All adapters share the
+  allocation reduction; speedups depend on the workload. Results are bit-for-bit
+  unchanged.
 - **Opt-in `--no-sync` for scratch output.** KRAKEN and BELLHOP `run` and
   `run-many` can skip per-file syncs and Apple's shared drive-cache flush.
   The default stays durable; verification, quotas, locks, backups, installation,

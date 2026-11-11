@@ -47,6 +47,8 @@ struct ShapeScratch<const K: usize> {
 
 impl<const K: usize> ShapeScratch<K> {
     fn new(n: usize) -> Self {
+        #[cfg(test)]
+        tests::probe_shape_allocation(K, n);
         let mut scratch = Self {
             d: std::array::from_fn(|_| Vec::new()),
             a: Vec::new(),
@@ -1258,10 +1260,39 @@ impl<'a> Mesh<'a> {
     }
 
     #[cfg(test)]
+    #[allow(clippy::many_single_char_names)]
     fn mode_matrix(&self, x: f64) -> (Vec<f64>, Vec<f64>) {
-        let e = self.shape_off_diagonal().values;
-        let mut d = vec![0.0; e.len() - 1];
-        self.mode_diagonal(x, &mut d);
+        let last = self.layers.last().unwrap();
+        let n = last.node_start + last.intervals + 1;
+        let h_rho = self.h * self.case.water_density_g_cm3;
+        let shift = self.h * self.h * x;
+        let mut d = Vec::with_capacity(n);
+        let mut e = vec![0.0; n + 1];
+        for (medium, layer) in self.layers.iter().enumerate() {
+            for i in usize::from(medium > 0)..=layer.intervals {
+                d.push(if self.layers.len() == 1 {
+                    (self.b1[i] - shift) / h_rho
+                } else {
+                    self.layer_diagonal(x, medium, i)
+                });
+                if i > 0 {
+                    e[layer.node_start + i] = 1.0 / (layer.h * layer.density);
+                }
+            }
+        }
+        e[n] = 1.0 / (last.h * last.density);
+        if self.case.surface_boundary == SurfaceBoundary::Vacuum && self.top_solids.is_empty() {
+            d[0] = 1.0;
+            e[1] = 0.0;
+        } else if self.layers.len() == 1 {
+            d[0] = self.surface_diagonal(x) / h_rho;
+        }
+        if self.case.bottom_boundary == BottomBoundary::Vacuum && self.bottom_solids.is_empty() {
+            d[n - 1] = 1.0;
+            e[n - 1] = 0.0;
+        } else if self.layers.len() == 1 {
+            d[n - 1] = self.bottom_diagonal(x) / h_rho;
+        }
         (d, e)
     }
 
@@ -1861,7 +1892,34 @@ mod tests {
         solver::profile::Profile,
     };
     use num_complex::Complex64;
-    use std::path::Path;
+    use std::{cell::Cell, path::Path};
+
+    thread_local! {
+        static PROBE_SHAPE_ALLOCATION: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(super) fn probe_shape_allocation(lanes: usize, rows: usize) {
+        if PROBE_SHAPE_ALLOCATION.with(Cell::get) {
+            std::panic::panic_any((lanes, rows));
+        }
+    }
+
+    fn poison_scratch<const K: usize>(scratch: &mut ShapeScratch<K>) {
+        for d in &mut scratch.d {
+            d.fill(f64::NAN);
+        }
+        for rows in [
+            &mut scratch.a,
+            &mut scratch.b,
+            &mut scratch.c,
+            &mut scratch.multipliers,
+            &mut scratch.phi,
+        ] {
+            rows.fill([f64::NAN; K]);
+        }
+        scratch.swapped.fill([true; K]);
+        scratch.gathered.fill(f64::NAN);
+    }
 
     // One refinement's mesh, as `solve` builds it.
     fn fixture_mesh(case: &Case, multiplier: usize) -> Result<Mesh<'_>, DiagnosticReport> {
@@ -1909,6 +1967,68 @@ mod tests {
         matrices: &[(Vec<f64>, Vec<f64>); K],
     ) -> [Result<Vec<f64>, DiagnosticReport>; K] {
         reused_iterations(matrices, &mut ShapeScratch::new(0))
+    }
+
+    #[test]
+    fn reused_scalar_scratch_recovers_after_failure() {
+        let mut scratch = ShapeScratch::<1>::new(4);
+        let gathered = scratch.gathered.as_ptr();
+        for (diagonal, off_diagonal, succeeds) in [
+            (
+                vec![1.0, 2.0, 2.0, 1.0],
+                vec![0.0, 1.0, 1.0, 1.0, 1.0],
+                true,
+            ),
+            (vec![0.0; 4], vec![0.0; 5], false),
+            (vec![2e-14, 1.0, 1.0, 1.0], vec![0.0; 5], true),
+        ] {
+            poison_scratch(&mut scratch);
+            let expected = inverse_iteration(&diagonal, &off_diagonal);
+            assert_eq!(expected.is_ok(), succeeds);
+            let [actual] = reused_iterations(&[(diagonal, off_diagonal)], &mut scratch);
+            assert_inverse_result(actual, expected);
+            assert_eq!(scratch.gathered.as_ptr(), gathered);
+        }
+    }
+
+    #[test]
+    fn inverse_iteration_lanes_accept_third_pass_convergence() {
+        let diagonal = vec![4.440_892_098_500_725e-14, 1.0];
+        let eps3 = 100.0 * f64::EPSILON * (diagonal[0] + diagonal[1]);
+        let eps4 = 2.0 * eps3;
+        let mut expected = vec![eps4 / 2.0_f64.sqrt(); 2];
+        // A diagonal system has no swaps or forward-substitution contribution.
+        for pass in 0..3 {
+            for (value, d) in expected.iter_mut().zip(&diagonal) {
+                *value /= d;
+            }
+            let norm: f64 = expected.iter().map(|v| v.abs()).sum();
+            assert_eq!(norm >= 1.0, pass == 2, "pass {pass}: norm {norm}");
+            if pass < 2 {
+                for value in &mut expected {
+                    *value *= eps4 / norm;
+                }
+            }
+        }
+        assert_inverse_result(inverse_iteration(&diagonal, &[0.0; 3]), Ok(expected));
+        let matrices = [
+            (vec![2e-14, 1.0], vec![0.0; 3]),
+            (vec![4e-14, 1.0], vec![0.0; 3]),
+            (diagonal, vec![0.0; 3]),
+            (vec![1.0, 1.0], vec![0.0; 3]),
+        ];
+        let mut scratch = ShapeScratch::new(2);
+        for start in 0..SHAPE_LANES {
+            let rotated: [_; SHAPE_LANES] =
+                std::array::from_fn(|k| matrices[(start + k) % SHAPE_LANES].clone());
+            poison_scratch(&mut scratch);
+            for (actual, (d, e)) in reused_iterations(&rotated, &mut scratch)
+                .into_iter()
+                .zip(&rotated)
+            {
+                assert_inverse_result(actual, inverse_iteration(d, e));
+            }
+        }
     }
 
     #[test]
@@ -2020,6 +2140,124 @@ mod tests {
         .chain(mode.eigenfunction.iter().flat_map(|v| [v.re, v.im]))
         .map(f64::to_bits)
         .collect()
+    }
+
+    #[test]
+    fn shape_matrix_matches_parent_on_fixture_meshes() {
+        let bits = |values: &[f64]| values.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let mut paths: Vec<_> = std::fs::read_dir(fixtures)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.extension().is_some_and(|ext| ext == "env")
+                    && path.with_extension("flp").exists()
+            })
+            .collect();
+        paths.sort();
+        let (mut meshes, mut comparisons, mut solid_meshes, mut multilayer_meshes) = (0, 0, 0, 0);
+        let mut covered = [false; 5];
+        let mut diagonal = Vec::new();
+        for path in paths {
+            let Ok(case) = load_case(&path, path.with_extension("flp")) else {
+                continue;
+            };
+            let Ok(source) = Meshes::new(&case) else {
+                continue;
+            };
+            for multiplier in [1, 2] {
+                let Ok(mesh) = Mesh::new(&source, multiplier) else {
+                    continue;
+                };
+                meshes += 1;
+                solid_meshes +=
+                    usize::from(!mesh.top_solids.is_empty() || !mesh.bottom_solids.is_empty());
+                multilayer_meshes += usize::from(mesh.layers.len() > 1);
+                for (seen, present) in covered.iter_mut().zip([
+                    case.surface_boundary == crate::SurfaceBoundary::Vacuum
+                        || case.bottom_boundary == crate::BottomBoundary::Vacuum,
+                    case.surface_boundary == crate::SurfaceBoundary::Rigid
+                        || case.bottom_boundary == crate::BottomBoundary::Rigid,
+                    case.surface_boundary.is_half_space() || case.bottom_boundary.is_half_space(),
+                    !mesh.top_solids.is_empty(),
+                    !mesh.bottom_solids.is_empty(),
+                ]) {
+                    *seen |= present;
+                }
+                let off_diagonal = mesh.shape_off_diagonal();
+                diagonal.resize(off_diagonal.values.len() - 1, f64::NAN);
+                let top = (mesh.omega / mesh.min_speed).powi(2);
+                for x in [
+                    0.0,
+                    -0.0,
+                    top * 0.5,
+                    top,
+                    mesh.bottom_k2,
+                    mesh.surface_k2,
+                    mesh.bottom_k2.next_up(),
+                    mesh.surface_k2.next_down(),
+                ] {
+                    let (expected_d, expected_e) = mesh.mode_matrix(x);
+                    diagonal.fill(f64::NAN);
+                    mesh.mode_diagonal(x, &mut diagonal);
+                    let label = format!("{} multiplier={multiplier} x={x}", path.display());
+                    assert_eq!(bits(&diagonal), bits(&expected_d), "diagonal: {label}");
+                    assert_eq!(
+                        bits(&off_diagonal.values),
+                        bits(&expected_e),
+                        "off-diagonal: {label}"
+                    );
+                    let norm: f64 = expected_e[1..expected_d.len()]
+                        .iter()
+                        .map(|v| v.abs())
+                        .sum();
+                    assert_eq!(off_diagonal.norm.to_bits(), norm.to_bits(), "norm: {label}");
+                    comparisons += 1;
+                }
+            }
+        }
+        assert!(meshes > 200 && solid_meshes > 0 && multilayer_meshes > 0);
+        assert!(
+            covered.into_iter().all(|seen| seen),
+            "missing boundary/cap coverage: {covered:?}"
+        );
+        println!(
+            "parent matrix oracle: {comparisons} comparisons across {meshes} meshes ({solid_meshes} finite-solid, {multilayer_meshes} multilayer)"
+        );
+    }
+
+    #[test]
+    fn lane_admission_keeps_both_scratch_widths_and_shared_off_diagonal_in_budget() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Pekeris");
+        let mut input = load_case(root.with_extension("env"), root.with_extension("flp"))
+            .unwrap()
+            .into_definition();
+        input.mesh_points = 58;
+        let case = Case::from_definition(input).unwrap();
+        let mesh = fixture_mesh(&case, 1).unwrap();
+        assert_eq!(mesh.b1.len(), 59);
+        assert_eq!(super::SHAPE_LANE_BYTES, 67_108_864);
+        // Charges 67,093,923 / 67,109,322 bytes; omitting even shared e admits the latter.
+        for (threads, width) in [(4357, 4), (4358, 1)] {
+            PROBE_SHAPE_ALLOCATION.with(|probe| {
+                probe.set(true);
+                let allocation = std::panic::catch_unwind(|| {
+                    crate::parallelism::with_threads(
+                        std::num::NonZeroUsize::new(threads).unwrap(),
+                        || {
+                            // Tiny work stays on the caller; intercept before allocating either scratch.
+                            mesh.modes(&[0.0; 4])
+                        },
+                    )
+                });
+                probe.set(false);
+                let actual = allocation
+                    .expect_err("admission must reach scratch initialization")
+                    .downcast::<(usize, usize)>()
+                    .expect("scratch allocation probe");
+                assert_eq!(*actual, (width, 59), "{threads} threads");
+            });
+        }
     }
 
     #[test]
