@@ -117,10 +117,11 @@ times. Its endpoint counts must be exactly `above + index + 1` and
 `above + index`: a sign change alone cannot establish mode identity.
 The bottom-up fluid shooting function uses positive power-of-two
 rescaling, carrying the exponent into safeguarded secant/Illinois steps. Its
-lane kernel keeps the recurrence in registers, tests every lane with one
-combined comparison per row and rescales in a cold, out-of-line function. Each
-lane performs exactly the scalar recurrence's operations, so results do not
-depend on the lane width; a unit test checks this bit for bit. Every
+lane kernel tests every lane with one combined comparison per row and rescales
+in a cold, out-of-line function. The last row is peeled so the hot loop need not
+carry the two-rows-back value used only by the boundary derivative. Each lane
+performs exactly the scalar recurrence's operations, including rescaling, so
+results do not depend on the lane width; a unit test checks this bit for bit. Every
 eighth step bisects; refinement stops at relative bracket width `1e-13`, adjacent
 floats or a computed zero. Endpoint signs must oppose and be finite. Final
 Sturm counts must identify the same single target within one relative tolerance
@@ -144,8 +145,18 @@ did before. That charge measures admission, not the search's own operations,
 which its isolation, refinement and fallback step caps bound. Because the roots
 differ slightly, a solve right at the extrapolation's stopping threshold can
 need one mesh more or fewer than before, and so meet the limit differently.
-Fixed groups of eight always go through the same ordered parallel map; neither
-their membership nor their arithmetic depends on the worker count.
+Refinement packs endpoint evaluations across modes, then refills up to 16 shooting
+lanes from an ordered queue as modes finish. Each mode retains its own bracket,
+endpoint magnitudes, Illinois side and iteration counter, including the 160-step
+cap. The old loop's cap semantics are preserved: a zero on the last evaluation
+can succeed, but a bracket that only becomes narrow then is not checked again.
+The tail steps down to eight or four shooting lanes. Successful answers' final
+count checks are packed too, with the original interval clipping and target rule.
+One-thread meshes share one queue; with multiple workers the ordered map uses
+fixed chunks of 64 modes, independent of worker count. Fallback and error
+collection remain in mode order. The original eight-lane group loop remains a
+test-only bitwise oracle; scheduling, lane width and worker count do not change
+a mode's arithmetic or result.
 There are no adapter-specific paths or runtime numerical selectors.
 
 This invariant is specific to the fluid recurrence, not a floating-point

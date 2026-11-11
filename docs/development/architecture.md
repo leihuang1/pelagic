@@ -141,8 +141,12 @@ thread:
 - **Fluid KRAKEN** shares Sturm-count bisections to isolate roots on meshes one
   and two. Later meshes start from raw earlier-mesh roots, with local brackets
   certified by current-mesh Sturm counts. Both paths refine signed fluid
-  dispersion in fixed groups of eight using safeguarded Illinois steps. Groups
-  run in parallel, but their membership never depends on the worker count. Invalid brackets or count checks fall back per mode to the
+  dispersion using safeguarded Illinois steps, refilling up to 16 shooting lanes
+  as modes finish. Each mode keeps its own bracket, history and iteration count;
+  short tails use eight or four lanes. One-thread meshes share one queue;
+  multiple workers use fixed, ordered chunks of 64 modes, independent of worker
+  count. Endpoint evaluations and final count checks are packed across modes too.
+  Results are bit-for-bit unchanged. Invalid brackets or count checks fall back per mode to the
   original full-interval bisection. Each mesh pays the original bisection's
   fixed work charge. Elastic KRAKEN and
   KRAKENC retain their separate searches; elastic counts need not be monotonic.
