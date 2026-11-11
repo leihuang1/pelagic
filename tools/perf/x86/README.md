@@ -202,12 +202,15 @@ python3 tools/perf/x86/run.py \
   `archive.json` records its size, SHA-256 and outcome. Exceeding the cap fails
   packaging; it never silently drops observations. Sources, targets, raw outputs
   and verbose build logs are not transferred. Absolute output paths become `<out>`
-  and non-root home paths become `~` in transfer copies only. Only whole path
-  tokens are replaced, including after `@`, redirections, pipes, `file://` and
-  joined options such as `-I`, `-L` or `-isystem`. A name continues through
-  letters, digits and `_ - ~ + @ % = # $ ^ * ( [ {`, and through `.`, `!` or `?`
-  unless it ends a sentence; any other character ends it. So URLs, relative
-  paths and siblings such as `user.backup` or `results#old` are left alone.
+  and non-root home paths become `~` in transfer copies only. This rewriting is
+  best effort, not a general path parser. Only whole path tokens are replaced,
+  including after `@`, redirections, pipes, `file://` and joined options such
+  as `-I`, `-L` or `-isystem`. A name continues through letters, digits and
+  `_ - ~ + @ % = # $ ^ * ( [ {`, and through `.`, `!` or `?` unless it ends a
+  sentence; any other character ends it. So URLs, relative paths and siblings
+  such as `user.backup` or `results#old` are left alone, but a sibling named
+  `results old` is rewritten, and a bare root before `=`, as in
+  `--remap-path-prefix=/home/user=/src`, is kept.
   `HOME=/` is never substituted; normalization refuses dictionary-key collisions
   rather than losing evidence. Tar owners are uid/gid 0 with empty user/group
   names. Keep the original output tree to resume.

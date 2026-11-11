@@ -22,11 +22,12 @@ from run import append, digest, load, network_names, perf_driver, save, tail
 E2E = ("pekeris", "munk-lossless", "surface-duct", "gulf-adiabatic", "broadband", "elastic-sediment", "bellhop-munk-tl")
 PRODUCTS = {".mod", ".shd", ".arr", ".ray"}
 MAX_ARCHIVE_BYTES = 10_000_000
-# Archive normalization replaces a home or output path only as a whole token. A token starts
-# unless a longer path, URL host or expansion could continue into it; file:// or a joined option
-# such as -I or -isystem may precede it (captured, since lookbehinds must be fixed-width). Letters,
-# digits and the other characters in NAME continue a file name, `.`, `!` and `?` too unless they
-# end a sentence; anything else ends the token. So siblings such as `user.backup` stay unchanged.
+# Archive normalization is best effort, not a path parser: it replaces a home or output path only
+# as a whole token. A token starts unless a longer path, URL host or expansion could continue into
+# it; file:// or a joined option such as -I or -isystem may precede it (captured, since lookbehinds
+# must be fixed-width). Letters, digits and the other characters in NAME continue a file name, `.`,
+# `!` and `?` too unless they end a sentence; anything else ends the token. So siblings such as
+# `user.backup` stay unchanged, while `user old` is rewritten and a bare root before `=` is kept.
 BOUNDARY = r"(?<![\w.~/\-\])}])"
 PATH_START = r"(?:" + BOUNDARY + r"|(?<=file://)|" + BOUNDARY + r"(?P<option>--?[A-Za-z][\w-]*))"
 NAME = r"\w.~\-+@%=#$^*(\[{!?"
@@ -508,7 +509,7 @@ def archive_value(kit, value, diagnostic=False):
         roots = {str(p): marker for p, marker in ((Path.home(), "~"), (kit.out, "<out>"))
                  if p.is_absolute() and p != Path(p.anchor)}
         if roots:
-            # Match whole path prefixes once; never rewrite URLs, sibling names or replacement text.
+            # Match whole path tokens once, under the rule above; never rewrite replacement text.
             prefixes = "|".join(re.escape(p) for p in sorted(roots, key=len, reverse=True))
             value = re.sub(PATH_START + "(?P<root>" + prefixes + ")" + PATH_END,
                            lambda m: (m["option"] or "") + roots[m["root"]], value)
