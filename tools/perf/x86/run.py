@@ -121,6 +121,9 @@ def compiler_inventory(env):
     tools = native_tools(env)
     versions = {name: command([executable, "--version"], env=env) for name, executable in tools.items()}
     versions["executables"] = {name: shutil.which(executable, path=env["PATH"]) for name, executable in tools.items()}
+    missing = sorted(name for name, path in versions["executables"].items() if not path)
+    if missing:
+        raise RuntimeError("Selected native tools are no longer executable on PATH: " + ", ".join(missing))
     return versions
 
 

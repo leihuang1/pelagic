@@ -202,7 +202,10 @@ python3 tools/perf/x86/run.py \
   `archive.json` records its size, SHA-256 and outcome. Exceeding the cap fails
   packaging; it never silently drops observations. Sources, targets, raw outputs
   and verbose build logs are not transferred. Absolute output paths become `<out>`
-  and non-root home paths become `~` at path boundaries in transfer copies only.
+  and non-root home paths become `~` in transfer copies only. Only whole path
+  tokens are replaced, including after `@`, redirections, pipes, `-I`/`-L` and
+  `file://`, and before a sentence-ending dot. URLs, relative paths and siblings
+  such as `user.backup` are left alone.
   `HOME=/` is never substituted; normalization refuses dictionary-key collisions
   rather than losing evidence. Tar owners are uid/gid 0 with empty user/group
   names. Keep the original output tree to resume.

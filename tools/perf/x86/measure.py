@@ -22,6 +22,12 @@ from run import append, digest, load, network_names, perf_driver, save, tail
 E2E = ("pekeris", "munk-lossless", "surface-duct", "gulf-adiabatic", "broadband", "elastic-sediment", "bellhop-munk-tl")
 PRODUCTS = {".mod", ".shd", ".arr", ".ray"}
 MAX_ARCHIVE_BYTES = 10_000_000
+# Archive normalization replaces a home or output path only as a whole token. A token starts
+# unless a longer path, URL host or expansion could continue into it; a short option such as
+# -I or -L, or file://, may precede it. It ends at a separator or delimiter, or at a
+# sentence-ending dot, but never inside a sibling name such as `user.backup` or `user-old`.
+PATH_START = r"(?:(?<![\w.~/\-\])}])|(?<=(?<![\w-])-[A-Za-z])|(?<=file://))"
+PATH_END = r"(?=$|[^\w.~\-+@%=]|\.(?:$|[\s'\"`)\]}>,;:!?]))"
 
 
 class Deadline(Exception):
@@ -501,8 +507,7 @@ def archive_value(kit, value, diagnostic=False):
         if roots:
             # Match whole path prefixes once; never rewrite URLs, sibling names or replacement text.
             prefixes = "|".join(re.escape(p) for p in sorted(roots, key=len, reverse=True))
-            pattern = r"(^|[\s'\"`=:(\[{,;])(" + prefixes + r")(?=$|[/\s'\"`):\]},;])"
-            value = re.sub(pattern, lambda m: m[1] + roots[m[2]], value)
+            value = re.sub(PATH_START + "(" + prefixes + ")" + PATH_END, lambda m: roots[m[1]], value)
         if diagnostic:
             for key in network_names(kit.env):
                 if kit.env[key]:
