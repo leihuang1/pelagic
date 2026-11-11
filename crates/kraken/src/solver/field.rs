@@ -6,13 +6,17 @@ use crate::{
     Case, DiagnosticReport, FieldCase, FieldPropagation, ModeAddition, ModeSet, PressureField,
     ProfileSimulationResult, SourceGeometry,
 };
-use num_complex::{Complex32, Complex64};
+use num_complex::{Complex, Complex32, Complex64};
 use std::num::NonZeroUsize;
 
 // Range factors, mode amplitudes and finished rows are held for blocks of at
 // most this many values (1 MiB of complex doubles), so memory stays near a
 // direct march; larger tables gain little.
 const TABLE_VALUES: usize = 1 << 16;
+// Eight f64 complex sums leave room for interpolation in AVX2's registers.
+const ADIABATIC_RANGE_LANES: usize = 8;
+// Full groups beat scalar rows with many modes on M4; partial groups have little margin.
+const MIN_ADIABATIC_RANGES: usize = ADIABATIC_RANGE_LANES;
 
 // Below this many threads, one solve's own parallelism beats solving side by side,
 // where the slowest solve holds up its whole window. Measured, not fundamental.
@@ -315,25 +319,42 @@ fn interpolate(left: Complex32, right: Complex32, w: f64) -> Complex32 {
 /// Fill a block of `len` ranges from `start`, one receiver depth per work item
 /// and at most about `table_values` pressures held at once. Each row samples
 /// its depth once per profile, then evaluates every range of the block.
-fn fill_rows(
+fn fill_rows<R: IntoIterator<Item = Complex64>>(
     pressure: &mut [Complex64],
     depths: &[f64],
     range_count: usize,
     (start, len): (usize, usize),
     table_values: usize,
     mode_count: usize,
-    row: impl Fn(f64) -> Vec<Complex64> + Sync,
+    row: impl Fn(f64) -> R + Sync,
 ) -> Result<(), DiagnosticReport> {
     let batch = (table_values / len).max(1);
     // Two profile samples and one modal sum at every range.
     let row_work = len.saturating_mul(mode_count.max(1)).saturating_mul(3);
     for (batch_index, depths) in depths.chunks(batch).enumerate() {
+        if crate::parallelism::threads() == 1 {
+            let mut result = Ok(());
+            for (offset, &depth) in depths.iter().enumerate() {
+                if let Err(report) = crate::cancellation::check() {
+                    // Like the map, check the whole batch and report its first error.
+                    result = result.and(Err(report));
+                    continue;
+                }
+                let iz = batch_index * batch + offset;
+                let output = &mut pressure[iz * range_count + start..][..len];
+                for (value, pressure) in row(depth).into_iter().zip(output) {
+                    *pressure = value;
+                }
+            }
+            result?;
+            continue;
+        }
         let rows = crate::parallelism::map(
             depths.len(),
             depths.len().saturating_mul(row_work),
             |index| {
                 crate::cancellation::check()?;
-                Ok(row(depths[index]))
+                Ok(row(depths[index]).into_iter().collect::<Vec<_>>())
             },
         );
         for (offset, values) in rows.into_iter().enumerate() {
@@ -352,10 +373,11 @@ struct RangeGroup {
     lanes: bool,
 }
 
-fn range_blocks<'a>(
+fn range_blocks<'a, const LANES: usize>(
     ranges: &'a [f64],
     boundaries: &'a [f64],
     capacity: usize,
+    min_lane_ranges: usize,
 ) -> impl Iterator<Item = Vec<RangeGroup>> + 'a {
     let mut start = 0;
     std::iter::from_fn(move || {
@@ -371,36 +393,36 @@ fn range_blocks<'a>(
                 .map_or(ranges.len() - start, |&boundary| {
                     ranges[start..].partition_point(|&range| range <= boundary)
                 })
-                .min(FIELD_RANGE_LANES)
+                .min(LANES)
                 .min(remaining);
-            let lanes = len >= MIN_LANE_RANGES && remaining >= FIELD_RANGE_LANES;
+            let lanes = len >= min_lane_ranges && remaining >= LANES;
             groups.push(RangeGroup {
                 start,
                 len,
                 segment,
                 lanes,
             });
-            remaining -= if lanes { FIELD_RANGE_LANES } else { len };
+            remaining -= if lanes { LANES } else { len };
             start += len;
         }
         Some(groups)
     })
 }
 
-/// Coupled amplitudes have one layout, never a scalar table plus its transpose.
-enum RangeValues {
-    Scalar(Vec<Complex32>),
-    Lanes(Vec<super::RangePhaseLanes>),
+/// Amplitudes/factors have one layout, never a scalar table plus its transpose.
+enum RangeValues<T = f32, const LANES: usize = FIELD_RANGE_LANES> {
+    Scalar(Vec<Complex<T>>),
+    Lanes(Vec<super::RangePhaseLanes<T, LANES>>),
 }
 
-impl RangeValues {
+impl<T: Copy + Default, const LANES: usize> RangeValues<T, LANES> {
     fn new(group: &RangeGroup, modes: usize) -> Self {
         if group.lanes {
             Self::Lanes(
                 (0..modes)
                     .map(|_| super::RangePhaseLanes {
-                        re: [0.0; FIELD_RANGE_LANES],
-                        im: [0.0; FIELD_RANGE_LANES],
+                        re: [T::default(); LANES],
+                        im: [T::default(); LANES],
                     })
                     .collect(),
             )
@@ -409,7 +431,7 @@ impl RangeValues {
         }
     }
 
-    fn push_range(&mut self, lane: usize, values: impl Iterator<Item = Complex32>) {
+    fn push_range(&mut self, lane: usize, values: impl Iterator<Item = Complex<T>>) {
         match self {
             Self::Scalar(table) => table.extend(values),
             Self::Lanes(table) => {
@@ -433,85 +455,136 @@ struct AdiabaticRange {
 }
 
 impl AdiabaticRange {
-    /// The range with each mode's phase integral replaced by its range factor.
+    /// Each mode's range factor, without changing the march's conversion points.
     #[allow(clippy::float_cmp)]
-    fn with_factors(&self, first: &Case, modes: &[ModeSet], constants: &[Complex64]) -> Self {
+    fn factors<'a>(
+        &'a self,
+        first: &'a Case,
+        modes: &'a [ModeSet],
+        constants: &'a [Complex64],
+    ) -> impl Iterator<Item = Complex64> + 'a {
         let incoherent = first.mode_addition == ModeAddition::Incoherent;
-        let factors = self
-            .terms
-            .iter()
-            .enumerate()
-            .map(|(m, integral)| {
-                let k = interpolate(
-                    single(modes[self.segment].modes[m].horizontal_wavenumber_rad_per_m),
-                    single(modes[self.right].modes[m].horizontal_wavenumber_rad_per_m),
-                    self.w,
-                );
-                let phase =
-                    Complex64::new(integral.im, if incoherent { 0.0 } else { -integral.re });
-                let h = constants[m]
-                    * if incoherent {
-                        phase.exp()
-                    } else {
-                        double(single(phase.exp()))
-                    };
-                match first.source_geometry {
-                    SourceGeometry::Line => h / double(k),
-                    SourceGeometry::Point if self.range == 0.0 => Complex64::new(0.0, 0.0),
-                    SourceGeometry::Point => h / (double(k) * self.range).sqrt(),
-                    SourceGeometry::ScaledCylindrical => h / double(k.sqrt()),
-                }
-            })
-            .collect();
-        Self {
-            terms: factors,
-            ..*self
-        }
+        self.terms.iter().enumerate().map(move |(m, integral)| {
+            let k = interpolate(
+                single(modes[self.segment].modes[m].horizontal_wavenumber_rad_per_m),
+                single(modes[self.right].modes[m].horizontal_wavenumber_rad_per_m),
+                self.w,
+            );
+            let phase = Complex64::new(integral.im, if incoherent { 0.0 } else { -integral.re });
+            let h = constants[m]
+                * if incoherent {
+                    phase.exp()
+                } else {
+                    double(single(phase.exp()))
+                };
+            match first.source_geometry {
+                SourceGeometry::Line => h / double(k),
+                SourceGeometry::Point if self.range == 0.0 => Complex64::new(0.0, 0.0),
+                SourceGeometry::Point => h / (double(k) * self.range).sqrt(),
+                SourceGeometry::ScaledCylindrical => h / double(k.sqrt()),
+            }
+        })
     }
 }
 
+struct AdiabaticGroup {
+    weights: [f64; ADIABATIC_RANGE_LANES],
+    factors: RangeValues<f64, ADIABATIC_RANGE_LANES>,
+}
+
+fn adiabatic_lanes<const LANES: usize>(
+    base: &[Complex64],
+    slope: &[Complex64],
+    weights: &[f64; LANES],
+    table: &[super::RangePhaseLanes<f64, LANES>],
+    incoherent: bool,
+) -> [Complex64; LANES] {
+    // f64::sum starts at -0.0; Complex64::sum starts at +0.0.
+    let mut re = [if incoherent { -0.0 } else { 0.0 }; LANES];
+    let mut im = [0.0; LANES];
+    for ((&base, &slope), term) in base.iter().zip(slope).zip(table) {
+        for lane in 0..LANES {
+            let contribution = double(single(base + weights[lane] * slope))
+                * Complex64::new(term.re[lane], term.im[lane]);
+            if incoherent {
+                re[lane] += contribution.norm_sqr();
+            } else {
+                re[lane] += contribution.re;
+                im[lane] += contribution.im;
+            }
+        }
+    }
+    std::array::from_fn(|lane| {
+        double(single(if incoherent {
+            Complex64::new(re[lane].sqrt(), 0.0)
+        } else {
+            Complex64::new(re[lane], im[lane])
+        }))
+    })
+}
+
 /// One receiver depth's pressure at each range of a block, from its range factors.
-fn adiabatic_row(
-    steps: &[AdiabaticRange],
-    modes: &[ModeSet],
+fn adiabatic_row<'a>(
+    groups: &'a [RangeGroup],
+    factors: &'a [AdiabaticGroup],
+    modes: &'a [ModeSet],
     depth: f64,
     incoherent: bool,
-) -> Vec<Complex64> {
+) -> impl Iterator<Item = Complex64> + 'a {
     // Each mode's shape at this depth in both profiles, as interpolate() takes them.
-    let mut profiles = None;
+    let mut profile = None;
     let (mut base, mut slope) = (Vec::new(), Vec::new());
-    steps
+    groups
         .iter()
-        .map(|step| {
-            if profiles != Some((step.segment, step.right)) {
-                profiles = Some((step.segment, step.right));
-                let left_at = bracket(&modes[step.segment], depth);
-                let right_at = bracket(&modes[step.right], depth);
-                (base, slope) = modes[step.segment]
+        .zip(factors)
+        .flat_map(move |(group, factors)| {
+            if profile != Some(group.segment) {
+                profile = Some(group.segment);
+                let right = (group.segment + 1).min(modes.len() - 1);
+                let left_at = bracket(&modes[group.segment], depth);
+                let right_at = bracket(&modes[right], depth);
+                (base, slope) = modes[group.segment]
                     .modes
                     .iter()
-                    .zip(&modes[step.right].modes)
+                    .zip(&modes[right].modes)
                     .map(|(left, right)| {
                         let left = sample_at(left, left_at);
                         (double(left), double(sample_at(right, right_at) - left))
                     })
                     .unzip();
             }
-            let contributions = base
-                .iter()
-                .zip(&slope)
-                .zip(&step.terms)
-                .map(|((&base, &slope), term)| double(single(base + step.w * slope)) * term);
-            let value = if incoherent {
-                Complex64::new(contributions.map(|p| p.norm_sqr()).sum::<f64>().sqrt(), 0.0)
-            } else {
-                contributions.sum()
+            let values = match &factors.factors {
+                RangeValues::Scalar(table) => {
+                    let count = table.len() / group.len;
+                    let mut values = [Complex64::new(0.0, 0.0); ADIABATIC_RANGE_LANES];
+                    for (i, value) in values.iter_mut().enumerate().take(group.len) {
+                        let contributions = base
+                            .iter()
+                            .zip(&slope)
+                            .zip(&table[i * count..(i + 1) * count])
+                            .map(|((&base, &slope), term)| {
+                                double(single(base + factors.weights[i] * slope)) * term
+                            });
+                        *value = double(single(if incoherent {
+                            Complex64::new(
+                                contributions.map(|p| p.norm_sqr()).sum::<f64>().sqrt(),
+                                0.0,
+                            )
+                        } else {
+                            contributions.sum()
+                        }));
+                    }
+                    values
+                }
+                RangeValues::Lanes(table) => {
+                    adiabatic_lanes(&base, &slope, &factors.weights, table, incoherent)
+                }
             };
-            double(single(value))
+            values.into_iter().take(group.len)
         })
-        .collect()
 }
 
+#[allow(clippy::too_many_lines)]
 fn adiabatic(
     case: &FieldCase,
     modes: &[ModeSet],
@@ -528,8 +601,16 @@ fn adiabatic(
     let mut segment = 0;
     let mut previous = 0.0_f64;
     let range_count = first.receiver_ranges_m.len();
-    let block_len = (table_values / excitation.len().max(1)).clamp(1, range_count.max(1));
-    for (block_index, ranges) in first.receiver_ranges_m.chunks(block_len).enumerate() {
+    let capacity = (table_values.min(super::PHASE_TABLE_VALUES) / excitation.len().max(1)).max(1);
+    for groups in range_blocks::<ADIABATIC_RANGE_LANES>(
+        &first.receiver_ranges_m,
+        &case.ranges_m[1..],
+        capacity,
+        MIN_ADIABATIC_RANGES,
+    ) {
+        let start = groups[0].start;
+        let len = groups.iter().map(|g| g.len).sum();
+        let ranges = &first.receiver_ranges_m[start..][..len];
         // The phase integral runs on from range to range, so the march is sequential.
         let mut steps = Vec::with_capacity(ranges.len());
         for &range in ranges {
@@ -574,20 +655,34 @@ fn adiabatic(
             });
             previous = range;
         }
-        let steps = crate::parallelism::map(
-            steps.len(),
-            steps.len().saturating_mul(excitation.len()),
-            |index| steps[index].with_factors(first, modes, &constants),
+        let factors = crate::parallelism::map(
+            groups.len(),
+            ranges.len().saturating_mul(excitation.len()),
+            |index| {
+                let group = &groups[index];
+                let steps = &steps[group.start - start..][..group.len];
+                let mut factors = AdiabaticGroup {
+                    weights: [0.0; ADIABATIC_RANGE_LANES],
+                    factors: RangeValues::new(group, steps[0].terms.len()),
+                };
+                for (lane, step) in steps.iter().enumerate() {
+                    factors.weights[lane] = step.w;
+                    factors
+                        .factors
+                        .push_range(lane, step.factors(first, modes, &constants));
+                }
+                factors
+            },
         );
-        let block = (block_index * block_len, ranges.len());
+        drop(steps);
         fill_rows(
             pressure,
             &first.receiver_depths_m,
             range_count,
-            block,
+            (start, len),
             table_values,
             largest,
-            |depth| adiabatic_row(&steps, modes, depth, incoherent),
+            |depth| adiabatic_row(&groups, &factors, modes, depth, incoherent),
         )?;
     }
     Ok(())
@@ -705,7 +800,12 @@ fn coupled(
         .map(|r| r[0].midpoint(r[1]))
         .collect();
     let capacity = (table_values.min(super::PHASE_TABLE_VALUES) / largest.max(1)).max(1);
-    for groups in range_blocks(&first.receiver_ranges_m, &boundaries, capacity) {
+    for groups in range_blocks::<FIELD_RANGE_LANES>(
+        &first.receiver_ranges_m,
+        &boundaries,
+        capacity,
+        MIN_LANE_RANGES,
+    ) {
         // Write each marched amplitude directly into its final scalar/lane layout.
         let mut amplitudes = Vec::with_capacity(groups.len());
         for group in &groups {
@@ -1008,10 +1108,77 @@ mod range_lane_tests {
     }
 
     #[test]
+    fn direct_and_collected_rows_keep_pressure_bits_and_block_offsets() {
+        let depths = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let mut expected = vec![Complex64::new(-1.0, -0.0); 7 * depths.len()];
+        for (iz, depth) in depths.into_iter().enumerate() {
+            for ir in 0..3 {
+                expected[iz * 7 + 2 + ir] =
+                    Complex64::new(depth, f64::from(u32::try_from(ir).unwrap()));
+            }
+        }
+        for threads in [1, 4] {
+            for budget in [1, 7, TABLE_VALUES] {
+                let mut pressure = vec![Complex64::new(-1.0, -0.0); expected.len()];
+                crate::parallelism::with_threads(NonZeroUsize::new(threads).unwrap(), || {
+                    fill_rows(
+                        &mut pressure,
+                        &depths,
+                        7,
+                        (2, 3),
+                        budget,
+                        usize::MAX,
+                        |depth| (0..3).map(move |ir| Complex64::new(depth, f64::from(ir))),
+                    )
+                    .unwrap();
+                });
+                assert_eq!(bits(&pressure), bits(&expected));
+            }
+        }
+    }
+
+    #[test]
+    fn direct_and_collected_rows_keep_cancellation_before_the_next_row() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        for threads in [1, 4] {
+            let token = Arc::new(AtomicBool::new(false));
+            let mut pressure = vec![Complex64::new(-1.0, 0.0); 6];
+            let report = crate::cancellation::with_token(token.clone(), || {
+                crate::parallelism::with_threads(NonZeroUsize::new(threads).unwrap(), || {
+                    // Tiny work stays inline even with a parallel budget.
+                    fill_rows(
+                        &mut pressure,
+                        &[1.0, 2.0, 3.0],
+                        2,
+                        (0, 2),
+                        TABLE_VALUES,
+                        1,
+                        |depth| {
+                            token.store(true, Ordering::Relaxed);
+                            [Complex64::new(depth, 0.0); 2]
+                        },
+                    )
+                })
+            })
+            .unwrap_err();
+            assert_eq!(report.diagnostics()[0].code, "KR0304");
+            let mut expected = vec![Complex64::new(-1.0, 0.0); 6];
+            expected[..2].fill(Complex64::new(1.0, 0.0));
+            assert_eq!(bits(&pressure), bits(&expected));
+            assert!(!crate::cancellation::cancelled());
+        }
+    }
+
+    #[test]
     fn groups_charge_padding_and_keep_short_segments_scalar() {
         let boundaries = [6.0, 14.0, 23.0, 39.0, 56.0];
         let ranges: Vec<_> = (0..74).map(f64::from).collect();
-        let groups = range_blocks(&ranges, &boundaries, 128).next().unwrap();
+        let groups = range_blocks::<FIELD_RANGE_LANES>(&ranges, &boundaries, 128, MIN_LANE_RANGES)
+            .next()
+            .unwrap();
         assert_eq!(
             groups.iter().map(|g| (g.len, g.lanes)).collect::<Vec<_>>(),
             [
@@ -1027,7 +1194,9 @@ mod range_lane_tests {
         );
         for capacity in [1, 2, 7, 8, 15, 16, 17, 23, 31, 32, 33, 128] {
             let mut next = 0;
-            for groups in range_blocks(&ranges, &boundaries, capacity) {
+            for groups in
+                range_blocks::<FIELD_RANGE_LANES>(&ranges, &boundaries, capacity, MIN_LANE_RANGES)
+            {
                 let charged: usize = groups
                     .iter()
                     .map(|g| if g.lanes { FIELD_RANGE_LANES } else { g.len })
@@ -1044,6 +1213,196 @@ mod range_lane_tests {
                 }
             }
             assert_eq!(next, ranges.len());
+        }
+    }
+
+    #[test]
+    fn adiabatic_groups_charge_padding_and_keep_profile_endpoints_on_the_left() {
+        let ranges: Vec<_> = (0..68).map(f64::from).collect();
+        let boundaries = [2.0, 6.0, 14.0, 31.0, 48.0];
+        for capacity in [1, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 128] {
+            let mut next = 0;
+            for groups in range_blocks::<ADIABATIC_RANGE_LANES>(
+                &ranges,
+                &boundaries,
+                capacity,
+                MIN_ADIABATIC_RANGES,
+            ) {
+                let mut remaining = capacity;
+                for group in groups {
+                    assert_eq!(group.start, next);
+                    assert!(group.len > 0 && group.len <= ADIABATIC_RANGE_LANES);
+                    assert_eq!(
+                        group.lanes,
+                        group.len >= MIN_ADIABATIC_RANGES && remaining >= ADIABATIC_RANGE_LANES
+                    );
+                    remaining -= if group.lanes {
+                        ADIABATIC_RANGE_LANES
+                    } else {
+                        group.len
+                    };
+                    for &range in &ranges[group.start..][..group.len] {
+                        assert_eq!(group.segment, boundaries.partition_point(|&b| range > b));
+                    }
+                    next += group.len;
+                }
+            }
+            assert_eq!(next, ranges.len());
+        }
+    }
+
+    /// The base row, independent of the grouped row and lane kernel.
+    fn scalar_adiabatic_row(
+        steps: &[AdiabaticRange],
+        modes: &[ModeSet],
+        depth: f64,
+        incoherent: bool,
+    ) -> Vec<Complex64> {
+        let mut profiles = None;
+        let (mut base, mut slope) = (Vec::new(), Vec::new());
+        steps
+            .iter()
+            .map(|step| {
+                if profiles != Some((step.segment, step.right)) {
+                    profiles = Some((step.segment, step.right));
+                    let left_at = bracket(&modes[step.segment], depth);
+                    let right_at = bracket(&modes[step.right], depth);
+                    (base, slope) = modes[step.segment]
+                        .modes
+                        .iter()
+                        .zip(&modes[step.right].modes)
+                        .map(|(left, right)| {
+                            let left = sample_at(left, left_at);
+                            (double(left), double(sample_at(right, right_at) - left))
+                        })
+                        .unzip();
+                }
+                let contributions = base
+                    .iter()
+                    .zip(&slope)
+                    .zip(&step.terms)
+                    .map(|((&base, &slope), term)| double(single(base + step.w * slope)) * term);
+                double(single(if incoherent {
+                    Complex64::new(contributions.map(|p| p.norm_sqr()).sum::<f64>().sqrt(), 0.0)
+                } else {
+                    contributions.sum()
+                }))
+            })
+            .collect()
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn adiabatic_rows_match_the_base_scalar_row_bits() {
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ProfilesAd");
+        let case = crate::legacy::load_field_cases(
+            root.with_extension("env"),
+            root.with_extension("flp"),
+            crate::ModeSolver::Kraken,
+        )
+        .unwrap()
+        .remove(0);
+        let solved = solve_field(&case).unwrap();
+        let depths = [0.0, 31.25, 100.0];
+        for count in [0, 1, 64] {
+            let mut modes = solved.modes.clone();
+            for (profile, set) in modes.iter_mut().enumerate() {
+                let original = set.modes.clone();
+                set.modes = original.iter().cycle().take(count).cloned().collect();
+                // Complex shapes exercise both interpolation components and cancellation.
+                for (index, mode) in set.modes.iter_mut().enumerate() {
+                    for value in &mut mode.eigenfunction {
+                        value.im =
+                            value.re * f64::from(u32::try_from(index + profile + 1).unwrap()) / 7.0;
+                    }
+                }
+            }
+            for len in 1..=17 {
+                let ranges: Vec<_> = (0..len * modes.len())
+                    .map(|i| f64::from(u32::try_from(i).unwrap()))
+                    .collect();
+                let boundaries: Vec<_> = (1..modes.len()).map(|i| ranges[i * len - 1]).collect();
+                let steps: Vec<_> = ranges
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &range)| {
+                        let segment = i / len;
+                        AdiabaticRange {
+                            segment,
+                            right: (segment + 1).min(modes.len() - 1),
+                            range,
+                            w: f64::from(u32::try_from(i % len).unwrap())
+                                / f64::from(u32::try_from(len).unwrap()),
+                            terms: (0..count)
+                                .map(|m| {
+                                    let x = f64::from(u32::try_from(m + i + 1).unwrap());
+                                    Complex64::new(x.sin(), x.cos() / 3.0)
+                                })
+                                .collect(),
+                        }
+                    })
+                    .collect();
+                for incoherent in [false, true] {
+                    let expected: Vec<_> = depths
+                        .iter()
+                        .flat_map(|&depth| scalar_adiabatic_row(&steps, &modes, depth, incoherent))
+                        .collect();
+                    if count == 0 {
+                        let zero = if incoherent { -0.0_f64 } else { 0.0 };
+                        assert!(expected.iter().all(|p| p.re.to_bits() == zero.to_bits()
+                            && p.im.to_bits() == 0.0_f64.to_bits()));
+                    }
+                    let groups = range_blocks::<ADIABATIC_RANGE_LANES>(
+                        &ranges,
+                        &boundaries,
+                        TABLE_VALUES,
+                        MIN_ADIABATIC_RANGES,
+                    )
+                    .next()
+                    .unwrap();
+                    let factors: Vec<_> = groups
+                        .iter()
+                        .map(|group| {
+                            let mut factors = AdiabaticGroup {
+                                weights: [0.0; ADIABATIC_RANGE_LANES],
+                                factors: RangeValues::new(group, count),
+                            };
+                            for (lane, step) in steps[group.start..][..group.len].iter().enumerate()
+                            {
+                                factors.weights[lane] = step.w;
+                                factors.factors.push_range(lane, step.terms.iter().copied());
+                            }
+                            factors
+                        })
+                        .collect();
+                    for threads in [1, 4] {
+                        let mut pressure = vec![Complex64::new(1.0, 1.0); expected.len()];
+                        crate::parallelism::with_threads(
+                            NonZeroUsize::new(threads).unwrap(),
+                            || {
+                                fill_rows(
+                                    &mut pressure,
+                                    &depths,
+                                    ranges.len(),
+                                    (0, ranges.len()),
+                                    TABLE_VALUES,
+                                    usize::MAX,
+                                    |depth| {
+                                        adiabatic_row(&groups, &factors, &modes, depth, incoherent)
+                                    },
+                                )
+                                .unwrap();
+                            },
+                        );
+                        assert_eq!(
+                            bits(&pressure),
+                            bits(&expected),
+                            "{count} modes, {len} ranges/segment, incoherent={incoherent}, threads={threads}"
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -1119,6 +1478,10 @@ mod range_lane_tests {
                         let samples = ranges.len() * case.profiles[0].receiver_depths_m.len();
                         let scalar = synthesize(&case, &modes, samples, 1).unwrap();
                         for budget in [
+                            (MIN_ADIABATIC_RANGES - 1) * largest,
+                            MIN_ADIABATIC_RANGES * largest,
+                            (MIN_ADIABATIC_RANGES + 1) * largest,
+                            (ADIABATIC_RANGE_LANES + 1) * largest,
                             7 * largest,
                             8 * largest,
                             15 * largest,

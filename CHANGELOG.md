@@ -13,6 +13,24 @@ in the [interface contract](docs/development/interface-contract.md).
   about 1.77 times faster on an Apple M4 Pro, and its whole `kraken run` with the
   x86-64-v3 CLI about 1.45 times faster on an Intel Core i5-14600KF (WSL2).
   Results are bit-for-bit unchanged.
+- **Faster adiabatic range-dependent KRAKEN FIELD.** Adiabatic FIELD now adds
+  modes for eight receiver ranges at once, without changing their addition
+  order. With the x86-64-v3 CLI on an Intel Core i5-14600KF (WSL2), Gulf's whole
+  `kraken run --threads 1 --no-sync` takes 0.71 of its previous time; its
+  one-thread solver is about 1.15 times faster on an Apple M4 Pro. Results are
+  bit-for-bit unchanged. See the
+  [measurement record](docs/history/kraken-rd-field-lanes.md#adiabatic-lanes-on-14fd4b1).
+- **Less KRAKEN heap churn.** Mode shapes reuse worker-local scratch and share
+  each mesh's off-diagonal coefficients. On Linux, glibc no longer returns the
+  heap to the kernel after every batch of modes and faults it back in on the
+  next. One-thread adiabatic FIELD also writes receiver rows directly into the
+  result. With the x86-64-v3 CLI on an Intel Core i5-14600KF (WSL2), whole
+  `kraken run --threads 1 --no-sync` runs take 0.72 of their previous time for
+  surface duct, 0.74 for Munk and 0.87 for Gulf, with 76–87% fewer page faults.
+  Sweeps using `run-many --workers 20 --threads 1 --no-sync` take 0.78 and 0.72
+  of their previous time for surface duct and Munk. All adapters share the
+  allocation reduction; speedups depend on the workload. Results are bit-for-bit
+  unchanged.
 - **Opt-in `--no-sync` for scratch output.** KRAKEN and BELLHOP `run` and
   `run-many` can skip per-file syncs and Apple's shared drive-cache flush.
   The default stays durable; verification, quotas, locks, backups, installation,

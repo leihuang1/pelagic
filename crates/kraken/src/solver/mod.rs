@@ -38,9 +38,9 @@ const FIELD_RANGE_LANES: usize = 16;
 // Fewer ranges than half a lane group would mostly sum padding.
 const MIN_LANE_RANGES: usize = FIELD_RANGE_LANES / 2;
 
-struct RangePhaseLanes {
-    re: [f32; FIELD_RANGE_LANES],
-    im: [f32; FIELD_RANGE_LANES],
+struct RangePhaseLanes<T = f32, const LANES: usize = FIELD_RANGE_LANES> {
+    re: [T; LANES],
+    im: [T; LANES],
 }
 
 enum FieldPhases {

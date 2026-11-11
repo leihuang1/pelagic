@@ -14,12 +14,22 @@ pub(super) fn shape_map<T: Send>(
     estimated_work: usize,
     shape: impl Fn(usize) -> Result<T, DiagnosticReport> + Sync,
 ) -> Result<Vec<T>, DiagnosticReport> {
+    shape_map_init(count, estimated_work, || (), |(), index| shape(index))
+}
+
+pub(super) fn shape_map_init<T: Send, S>(
+    count: usize,
+    estimated_work: usize,
+    init: impl Fn() -> S + Sync,
+    shape: impl Fn(&mut S, usize) -> Result<T, DiagnosticReport> + Sync,
+) -> Result<Vec<T>, DiagnosticReport> {
     if parallelism::threads() <= 1 || count <= 1 {
         // Retain scalar short-circuiting and the single-item calling scope.
-        (0..count).map(shape).collect()
+        let mut scratch = init();
+        (0..count).map(|index| shape(&mut scratch, index)).collect()
     } else {
         // Ordered collection reports the earliest numerical error, not the fastest one.
-        parallelism::map(count, estimated_work, shape)
+        parallelism::map_init(count, estimated_work, init, shape)
             .into_iter()
             .collect()
     }
