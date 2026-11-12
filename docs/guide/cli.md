@@ -220,7 +220,7 @@ See [barriers and interrupted batches](native-output.md#run-many-barriers-and-in
 for the exact platform guarantees and recovery rules:
 
 ```json
-{"status_version":1,"case":"cases/a.json","stem":"a","version":"0.6.2","format":"legacy","options":{"max_output_bytes":268435456,"solver":null},"input_sha256":"5d0c…","outcome":"ok","exit_code":0,"seconds":0.03,"manifest_sha256":"4a3b…","diagnostics":[]}
+{"status_version":1,"case":"cases/a.json","stem":"a","version":"0.6.3","format":"legacy","options":{"max_output_bytes":268435456,"solver":null},"input_sha256":"5d0c…","outcome":"ok","exit_code":0,"seconds":0.03,"manifest_sha256":"4a3b…","diagnostics":[]}
 ```
 
 | Field | Meaning |

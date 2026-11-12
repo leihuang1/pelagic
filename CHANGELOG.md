@@ -7,6 +7,8 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+## 0.6.3 — 2026-11-12
+
 - **Faster fluid KRAKEN root refinement.** Up to 16 shooting lanes take the
   next mode as soon as one finishes, and endpoint evaluations and final count
   checks are packed across modes. Each mode keeps its original refinement steps,
