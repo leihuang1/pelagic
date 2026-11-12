@@ -2,18 +2,22 @@
 //!
 //! Each publication creates, lists, renames and removes names: its scratch directory, artifacts,
 //! manifest and lock. On macOS, many threads doing that at once contend in the kernel until
-//! throughput collapses. A 3,000-case Pekeris `run-many --no-sync` sweep on an Apple M4 Pro took
-//! 2.4 s with 14 workers against 1.0 s with 6, and five times the kernel time. Gating `begin`,
-//! installation and cleanup removes that collapse while solving and writing stay fully parallel.
-//! Only `--no-sync` publications are gated: durable ones are bound by syncs and did not collapse,
-//! and gating them staggered their arrival at the shared drive flush, so fewer publications shared
-//! each flush (1.45 times slower at 14 workers). A gated transaction still never waits for a sync
-//! inside the gate. Linux and Windows showed no such collapse, so other platforms are not gated.
+//! throughput collapses. On an Apple M4 Pro, a 3,000-case Pekeris `run-many --no-sync` sweep took
+//! about 1.0 s with 6 workers but 1.7 to 2.4 s with 14, with three to five times the kernel time.
+//! Gating creation, installation and cleanup removes most of that collapse, while solving and
+//! writing stay fully parallel.
+//!
+//! Only `--no-sync` publications are gated. Durable ones wait on syncs and did not collapse, and
+//! gating them staggered their arrival at the shared drive flush, so fewer of them shared each
+//! flush (1.12 to 1.45 times slower at 14 workers). Linux and Windows showed no such collapse, so
+//! other platforms are not gated. The cap is per process; separate processes are not capped
+//! together.
 use std::sync::{Condvar, Mutex, PoisonError};
 
-/// Publications in a gated phase at once on Apple platforms. On an M4 Pro, 4 made a 14-worker
-/// sweep take 0.46 of its ungated time and changed nothing up to 4 workers. 3 was slightly faster at
-/// 10 to 14 workers but slower at 6, and 6 collapsed again.
+/// Publications in a gated phase at once on Apple platforms. On an M4 Pro, 4 brought 14-worker
+/// sweeps to 0.46 to 0.61 of their ungated time in two independent measurements, and left up to 6
+/// workers unchanged within noise. 3 was no faster at 10 to 14 workers and slower at 6, and 6 let
+/// the contention return.
 const APPLE_LIMIT: usize = 4;
 
 /// The process-wide gate shared by every publication.
@@ -72,20 +76,29 @@ impl Drop for Guard<'_> {
     }
 }
 
-/// Enter the shared publication gate.
-pub(crate) fn enter() -> Guard<'static> {
-    PUBLICATIONS.enter()
-}
-
 #[cfg(test)]
 thread_local! {
     static HELD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static PHASES: std::cell::RefCell<Vec<(&'static str, usize)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Places that the current thread holds in limited gates.
 #[cfg(test)]
 pub(crate) fn held() -> usize {
     HELD.with(std::cell::Cell::get)
+}
+
+/// Note that the current thread reached a publication phase, with the places it holds then.
+#[cfg(test)]
+pub(crate) fn phase(name: &'static str) {
+    PHASES.with(|phases| phases.borrow_mut().push((name, held())));
+}
+
+/// The phases the current thread noted since the last call.
+#[cfg(test)]
+pub(crate) fn phases() -> Vec<(&'static str, usize)> {
+    PHASES.with(|phases| std::mem::take(&mut *phases.borrow_mut()))
 }
 
 #[cfg(test)]

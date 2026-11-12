@@ -445,62 +445,107 @@ fn crashes_at_each_step_never_leave_an_early_record_or_adopt_abandoned_work() {
 }
 
 #[test]
-fn writers_run_outside_the_publication_gate() {
-    let root = root("gate-writer");
-    let out = root.join("result");
-    for policy in [SyncPolicy::Sync, SyncPolicy::NoSync] {
-        publish::<(), String>(&out, &[], None, policy, |stage| {
+fn only_scratch_publications_hold_the_gate_and_never_while_caller_code_runs() {
+    #[derive(Debug)]
+    struct Failure;
+    impl From<String> for Failure {
+        fn from(_: String) -> Self {
+            gate::phase("convert");
+            Self
+        }
+    }
+    struct Written;
+    impl Drop for Written {
+        fn drop(&mut self) {
+            gate::phase("result");
+        }
+    }
+    static GATE: Gate = Gate::new(1);
+    let root = root("gate-phases");
+    let blocker = root.join("file");
+    fs::write(&blocker, b"not a directory").unwrap();
+    let outcomes = [
+        ("installed", &["begin", "write", "install", "cleanup"][..]),
+        ("begin fails", &["begin", "convert"]),
+        ("writer fails", &["begin", "write", "cleanup"]),
+        ("writer panics", &["begin", "write", "cleanup"]),
+        (
+            "install fails",
+            &["begin", "write", "install", "cleanup", "convert", "result"],
+        ),
+    ];
+    for policy in [SyncPolicy::NoSync, SyncPolicy::Sync] {
+        for (n, (outcome, expected)) in outcomes.into_iter().enumerate() {
+            let out = if outcome == "begin fails" {
+                blocker.join("result")
+            } else {
+                root.join(format!("{policy:?}-{n}"))
+            };
+            let maximum = (outcome == "install fails").then_some(1);
+            gate::phases();
+            let published = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                publish_through(&GATE, &out, &[], maximum, policy, |stage| {
+                    gate::phase("write");
+                    fs::write(stage.join("a"), b"result").unwrap();
+                    match outcome {
+                        "writer fails" => Err(Failure),
+                        "writer panics" => panic!("injected writer panic"),
+                        _ => Ok(Written),
+                    }
+                })
+            }));
+            let phases = gate::phases();
+            let names: Vec<_> = phases.iter().map(|(name, _)| *name).collect();
+            assert_eq!(names, expected, "{policy:?}, {outcome}");
+            for (name, held) in phases {
+                let gated =
+                    policy == SyncPolicy::NoSync && matches!(name, "begin" | "install" | "cleanup");
+                assert_eq!(held, usize::from(gated), "{policy:?}, {outcome}: {name}");
+            }
+            assert_eq!(gate::held(), 0, "{policy:?}, {outcome}: a place leaked");
             assert_eq!(
-                gate::held(),
-                0,
-                "the writer solves and writes outside the gate"
+                published.is_ok_and(|published| published.is_ok()),
+                outcome == "installed"
             );
-            fs::write(stage.join("a"), b"result").map_err(message)
-        })
-        .unwrap();
-        assert_eq!(gate::held(), 0, "publication releases its place");
+            assert!(!out.exists() || outcome == "installed");
+        }
     }
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn durable_syncs_and_drive_flushes_wait_outside_the_publication_gate() {
-    let root = root("gate-sync");
-    for stem in ["fresh", "update"] {
-        let out = root.join(stem);
-        if stem == "update" {
-            write(&out, "a", b"old").unwrap();
-        }
-        let mut t = Transaction::begin(&out, &[]).unwrap();
-        fs::write(t.stage.join("a"), b"new").unwrap();
-        t.gate = Some(gate::enter());
-        let inside = gate::held();
-        assert_eq!(inside, usize::from(cfg!(target_vendor = "apple")));
-        t.sync = |_| {
-            assert_eq!(gate::held(), 0, "a file sync waited inside the gate");
-            Ok(())
-        };
-        #[cfg(target_vendor = "apple")]
-        {
-            t.full_sync = |_, _| {
-                assert_eq!(gate::held(), 0, "the drive flush waited inside the gate");
-                Ok(())
-            };
-            t.wait = |_, _, _| {
-                assert_eq!(gate::held(), 0, "the shared flush waited inside the gate");
-                Ok(())
-            };
-        }
-        t.after_step = Some(|_, step| {
-            if step == "synced" {
-                assert_eq!(gate::held(), usize::from(cfg!(target_vendor = "apple")));
-            }
+fn scratch_publications_wait_for_a_full_gate_and_durable_ones_do_not() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    static GATE: Gate = Gate::new(1);
+    let root = root("gate-blocking");
+    let start = |policy, out: PathBuf| {
+        let (sent, received) = mpsc::channel();
+        std::thread::spawn(move || {
+            let published =
+                publish_through::<(), String>(&GATE, &out, &[], None, policy, |stage| {
+                    fs::write(stage.join("a"), b"result").map_err(message)
+                });
+            sent.send(published).unwrap();
         });
-        t.install(None, SyncPolicy::Sync).unwrap();
-        assert_eq!(gate::held(), inside, "installation resumes inside the gate");
-        drop(t);
-        assert_eq!(gate::held(), 0, "cleanup releases the gate");
-        assert_eq!(fs::read(out.join("a")).unwrap(), b"new");
-    }
+        received
+    };
+    let full = GATE.enter();
+    start(SyncPolicy::Sync, root.join("durable"))
+        .recv_timeout(Duration::from_secs(60))
+        .expect("a durable publication waited for the gate")
+        .unwrap();
+    let scratch = start(SyncPolicy::NoSync, root.join("scratch"));
+    assert!(
+        scratch.recv_timeout(Duration::from_millis(200)).is_err(),
+        "a scratch publication ignored the full gate"
+    );
+    assert!(!root.join("scratch").exists());
+    drop(full);
+    scratch
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the scratch publication did not resume")
+        .unwrap();
+    assert_eq!(fs::read(root.join("scratch").join("a")).unwrap(), b"result");
     fs::remove_dir_all(root).unwrap();
 }

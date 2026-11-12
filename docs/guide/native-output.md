@@ -200,6 +200,7 @@ parallel. With more workers doing those filesystem steps at once, the kernel
 contended until sweeps of small cases slowed down. The cap changes no file,
 check or result. Durable publications are not capped, because they wait for
 syncs and share drive flushes, and Linux and Windows showed no such slowdown.
+The cap is per process: separate Pelagic processes are not capped together.
 
 KRAKEN keeps the positive `--max-output-bytes` default of 256 MiB: the known
 FIELD payload is admitted before solving, HDF5 payload/flush checks remain, and
