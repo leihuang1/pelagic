@@ -443,3 +443,64 @@ fn crashes_at_each_step_never_leave_an_early_record_or_adopt_abandoned_work() {
     }
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn writers_run_outside_the_publication_gate() {
+    let root = root("gate-writer");
+    let out = root.join("result");
+    for policy in [SyncPolicy::Sync, SyncPolicy::NoSync] {
+        publish::<(), String>(&out, &[], None, policy, |stage| {
+            assert_eq!(
+                gate::held(),
+                0,
+                "the writer solves and writes outside the gate"
+            );
+            fs::write(stage.join("a"), b"result").map_err(message)
+        })
+        .unwrap();
+        assert_eq!(gate::held(), 0, "publication releases its place");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn durable_syncs_and_drive_flushes_wait_outside_the_publication_gate() {
+    let root = root("gate-sync");
+    for stem in ["fresh", "update"] {
+        let out = root.join(stem);
+        if stem == "update" {
+            write(&out, "a", b"old").unwrap();
+        }
+        let mut t = Transaction::begin(&out, &[]).unwrap();
+        fs::write(t.stage.join("a"), b"new").unwrap();
+        t.gate = Some(gate::enter());
+        let inside = gate::held();
+        assert_eq!(inside, usize::from(cfg!(target_vendor = "apple")));
+        t.sync = |_| {
+            assert_eq!(gate::held(), 0, "a file sync waited inside the gate");
+            Ok(())
+        };
+        #[cfg(target_vendor = "apple")]
+        {
+            t.full_sync = |_, _| {
+                assert_eq!(gate::held(), 0, "the drive flush waited inside the gate");
+                Ok(())
+            };
+            t.wait = |_, _, _| {
+                assert_eq!(gate::held(), 0, "the shared flush waited inside the gate");
+                Ok(())
+            };
+        }
+        t.after_step = Some(|_, step| {
+            if step == "synced" {
+                assert_eq!(gate::held(), usize::from(cfg!(target_vendor = "apple")));
+            }
+        });
+        t.install(None, SyncPolicy::Sync).unwrap();
+        assert_eq!(gate::held(), inside, "installation resumes inside the gate");
+        drop(t);
+        assert_eq!(gate::held(), 0, "cleanup releases the gate");
+        assert_eq!(fs::read(out.join("a")).unwrap(), b"new");
+    }
+    fs::remove_dir_all(root).unwrap();
+}

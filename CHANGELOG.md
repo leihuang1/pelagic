@@ -69,6 +69,16 @@ in the [interface contract](docs/development/interface-contract.md).
   previous time; on an Apple M4 Pro, a broadband run takes 0.76. Under a tight
   `ulimit -n`, the files are closed and reopened between frequencies as before.
   Outputs, manifests, reports, status records and diagnostics are unchanged.
+- **Faster macOS sweeps of small `--no-sync` cases.** On macOS, at most four
+  `--no-sync` publications in a process now create their scratch, install and
+  clean up at once; solving and writing stay fully parallel. With more workers
+  doing those filesystem steps together, the kernel contended until throughput
+  collapsed. On an Apple M4 Pro, a 3,000-case Pekeris `run-many --no-sync`
+  sweep takes 0.46 of its previous time with 14 workers, the default there, and
+  0.51 with 10. Up to four workers nothing changes; with six, small cases can
+  take about 1.09 of their previous time. Durable publications, Linux and
+  Windows are unchanged, and so are outputs, manifests, status records and
+  diagnostics.
 - **Opt-in `--no-sync` for scratch output.** KRAKEN and BELLHOP `run` and
   `run-many` can skip per-file syncs and Apple's shared drive-cache flush.
   The default stays durable; verification, quotas, locks, backups, installation,

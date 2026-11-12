@@ -194,6 +194,13 @@ writer before its buffers are flushed can lose unfinished scratch data, and an
 interrupted installation can leave a partial group, backups or locks in either
 mode; neither case has a new `ok` record.
 
+On macOS, at most four `--no-sync` publications in a process create their
+scratch, install and clean up at the same time; solving and writing stay fully
+parallel. With more workers doing those filesystem steps at once, the kernel
+contended until sweeps of small cases slowed down. The cap changes no file,
+check or result. Durable publications are not capped, because they wait for
+syncs and share drive flushes, and Linux and Windows showed no such slowdown.
+
 KRAKEN keeps the positive `--max-output-bytes` default of 256 MiB: the known
 FIELD payload is admitted before solving, HDF5 payload/flush checks remain, and
 the cumulative physical size of all selected products, report and manifest is

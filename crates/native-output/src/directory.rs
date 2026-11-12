@@ -16,6 +16,7 @@ mod batch;
 #[cfg(all(test, unix, not(target_vendor = "apple")))]
 #[path = "directory/batch.rs"]
 mod apple_batch;
+mod gate;
 #[cfg(any(test, feature = "test-observer"))]
 #[doc(hidden)]
 pub mod sync_observer;
@@ -129,8 +130,15 @@ pub fn publish<T, E: From<String>>(
     sync_policy: SyncPolicy,
     write: impl FnOnce(&Path) -> Result<T, E>,
 ) -> Result<T, E> {
+    // Only scratch publications are gated. Durable ones are bound by syncs, and the gate would
+    // stagger their arrival at the shared drive flush, so fewer of them would share each flush.
+    let gated = sync_policy == SyncPolicy::NoSync;
+    let reservation = gated.then(gate::enter);
     let mut transaction = Transaction::begin(output, inputs).map_err(E::from)?;
+    drop(reservation);
+    // Solving and writing stay outside the gate; installation and cleanup hold it again.
     let result = write(&transaction.stage)?;
+    transaction.gate = gated.then(gate::enter);
     transaction.install(maximum, sync_policy).map_err(E::from)?;
     Ok(result)
 }
@@ -149,6 +157,8 @@ struct Transaction {
     retain: bool,
     #[cfg(target_vendor = "apple")]
     batch: Option<std::sync::Arc<Batch>>,
+    // Declared after the state that `Drop` cleans up, so cleanup also runs inside the gate.
+    gate: Option<gate::Guard<'static>>,
     #[cfg(test)]
     before_install: Option<fn(&Self)>,
     #[cfg(test)]
@@ -234,6 +244,7 @@ impl Transaction {
             retain: false,
             #[cfg(target_vendor = "apple")]
             batch: Batch::current(),
+            gate: None,
             #[cfg(test)]
             before_install: None,
             #[cfg(test)]
@@ -352,6 +363,9 @@ impl Transaction {
         check_quota(&self.stage, maximum)?;
         names.insert(MANIFEST.into());
         if sync_policy == SyncPolicy::Sync {
+            // `publish` gates only scratch publications. Should a durable one hold the gate, its
+            // syncs and the shared drive flush still wait outside it, so flushes stay shared.
+            let gated = self.gate.take().is_some();
             let paths: Vec<_> = names.iter().map(|name| self.stage.join(name)).collect();
             self.sync_files(&paths)?;
             #[cfg(target_vendor = "apple")]
@@ -369,6 +383,9 @@ impl Transaction {
                     let full_sync = self.full_sync;
                     full_sync(&handle, &manifest_path).map_err(message)?;
                 }
+            }
+            if gated {
+                self.gate = Some(gate::enter());
             }
         }
         #[cfg(test)]
