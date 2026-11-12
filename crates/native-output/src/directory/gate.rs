@@ -32,6 +32,8 @@ pub(crate) struct Gate {
     limit: usize,
     active: Mutex<usize>,
     freed: Condvar,
+    #[cfg(test)]
+    waiting: std::sync::atomic::AtomicUsize,
 }
 
 /// One place in a [`Gate`], released when dropped, including during unwinding.
@@ -43,7 +45,15 @@ impl Gate {
             limit,
             active: Mutex::new(0),
             freed: Condvar::new(),
+            #[cfg(test)]
+            waiting: std::sync::atomic::AtomicUsize::new(0),
         }
+    }
+
+    /// Threads currently waiting for a place.
+    #[cfg(test)]
+    pub(crate) fn waiting(&self) -> usize {
+        self.waiting.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Wait for a place. The guarded section only counts, so a poisoned lock is still consistent.
@@ -53,10 +63,16 @@ impl Gate {
         }
         let mut active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
         while *active >= self.limit {
+            #[cfg(test)]
+            self.waiting
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             active = self
                 .freed
                 .wait(active)
                 .unwrap_or_else(PoisonError::into_inner);
+            #[cfg(test)]
+            self.waiting
+                .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         }
         *active += 1;
         #[cfg(test)]
@@ -81,6 +97,7 @@ thread_local! {
     static HELD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static PHASES: std::cell::RefCell<Vec<(&'static str, usize)>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    static PANIC_AT: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
 }
 
 /// Places that the current thread holds in limited gates.
@@ -93,6 +110,14 @@ pub(crate) fn held() -> usize {
 #[cfg(test)]
 pub(crate) fn phase(name: &'static str) {
     PHASES.with(|phases| phases.borrow_mut().push((name, held())));
+    let inject = PANIC_AT.with(|at| at.get() == Some(name) && at.take().is_some());
+    assert!(!inject, "injected panic at {name}");
+}
+
+/// Make the current thread's next note of `name` panic.
+#[cfg(test)]
+pub(crate) fn panic_at(name: &'static str) {
+    PANIC_AT.with(|at| at.set(Some(name)));
 }
 
 /// The phases the current thread noted since the last call.

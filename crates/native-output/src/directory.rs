@@ -159,9 +159,12 @@ fn publish_through<T, E: From<String>>(
     };
     // Caller code (error conversion, the writer and its result) never runs inside the gate, so
     // it may publish again. Cleanup re-enters the gate even after a failed or panicking writer.
+    // `written` is declared first so that it drops last: even while unwinding from a panic in
+    // installation, the transaction cleans up and releases its place before the result drops.
+    let written;
     let mut transaction = begun.map_err(E::from)?;
     transaction.gate = gate;
-    let written = write(&transaction.stage);
+    written = write(&transaction.stage);
     let installed = if written.is_ok() {
         transaction.permit = gate.map(Gate::enter);
         transaction.install(maximum, sync_policy)

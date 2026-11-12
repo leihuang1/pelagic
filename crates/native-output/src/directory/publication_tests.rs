@@ -473,6 +473,10 @@ fn only_scratch_publications_hold_the_gate_and_never_while_caller_code_runs() {
             "install fails",
             &["begin", "write", "install", "cleanup", "convert", "result"],
         ),
+        (
+            "install panics",
+            &["begin", "write", "install", "cleanup", "result"],
+        ),
     ];
     for policy in [SyncPolicy::NoSync, SyncPolicy::Sync] {
         for (n, (outcome, expected)) in outcomes.into_iter().enumerate() {
@@ -483,6 +487,9 @@ fn only_scratch_publications_hold_the_gate_and_never_while_caller_code_runs() {
             };
             let maximum = (outcome == "install fails").then_some(1);
             gate::phases();
+            if outcome == "install panics" {
+                gate::panic_at("install");
+            }
             let published = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 publish_through(&GATE, &out, &[], maximum, policy, |stage| {
                     gate::phase("write");
@@ -516,36 +523,45 @@ fn only_scratch_publications_hold_the_gate_and_never_while_caller_code_runs() {
 #[test]
 fn scratch_publications_wait_for_a_full_gate_and_durable_ones_do_not() {
     use std::sync::mpsc;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
     static GATE: Gate = Gate::new(1);
     let root = root("gate-blocking");
     let start = |policy, out: PathBuf| {
         let (sent, received) = mpsc::channel();
-        std::thread::spawn(move || {
+        let worker = std::thread::spawn(move || {
             let published =
                 publish_through::<(), String>(&GATE, &out, &[], None, policy, |stage| {
                     fs::write(stage.join("a"), b"result").map_err(message)
                 });
-            sent.send(published).unwrap();
+            let _ = sent.send(published);
         });
-        received
+        (received, worker)
     };
     let full = GATE.enter();
-    start(SyncPolicy::Sync, root.join("durable"))
+    let (durable, worker) = start(SyncPolicy::Sync, root.join("durable"));
+    durable
         .recv_timeout(Duration::from_secs(60))
         .expect("a durable publication waited for the gate")
         .unwrap();
-    let scratch = start(SyncPolicy::NoSync, root.join("scratch"));
-    assert!(
-        scratch.recv_timeout(Duration::from_millis(200)).is_err(),
-        "a scratch publication ignored the full gate"
-    );
+    worker.join().unwrap();
+    assert_eq!(GATE.waiting(), 0);
+    let (scratch, worker) = start(SyncPolicy::NoSync, root.join("scratch"));
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while GATE.waiting() == 0 {
+        assert!(
+            scratch.try_recv().is_err(),
+            "a scratch publication ignored the full gate"
+        );
+        assert!(Instant::now() < deadline, "no publication waited");
+        std::thread::sleep(Duration::from_millis(1));
+    }
     assert!(!root.join("scratch").exists());
     drop(full);
     scratch
         .recv_timeout(Duration::from_secs(60))
         .expect("the scratch publication did not resume")
         .unwrap();
+    worker.join().unwrap();
     assert_eq!(fs::read(root.join("scratch").join("a")).unwrap(), b"result");
     fs::remove_dir_all(root).unwrap();
 }
