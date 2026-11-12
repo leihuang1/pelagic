@@ -138,10 +138,11 @@ thread:
   ray beyond the ray-point limit is rejected before its influence is
   evaluated. Applied effect buffers are reused, because some allocators keep a
   freshly grown buffer per ray.
-- **Fluid KRAKEN** shares Sturm-count bisections to isolate roots, then refines
-  signed fluid dispersion in fixed groups of eight using safeguarded Illinois
-  steps. Groups run in parallel, but their membership never depends on the
-  worker count. Invalid brackets or count checks fall back per mode to the
+- **Fluid KRAKEN** shares Sturm-count bisections to isolate roots on meshes one
+  and two. Later meshes start from raw earlier-mesh roots, with local brackets
+  certified by current-mesh Sturm counts. Both paths refine signed fluid
+  dispersion in fixed groups of eight using safeguarded Illinois steps. Groups
+  run in parallel, but their membership never depends on the worker count. Invalid brackets or count checks fall back per mode to the
   original full-interval bisection. Each mesh pays the original bisection's
   fixed work charge. Elastic KRAKEN and
   KRAKENC retain their separate searches; elastic counts need not be monotonic.

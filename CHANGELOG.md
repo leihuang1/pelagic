@@ -7,6 +7,45 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster finite elastic KRAKEN layers.** Their transfer now keeps its state
+  in real arithmetic and skips unit rescaling; KRAKENC's complex arithmetic is
+  unchanged. On one thread, the elastic-sediment example's solver-only run is
+  about 1.77 times faster on an Apple M4 Pro, and its whole
+  `kraken run --threads 1 --no-sync` with the x86-64-v3 CLI about 1.45 times
+  faster on an Intel Core i5-14600KF (WSL2).
+  Results are bit-for-bit unchanged.
+- **Faster adiabatic range-dependent KRAKEN FIELD.** Adiabatic FIELD now adds
+  modes for eight receiver ranges at once, without changing their addition
+  order. With the x86-64-v3 CLI on an Intel Core i5-14600KF (WSL2), Gulf's whole
+  `kraken run --threads 1 --no-sync` takes 0.71 of its previous time; its
+  one-thread solver is about 1.15 times faster on an Apple M4 Pro. Results are
+  bit-for-bit unchanged. See the
+  [measurement record](docs/history/kraken-rd-field-lanes.md#adiabatic-lanes-on-14fd4b1).
+- **Less KRAKEN heap churn.** Mode shapes reuse worker-local scratch and share
+  each mesh's off-diagonal coefficients. On Linux, glibc no longer returns the
+  heap to the kernel after every batch of modes and faults it back in on the
+  next. One-thread adiabatic FIELD also writes receiver rows directly into the
+  result. With the x86-64-v3 CLI on an Intel Core i5-14600KF (WSL2), whole
+  `kraken run --threads 1 --no-sync` runs take 0.72 of their previous time for
+  surface duct, 0.74 for Munk and 0.87 for Gulf, with 76–87% fewer page faults.
+  Sweeps using `run-many --workers 20 --threads 1 --no-sync` take 0.78 and 0.72
+  of their previous time for surface duct and Munk. All adapters share the
+  allocation reduction; speedups depend on the workload. Results are bit-for-bit
+  unchanged.
+- **Faster fine-mesh fluid KRAKEN refinement.** As in Fortran KRAKEN, meshes
+  after the second now start each root from the earlier meshes' raw roots. Each
+  local bracket must be certified by Sturm counts, and any failure falls back to
+  the full-interval search. On one thread, the broadband example's solver is
+  about 1.24 times faster on an Apple M4 Pro, and its whole `kraken run` with the
+  x86-64-v3 CLI about 1.13 times faster on an Intel Core i5-14600KF (WSL2).
+  Full-precision modal wavenumbers change by at most `1.4e-13 rad/m` across the
+  checked fixtures and examples. Over that inventory, single-precision
+  wavenumbers and FIELD pressures stayed byte-identical, and so did the MOD files
+  in the CLI comparisons; other inputs can show small MOD and FIELD differences
+  where a value crosses a rounding boundary. Mode counts and thread-count
+  identity are preserved. Elastic KRAKEN, KRAKENC and the first two meshes keep
+  their existing searches. See
+  [fluid root search](docs/development/kraken-internals.md#fluid-root-search).
 - **Opt-in `--no-sync` for scratch output.** KRAKEN and BELLHOP `run` and
   `run-many` can skip per-file syncs and Apple's shared drive-cache flush.
   The default stays durable; verification, quotas, locks, backups, installation,
