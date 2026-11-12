@@ -115,7 +115,7 @@
     },
     {
       "package_name": "bellhop",
-      "package_version": "0.6.2",
+      "package_version": "0.6.3",
       "repository": "https://github.com/leihuang1/pelagic",
       "license": "GPL-3.0-or-later",
       "licenses": [
@@ -503,7 +503,7 @@
     },
     {
       "package_name": "kraken",
-      "package_version": "0.6.2",
+      "package_version": "0.6.3",
       "repository": "https://github.com/leihuang1/pelagic",
       "license": "GPL-3.0-or-later",
       "licenses": [
@@ -599,7 +599,7 @@
     },
     {
       "package_name": "native-output",
-      "package_version": "0.6.2",
+      "package_version": "0.6.3",
       "repository": "https://github.com/leihuang1/pelagic",
       "license": "GPL-3.0-or-later",
       "licenses": [
@@ -691,7 +691,7 @@
     },
     {
       "package_name": "output",
-      "package_version": "0.6.2",
+      "package_version": "0.6.3",
       "repository": "https://github.com/leihuang1/pelagic",
       "license": "GPL-3.0-or-later",
       "licenses": [
