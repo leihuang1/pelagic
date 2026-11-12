@@ -79,6 +79,10 @@ the [porting map](porting-map.md) links Rust modules to the Fortran sources.
 - `native-output/src/directory.rs` publishes a file group: verified ownership,
   exclusive lock and scratch, and rollback on handled errors. The rules are in
   [native output](../guide/native-output.md#ownership-quota-and-failure-contract).
+  On Apple platforms, `directory/gate.rs` admits at most four `--no-sync`
+  publications at a time to `begin`, installation and cleanup, including cleanup
+  after a failed writer. Caller code (the writer, its result and error
+  conversion) always runs outside the gate.
 - BELLHOP's `result::FieldGrid` yields pressure depth-major for native SHD and
   Python, without changing the range-major solver/HDF5 layout.
 - `native-output/src/kraken/stream.rs` owns the KRAKEN frequency-block stream:

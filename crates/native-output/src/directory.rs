@@ -16,6 +16,8 @@ mod batch;
 #[cfg(all(test, unix, not(target_vendor = "apple")))]
 #[path = "directory/batch.rs"]
 mod apple_batch;
+mod gate;
+use gate::Gate;
 #[cfg(any(test, feature = "test-observer"))]
 #[doc(hidden)]
 pub mod sync_observer;
@@ -129,9 +131,49 @@ pub fn publish<T, E: From<String>>(
     sync_policy: SyncPolicy,
     write: impl FnOnce(&Path) -> Result<T, E>,
 ) -> Result<T, E> {
-    let mut transaction = Transaction::begin(output, inputs).map_err(E::from)?;
-    let result = write(&transaction.stage)?;
-    transaction.install(maximum, sync_policy).map_err(E::from)?;
+    publish_through(
+        &gate::PUBLICATIONS,
+        output,
+        inputs,
+        maximum,
+        sync_policy,
+        write,
+    )
+}
+
+/// [`publish`] through `gate`, which tests replace with a limited gate of their own.
+fn publish_through<T, E: From<String>>(
+    gate: &'static Gate,
+    output: &Path,
+    inputs: &[&Path],
+    maximum: Option<u64>,
+    sync_policy: SyncPolicy,
+    write: impl FnOnce(&Path) -> Result<T, E>,
+) -> Result<T, E> {
+    // Only scratch publications are gated. Durable ones wait on syncs, and gating them staggers
+    // their arrival at the shared drive flush, so fewer of them share each flush.
+    let gate = (sync_policy == SyncPolicy::NoSync).then_some(gate);
+    let begun = {
+        let _permit = gate.map(Gate::enter);
+        Transaction::begin(output, inputs)
+    };
+    // Caller code (error conversion, the writer and its result) never runs inside the gate, so
+    // it may publish again. Cleanup re-enters the gate even after a failed or panicking writer.
+    // `written` is declared first so that it drops last: even while unwinding from a panic in
+    // installation, the transaction cleans up and releases its place before the result drops.
+    let written;
+    let mut transaction = begun.map_err(E::from)?;
+    transaction.gate = gate;
+    written = write(&transaction.stage);
+    let installed = if written.is_ok() {
+        transaction.permit = gate.map(Gate::enter);
+        transaction.install(maximum, sync_policy)
+    } else {
+        Ok(())
+    };
+    drop(transaction);
+    let result = written?;
+    installed.map_err(E::from)?;
     Ok(result)
 }
 
@@ -149,6 +191,9 @@ struct Transaction {
     retain: bool,
     #[cfg(target_vendor = "apple")]
     batch: Option<std::sync::Arc<Batch>>,
+    // The gate that installation and cleanup hold, and the place they hold in it.
+    gate: Option<&'static Gate>,
+    permit: Option<gate::Guard<'static>>,
     #[cfg(test)]
     before_install: Option<fn(&Self)>,
     #[cfg(test)]
@@ -170,6 +215,8 @@ struct Transaction {
 impl Transaction {
     #[allow(clippy::too_many_lines)] // Keep both reservations under the same cleanup guard.
     fn begin(output: &Path, inputs: &[&Path]) -> Result<Self, String> {
+        #[cfg(test)]
+        gate::phase("begin");
         let parent = parent(output);
         fs::create_dir_all(parent).map_err(message)?;
         let inputs = inputs
@@ -234,6 +281,8 @@ impl Transaction {
             retain: false,
             #[cfg(target_vendor = "apple")]
             batch: Batch::current(),
+            gate: None,
+            permit: None,
             #[cfg(test)]
             before_install: None,
             #[cfg(test)]
@@ -289,6 +338,8 @@ impl Transaction {
 
     #[allow(clippy::too_many_lines)]
     fn install(&mut self, maximum: Option<u64>, sync_policy: SyncPolicy) -> Result<(), String> {
+        #[cfg(test)]
+        gate::phase("install");
         #[cfg(test)]
         self.step("staged");
         let mut names = BTreeSet::new();
@@ -539,9 +590,15 @@ impl Transaction {
 
 impl Drop for Transaction {
     fn drop(&mut self) {
-        if self.retain {
+        if self.retain || (self.owned.is_empty() && !self.created_output) {
             return;
         }
+        // A failed or panicking writer leaves its cleanup to here, gated like installation.
+        if self.permit.is_none() {
+            self.permit = self.gate.map(Gate::enter);
+        }
+        #[cfg(test)]
+        gate::phase("cleanup");
         for path in self.owned.iter().rev() {
             let removal = if path == &self.lock {
                 fs::remove_dir(path)
