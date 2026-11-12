@@ -56,20 +56,35 @@ pub(crate) fn map<T: Send>(
     estimated_work: usize,
     work: impl Fn(usize) -> T + Sync,
 ) -> Vec<T> {
+    map_init(count, estimated_work, || (), |(), index| work(index))
+}
+
+/// Like `map`, with scratch owned by each worker and reused between its items.
+/// Scratch never crosses threads and is dropped when this map returns.
+pub(crate) fn map_init<T: Send, S>(
+    count: usize,
+    estimated_work: usize,
+    init: impl Fn() -> S + Sync,
+    work: impl Fn(&mut S, usize) -> T + Sync,
+) -> Vec<T> {
     let workers = worker_count(count, estimated_work);
     if workers <= 1 {
-        return with_threads(NonZeroUsize::MIN, || (0..count).map(work).collect());
+        return with_threads(NonZeroUsize::MIN, || {
+            let mut scratch = init();
+            (0..count).map(|index| work(&mut scratch, index)).collect()
+        });
     }
     let token = crate::cancellation::current();
     let next = AtomicUsize::new(0);
     let drain = || {
+        let mut scratch = init();
         let mut done = Vec::new();
         loop {
             let index = next.fetch_add(1, Ordering::Relaxed);
             if index >= count {
                 return done;
             }
-            done.push((index, work(index)));
+            done.push((index, work(&mut scratch, index)));
         }
     };
     let mut slots: Vec<Option<T>> = std::iter::repeat_with(|| None).take(count).collect();
@@ -126,6 +141,40 @@ mod tests {
             assert_eq!(squares, (0..1000).map(|i| i * i).collect::<Vec<_>>());
         }
         assert_eq!(threads(), 1);
+    }
+
+    #[test]
+    fn map_init_reuses_worker_owned_scratch() {
+        for thread_count in [1, 4] {
+            for estimated_work in [INLINE_WORK, INLINE_WORK + 1] {
+                let initialized = AtomicUsize::new(0);
+                let results = with_threads(NonZeroUsize::new(thread_count).unwrap(), || {
+                    map_init(
+                        1000,
+                        estimated_work,
+                        || {
+                            initialized.fetch_add(1, Ordering::Relaxed);
+                            // Not Send: initialized and consumed on its owning worker.
+                            std::rc::Rc::new(Cell::new(0))
+                        },
+                        |scratch, index| {
+                            assert_eq!(threads(), 1);
+                            scratch.set(scratch.get() + 1);
+                            (index, std::thread::current().id(), scratch.get())
+                        },
+                    )
+                });
+                let mut counts = std::collections::HashMap::new();
+                for (expected, (index, worker, used)) in results.into_iter().enumerate() {
+                    assert_eq!(index, expected);
+                    let count = counts.entry(worker).or_insert(0);
+                    *count += 1;
+                    assert_eq!(used, *count);
+                }
+                assert_eq!(counts.values().sum::<usize>(), 1000);
+                assert!(initialized.load(Ordering::Relaxed) <= thread_count);
+            }
+        }
     }
 
     #[test]

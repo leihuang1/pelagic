@@ -74,7 +74,18 @@ Input materials convert each node independently at each solve frequency;
 coefficients. Automatic solid meshes use the last input shear speed, while
 spectral limits use the sampled minimum. Interpolated density, losses and bulk
 modulus are validated before shooting. Real/complex coefficient grouping and
-first-mesh normalization remain separate.
+first-mesh normalization remain separate. Real KRAKEN finite-solid transfers
+keep five real values from the Euler step through the midpoint recurrence and
+terminal filter, preserving GNU's distinct step groupings and the filter's
+`((previous + z) + 2 * y) * 0.25` ordering. Only non-unit rescaling runs, in a
+cold by-value helper to reduce x86 register spills; the `1e-50`/`1e50` thresholds
+and decimal power bookkeeping are unchanged. The complex Robin-data boundary
+retains imaginary zero signs. Bitwise tests compare finite values with the original
+complex-state recurrence, including rescaling, both directions and signed zeros.
+After overflow, NaN signs and payloads may differ; no elastic caller inspects those
+bits. Separate overflow tests check the same NaN locations, identical non-NaN and
+imaginary bits and powers, and the unchanged non-finite dispersion diagnostic.
+KRAKENC keeps its separate complex transfer arithmetic.
 Their root searches, precision, work limits and deflation arithmetic remain
 separate Implementations. In single-layer lossless-water narrow spectra with a
 vacuum or rigid top, fluid A bottom and cHigh ≤ bottom cp (also ≤ 10 × cLow),
@@ -97,8 +108,14 @@ growth (at least two passes, within the existing three-pass ceiling).
 Real KRAKEN without finite elastic layers or elastic half-spaces always uses
 `modes/fluid_roots.rs`. Its invariant is that the fluid positive-pivot count
 `C(x)` is nonincreasing in squared wavenumber, and an interval `[a, b]` owns
-exactly the root targets `C(b)..C(a)`. Shared bisections isolate one target per
-interval. The bottom-up fluid shooting function uses positive power-of-two
+exactly the root targets `C(b)..C(a)`. On meshes one and two, shared bisections
+isolate one target per interval. On mesh three onward, Neville interpolation in
+h² predicts each root from the **raw** earlier-mesh roots, never the Richardson
+rows. A local interval starts at the prediction ± `1e-6` of its magnitude,
+clipped to the current spectral limits, and can widen by four at most seven
+times. Its endpoint counts must be exactly `above + index + 1` and
+`above + index`: a sign change alone cannot establish mode identity.
+The bottom-up fluid shooting function uses positive power-of-two
 rescaling, carrying the exponent into safeguarded secant/Illinois steps. Its
 lane kernel keeps the recurrence in registers, tests every lane with one
 combined comparison per row and rescales in a cold, out-of-line function. Each
@@ -109,10 +126,18 @@ floats or a computed zero. Endpoint signs must oppose and be finite. Final
 Sturm counts must identify the same single target within one relative tolerance
 of the answer (clipped to its isolating interval).
 
-A failed count/sign/finiteness check, a stalled isolation or an iteration cap
-leaves the affected mode to the original 64-step full-interval bisection, not a
-partial bracket or a guessed root. This includes the rounded rigid/rigid plane
-endpoint. Cancellation and the 2.5-billion mesh-work limit remain errors, never
+A missing/nonfinite/out-of-range seed, a local bracket containing a different
+mode or multiple close modes, a failed count/sign/finiteness check, a stalled
+isolation or an iteration cap leaves the affected mode to the original 64-step
+full-interval bisection, not a partial bracket or a guessed root. This includes the rounded rigid/rigid plane
+endpoint. Counts at the **current** mesh's full spectral limits determine both
+the number of targets and their indices, independently of history length. Thus
+roots moving across cLow, cHigh or a cutoff cannot be silently retained or
+missed by a stale seed; new targets without history take the same fallback.
+If indices shift, even a converged prediction must pass the current-index check.
+A bracket spanning close roots is rejected rather than accepted on signs alone.
+The existing Modal refinement count-change policy below still applies.
+Cancellation and the 2.5-billion mesh-work limit remain errors, never
 fallback triggers. The search pays the original bisection's fixed charge before
 it starts, 64 steps plus the shape allowance per mode, so each mesh costs what it
 did before. That charge measures admission, not the search's own operations,
@@ -131,6 +156,22 @@ Elastic KRAKEN and KRAKENC searches are unchanged. See the
 [measurement record](../history/kraken-fluid-roots.md) for numerical changes,
 mode-count and thread-invariance checks, and indicative timings.
 
+### Mode-shape scratch
+
+Real KRAKEN shares each mesh's off-diagonal coefficients and their ordered absolute
+sum across its roots. Each shape worker owns reusable diagonals, inverse-iteration
+factors, pivot flags, iterates and one scalar gather buffer for normalization and
+sampling. Four fluid roots share a row-major pass; scalar shapes use the same kernel
+at width one. Every batch writes all factors it reads, including zero second
+superdiagonals on non-swapped rows and zero end rows. Lane stopping, failure,
+normalization and modal summation order are unchanged.
+
+Scratch lives only for that mesh's ordered shape map, not in thread-local storage.
+The 64 MiB lane allowance includes all workers, both gather buffers, the shared
+off-diagonal and a scalar remainder alongside retained lane scratch. If it would
+not fit, or for tiny/elastic groups, workers reuse width-one scratch instead.
+Shapes still come only from the first refinement mesh.
+
 ### Modal refinement and FIELD
 
 `refinement.rs` owns **Modal refinement** behind `seed` and `accept`:
@@ -138,9 +179,9 @@ mode-count and thread-invariance checks, and indicative timings.
 - mesh multipliers remain 1, 2, 4, 8, 16;
 - raw root history is separate from the Richardson table, and includes
   cLow-excluded roots used for KRAKENC deflation;
-- finite-solid mesh two still uses the original scan; Neville seeds start on
-  mesh three. Real elastic tops first use Solve1's shared intervals and ZBRENTX,
-  then non-deflated Solve2; `selected_count` retains MINLOC's prior-row semantics;
+- fluid and finite-solid mesh two still use their original searches; Neville
+  seeds start on mesh three. Real elastic tops first use Solve1's shared
+  intervals and ZBRENTX, then non-deflated Solve2; `selected_count` retains MINLOC's prior-row semantics;
 - both backends retain surviving first-mesh shapes/group speeds/loss and
   Richardson columns when the current mesh's search reduces the spectrum,
   including original TLslices `double` (43 to 42). Count increases still reject
@@ -204,10 +245,26 @@ receiver rows retain their separate budget in `fill_rows`. As before, an
 artificially smaller-than-one-mode-vector test budget still admits one scalar
 range. These are per-table bounds, not a total-process memory ceiling.
 
-Adiabatic FIELD retains its scalar receiver row and existing blocked range
-factors. A separate lane prototype was measured but not retained; see the
-[range-dependent FIELD record](../history/kraken-rd-field-lanes.md) for the
-threshold evidence, timings and full-result identity checks.
+Adiabatic FIELD uses eight f64 range lanes in the same `RangePhaseLanes` and
+`RangeValues` layouts. Its groups split at profile ranges, not coupled midpoints;
+exact endpoints still belong to the segment on their left. Only full eight-range
+groups use lanes. Short segments, tails and budget-limited groups stay scalar.
+The phase integral still marches sequentially, including across skipped profiles.
+Factors are written directly into their final layout from the bounded integral
+snapshots, which are released before filling rows. The range capacity uses the
+initial excitation count instead of the largest profile count, since the retained
+adiabatic mode count can only decrease.
+
+Each lane preserves `double(single(base + w * slope))`, the f64 complex product,
+mode order and final f32/f64 conversion. Coherent sums start at +0.0; incoherent
+norm-squared sums start at -0.0, including an empty mode set. Eight lanes keep the
+AVX2 modal-loop accumulators in registers; sixteen spill. Full eight-range groups
+also have a measured margin on M4, unlike shorter groups. With one worker the row
+iterator yields stack-buffered pressures directly into the result, without a
+heap-allocated pressure row; the existing profile-sampling vectors remain.
+Parallel rows retain their bounded ordered collection. See the
+[range-dependent FIELD record](../history/kraken-rd-field-lanes.md#adiabatic-lanes-on-14fd4b1)
+for the new measurements and the earlier, unretained 16-lane prototype.
 No numerical selector or adapter-specific path was added.
 
 `tests/refactoring.rs` characterizes the Case/load/solve Interfaces; existing

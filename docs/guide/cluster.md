@@ -44,12 +44,12 @@ instruction` (`SIGILL`); use the baseline archive instead.
 ### Indicative gains
 
 On one AMD EPYC 7B13 (Zen 3) cloud VM, one-thread solver measurements with
-`x86-64-v3` were **1.02–1.47 times faster** than the baseline target: Gulf
-coupled 1.47, Gulf adiabatic 1.34, large Munk 1.22, surface duct 1.16, and
-BELLHOP Munk transmission loss 1.20 times. Results were byte-identical across
-the full `tools/perf` inventory at 1, 2 and 4 threads. These are indicative
-solver-only measurements, not promised end-to-end speedups: CPU, workload and
-result-file costs matter. No fast-math option is used. CI checks the 12
+`x86-64-v3` were **1.01–1.39 times faster** than the baseline target: Gulf
+adiabatic 1.39, large Munk 1.30, BELLHOP Munk transmission loss 1.20, surface
+duct 1.17 and Gulf coupled 1.16 times, and 1.01–1.09 times for the other seven
+cases. The two builds' results were byte-identical across the full `tools/perf`
+inventory. These are indicative solver-only measurements, not promised
+end-to-end speedups: CPU, workload and result-file costs matter. No fast-math option is used. CI checks the 12
 representative cases in `tools/perf/cases.json` at one thread against a
 baseline build, as well as running the CLI tests against the v3 build.
 
