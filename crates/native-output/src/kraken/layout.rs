@@ -1,7 +1,7 @@
 //! One layout decision for both the streaming CLI and Python's immutable snapshots.
 use super::{mode_data, profile_header};
-use crate::directory::Quota;
-use crate::native::{self, Closed, Direct};
+use crate::directory::{OpenPair, Quota};
+use crate::native::{self, Direct};
 use kraken::{Case, FieldCase, ProfileSimulationResult};
 use std::io;
 use std::path::Path;
@@ -43,22 +43,24 @@ pub struct Writer<'a> {
     stem: &'a str,
     cases: &'a [FieldCase],
     combined: bool,
-    // Closed between blocks, as indexed pairs are. Holding them open would give every `run-many`
-    // worker two more open files while it solves, so sweeps that fit a tight `ulimit -n` would fail.
-    modes: Option<Closed>,
-    shade: Option<Closed>,
+    modes: Option<Direct>,
+    shade: Option<Direct>,
+    // Release the budget only after both files close, including when the writer is dropped.
+    open_pair: Option<OpenPair>,
 }
 
 impl<'a> Writer<'a> {
     #[must_use]
     pub fn new(root: &'a Path, stem: &'a str, cases: &'a [FieldCase]) -> Self {
+        let combined = cases.len() > 1 && shared_headers(cases);
         Self {
             root,
             stem,
             cases,
-            combined: cases.len() > 1 && shared_headers(cases),
+            combined,
             modes: None,
             shade: None,
+            open_pair: combined.then(OpenPair::reserve).flatten(),
         }
     }
 
@@ -90,13 +92,15 @@ impl<'a> Writer<'a> {
             );
         }
         let mod_path = self.root.join(format!("{}.mod", self.stem));
-        self.write_modes(index, result, quota.remaining()?)
+        let size = self
+            .write_modes(index, result, quota.remaining()?)
             .map_err(|e| e.to_string())?;
-        quota.refresh(&mod_path)?;
+        quota.account(&mod_path, size)?;
         let shd_path = self.root.join(format!("{}.shd", self.stem));
-        self.write_field(result, quota.remaining()?)
+        let size = self
+            .write_field(result, quota.remaining()?)
             .map_err(|e| e.to_string())?;
-        quota.refresh(&shd_path)
+        quota.account(&shd_path, size)
     }
 
     fn frequencies(&self) -> Vec<f64> {
@@ -111,7 +115,7 @@ impl<'a> Writer<'a> {
         index: usize,
         result: &ProfileSimulationResult,
         remaining: u64,
-    ) -> io::Result<()> {
+    ) -> io::Result<u64> {
         // The shared header and record length come from the first block; the
         // selector guarantees every later block has the same depths and layers.
         let first = &self.cases[0].profiles()[0];
@@ -122,8 +126,8 @@ impl<'a> Writer<'a> {
             .div_ceil(2)
             * 2;
         let path = self.root.join(format!("{}.mod", self.stem));
-        let mut file = if let Some(closed) = self.modes.take() {
-            closed.reopen(&path, remaining)?
+        let mut file = if let Some(file) = self.modes.take() {
+            file.resume(&path, remaining)?
         } else {
             let mut file = Direct::new(&path, words, remaining)?;
             profile_header(&mut file, words, first, &self.frequencies())?;
@@ -135,16 +139,18 @@ impl<'a> Writer<'a> {
             &self.cases[index].profiles()[0],
             &result.modes[0],
         )?;
-        self.modes = Some(file.close()?);
-        Ok(())
+        let file = file.pause(self.open_pair.is_some())?;
+        let size = file.written();
+        self.modes = Some(file);
+        Ok(size)
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn write_field(&mut self, result: &ProfileSimulationResult, remaining: u64) -> io::Result<()> {
+    fn write_field(&mut self, result: &ProfileSimulationResult, remaining: u64) -> io::Result<u64> {
         let field = &result.field;
         let path = self.root.join(format!("{}.shd", self.stem));
-        let mut file = if let Some(closed) = self.shade.take() {
-            closed.reopen(&path, remaining)?
+        let mut file = if let Some(file) = self.shade.take() {
+            file.resume(&path, remaining)?
         } else {
             native::shd_header(
                 &path,
@@ -165,7 +171,9 @@ impl<'a> Writer<'a> {
             false,
             field.pressure.iter().map(|p| (p.re as f32, p.im as f32)),
         )?;
-        self.shade = Some(file.close()?);
-        Ok(())
+        let file = file.pause(self.open_pair.is_some())?;
+        let size = file.written();
+        self.shade = Some(file);
+        Ok(size)
     }
 }

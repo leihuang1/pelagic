@@ -149,22 +149,25 @@ hashing on every platform.
 By default, both single `run` and `run-many` sync the verified artifacts and manifest
 concurrently, with at most **16 participants including the calling thread**.
 Smaller publications use fewer participants. Each helper holds one open file,
-so helpers are shared across the process: at most 64, and at most a quarter of
-the open files left after 8 for each `run-many` worker (one, for a publication
-outside a sweep) and 32 for the process. When no helper may start, the calling
-thread does the work. A file that cannot be opened for lack of descriptors
-(EMFILE or ENFILE) while helpers run is tried once more by the calling thread
-alone, after every helper has closed its file; nothing was synced on the failed
-attempt. The reserve is an estimate of the CLI's own needs, not an inventory:
-while helpers run they hold extra open files, so a host process that publishes
-near its limit, or from several threads outside `run-many`, needs more
+so extra descriptors are shared across the process: at most 64, and at most a
+quarter of the open files left after 8 for each `run-many` worker (one, for a
+publication outside a sweep) and 32 for the process. A shared KRAKEN MOD/SHD
+pair reserves two of these same slots to stay open between frequency blocks;
+without both slots, it closes and reopens each file as before. Those slots are
+released when the writer closes, before publication syncs. When no helper may
+start, the calling thread does the work. A file that cannot be opened for lack
+of descriptors (EMFILE or ENFILE) while helpers run is tried once more by the
+calling thread alone, after every helper has closed its file; nothing was synced
+on the failed attempt. The reserve is an estimate of the CLI's own needs, not an
+inventory: while helpers run they hold extra open files, so a host process that
+publishes near its limit, or from several threads outside `run-many`, needs more
 headroom. The CLI first raises its soft open-file limit to the hard limit (at
 most 10240 on macOS); library callers keep their own limit, which is read again
-for every publication. Scoped helpers finish before
-installation; if a helper cannot be started, the calling thread and already
-running helpers finish its work instead. Every file still gets its own sync,
-and the first file error in filename order fails the publication. Helper-start
-failure is not an output error.
+for every publication. Scoped helpers finish before installation; if a helper
+cannot be started, the calling thread and already running helpers finish its
+work instead. Every file still gets its own sync, and the first file error in
+filename order fails the publication. Helper-start failure is not an output
+error.
 
 Linux, Windows and other non-Apple targets use each file's `sync_all` (including
 Windows `FlushFileBuffers`). Apple uses ordinary per-file `fsync`, then one
@@ -194,14 +197,15 @@ mode; neither case has a new `ok` record.
 KRAKEN keeps the positive `--max-output-bytes` default of 256 MiB: the known
 FIELD payload is admitted before solving, HDF5 payload/flush checks remain, and
 the cumulative physical size of all selected products, report and manifest is
-checked. A running physical-byte total counts closed native files once and
-refreshes growing MOD/SHD, report and HDF5 files at the block check points;
-shared MOD/SHD blocks are flushed before their sizes are refreshed. Installation
-still scans the entire stage. Native direct-record writers also check remaining
-bytes before each write. As before, HDF5 has no byte-limited VFD, so a bounded
-header/frequency write can temporarily exceed its physical quota before a
-flush/check. BELLHOP does not inherit KRAKEN's byte quota. Numerical
-mesh/mode/shape/FIELD work budgets are unchanged.
+checked. A running physical-byte total counts native files and the report from
+bytes written, excluding buffered report bytes, at the same block check points;
+shared MOD/SHD blocks are flushed before their sizes are accounted. HDF5 sizes
+still come from the filesystem. Installation still scans the entire stage.
+Native direct-record writers also check remaining bytes before each write. As
+before, HDF5 has no byte-limited VFD, so a bounded header/frequency write can
+temporarily exceed its physical quota before a flush/check. BELLHOP does not
+inherit KRAKEN's byte quota. Numerical mesh/mode/shape/FIELD work budgets are
+unchanged.
 
 After all frequencies succeed, verified previous artifacts are moved into
 `.pelagic-backup`; new files are exclusively renamed into place on Apple and

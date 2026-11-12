@@ -21,6 +21,7 @@ mod apple_batch;
 pub mod sync_observer;
 mod syncing;
 pub use batch::Batch;
+pub(crate) use syncing::OpenPair;
 pub use syncing::raise_open_file_limit;
 
 const MANIFEST: &str = "pelagic-manifest.json";
@@ -175,7 +176,8 @@ impl Transaction {
             .iter()
             .map(|input| fs::canonicalize(input).map_err(message))
             .collect::<Result<Vec<_>, _>>()?;
-        protect(output, &inputs, fs::canonicalize(parent).ok().as_deref())?;
+        let resolved_parent = fs::canonicalize(parent).ok();
+        let existing_output = protect(output, &inputs, resolved_parent.as_deref())?;
         let sibling = sibling_stage(output);
         let mut fresh = false;
         let created_output = match fs::symlink_metadata(output) {
@@ -204,11 +206,8 @@ impl Transaction {
                 output.join(".pelagic-lock").display()
             ));
         }
-        let resolved_output = fs::canonicalize(output).ok().or_else(|| {
-            fs::canonicalize(parent)
-                .ok()
-                .and_then(|p| output.file_name().map(|name| p.join(name)))
-        });
+        let resolved_output = existing_output
+            .or_else(|| resolved_parent.and_then(|p| output.file_name().map(|name| p.join(name))));
         for name in [
             MANIFEST,
             ".pelagic-lock",
@@ -504,7 +503,7 @@ impl Transaction {
     fn protect(&self, target: &Path) -> Result<(), String> {
         // Inputs and the real parent are fixed under our lock; recheck each destination and its
         // current file identity at every move, so even late symlink/hard-link aliases are refused.
-        protect(target, &self.inputs, self.resolved_output.as_deref())
+        protect(target, &self.inputs, self.resolved_output.as_deref()).map(|_| ())
     }
 
     fn rollback(&self, installed: &[(&Artifact, bool)], moved: &[&str]) -> Result<(), String> {
@@ -734,7 +733,8 @@ fn fingerprint(path: &Path, name: &str) -> Result<Artifact, String> {
     }
     let mut file = File::open(path).map_err(message)?;
     let mut hash = Sha256::new();
-    let mut buffer = [0; 8192];
+    // Large reads keep read-back to a few calls: a 4 MB SHD file takes 32 instead of 512.
+    let mut buffer = vec![0; 128 * 1024];
     loop {
         let count = file.read(&mut buffer).map_err(message)?;
         if count == 0 {
@@ -813,7 +813,11 @@ impl Quota {
     /// # Errors
     /// Returns filesystem or size-overflow errors.
     pub fn refresh(&mut self, path: &Path) -> Result<(), String> {
-        let size = fs::metadata(path).map_err(message)?.len();
+        self.account(path, fs::metadata(path).map_err(message)?.len())
+    }
+
+    /// Account known physical bytes at the same checkpoint as a filesystem refresh.
+    pub(crate) fn account(&mut self, path: &Path, size: u64) -> Result<(), String> {
         let previous = self.sizes.get(path).copied().unwrap_or(0);
         self.total = (self.total - previous)
             .checked_add(size)
@@ -832,13 +836,22 @@ impl Quota {
     }
 }
 
-fn protect(target: &Path, inputs: &[PathBuf], parent: Option<&Path>) -> Result<(), String> {
+fn protect(
+    target: &Path,
+    inputs: &[PathBuf],
+    parent: Option<&Path>,
+) -> Result<Option<PathBuf>, String> {
     if inputs.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
-    let existing = fs::canonicalize(target).ok();
+    let metadata = fs::metadata(target);
+    // Missing destinations have no alias to resolve; the cached parent still protects their name.
+    let existing = metadata
+        .as_ref()
+        .ok()
+        .and_then(|_| fs::canonicalize(target).ok());
     let destination = parent.and_then(|p| target.file_name().map(|name| p.join(name)));
-    let is_file = fs::metadata(target).is_ok_and(|m| m.is_file());
+    let is_file = metadata.is_ok_and(|m| m.is_file());
     for input in inputs {
         let mut alias = existing.as_ref() == Some(input) || destination.as_ref() == Some(input);
         if is_file {
@@ -848,7 +861,7 @@ fn protect(target: &Path, inputs: &[PathBuf], parent: Option<&Path>) -> Result<(
             return Err("output must not replace an input file or its alias".into());
         }
     }
-    Ok(())
+    Ok(existing)
 }
 
 fn parent(path: &Path) -> &Path {
@@ -863,4 +876,4 @@ fn message(e: impl std::fmt::Display) -> String {
 
 #[cfg(test)]
 #[path = "directory_tests.rs"]
-mod tests;
+pub(crate) mod tests;

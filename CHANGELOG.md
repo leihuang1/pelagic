@@ -55,6 +55,20 @@ in the [interface contract](docs/development/interface-contract.md).
   identity are preserved. Elastic KRAKEN, KRAKENC and the first two meshes keep
   their existing searches. See
   [fluid root search](docs/development/kraken-internals.md#fluid-root-search).
+- **Fewer filesystem calls in KRAKEN output.** A multi-frequency run keeps
+  its shared MOD and SHD files open between frequencies when the open-file
+  budget allows, and counts its output quota from the bytes it writes instead
+  of checking file sizes after every frequency. Path checks no longer resolve
+  output names that don't exist yet, and results are read back for hashing in
+  128 KiB instead of 8 KiB reads. On Linux, the 101-frequency broadband example
+  now makes 26 `statx` and 17 `openat` calls instead of 630 and 217, and 497
+  system calls in all instead of 1,660; the Gulf example makes 949 instead of
+  1,994. This matters most on parallel and network filesystems, where each such
+  call can be a round trip to a metadata server. On the local disk of an Intel
+  Core i5-14600KF (WSL2), broadband runs and sweeps take 0.95–0.98 of their
+  previous time; on an Apple M4 Pro, a broadband run takes 0.76. Under a tight
+  `ulimit -n`, the files are closed and reopened between frequencies as before.
+  Outputs, manifests, reports, status records and diagnostics are unchanged.
 - **Opt-in `--no-sync` for scratch output.** KRAKEN and BELLHOP `run` and
   `run-many` can skip per-file syncs and Apple's shared drive-cache flush.
   The default stays durable; verification, quotas, locks, backups, installation,

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 #[path = "directory/publication_tests.rs"]
 mod publication;
 
-pub(super) fn root(name: &str) -> PathBuf {
+pub(crate) fn root(name: &str) -> PathBuf {
     let root =
         std::env::temp_dir().join(format!("pelagic-publication-{name}-{}", std::process::id()));
     fs::create_dir(&root).unwrap();
@@ -482,6 +482,26 @@ fn cached_parent_and_inputs_resolve_symlinked_ancestors() {
     .unwrap_err();
     assert!(error.contains("input file or its alias"));
     assert_eq!(fs::read(out.join("input")).unwrap(), b"input");
+    fs::remove_dir_all(parent).unwrap();
+}
+
+#[test]
+fn cached_input_names_remain_protected_after_the_input_disappears() {
+    let parent = root("missing-input");
+    let out = parent.join("results");
+    fs::create_dir(&out).unwrap();
+    let input = out.join("input");
+    fs::write(&input, b"input").unwrap();
+    {
+        let mut transaction = Transaction::begin(&out, &[&input]).unwrap();
+        fs::remove_file(&input).unwrap();
+        fs::write(transaction.stage.join("input"), b"new").unwrap();
+        assert_eq!(
+            transaction.install(None, SyncPolicy::NoSync).unwrap_err(),
+            "output must not replace an input file or its alias"
+        );
+        assert!(!input.exists());
+    }
     fs::remove_dir_all(parent).unwrap();
 }
 
