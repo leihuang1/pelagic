@@ -9,6 +9,9 @@ use super::{DiagnosticReport, Mesh, ROOT_LANES, ROOT_STEPS, Refinement};
 
 const RELATIVE_WIDTH: f64 = 1e-13;
 const REFINE_STEPS: usize = 160;
+const SHOOT_LANES: usize = 16;
+// Keep enough independent chunks for multi-threaded profiles with only 62–63 modes.
+const REFINE_CHUNK: usize = 16;
 
 #[derive(Clone, Copy, Debug)]
 struct Interval {
@@ -58,21 +61,78 @@ impl Value {
     }
 }
 
-// Rare, so out of line and by value: the hot loop then keeps every lane in registers. Rescaling
-// in line, or through references, spilled the lanes to memory on x86-64.
+struct RootState {
+    a: f64,
+    b: f64,
+    fa: Value,
+    fb: Value,
+    last: i8,
+    iteration: usize,
+    answer: Option<f64>,
+}
+
+impl RootState {
+    fn trial(&mut self) -> Option<f64> {
+        // The old loop never checked width after its last shooting evaluation.
+        if self.iteration == REFINE_STEPS {
+            return None;
+        }
+        let tolerance = self.b.abs().max(self.a.abs()) * RELATIVE_WIDTH;
+        if self.b - self.a <= tolerance || self.a.next_up() >= self.b {
+            self.answer = Some(self.a.midpoint(self.b));
+            return None;
+        }
+        let mut x = self.a + (self.b - self.a) * self.fa.fraction(self.fb);
+        if self.iteration % 8 == 7 || !x.is_finite() || x <= self.a || x >= self.b {
+            x = self.a.midpoint(self.b);
+        }
+        self.iteration += 1;
+        Some(x)
+    }
+
+    fn accept(&mut self, x: f64, f: Value) -> bool {
+        if !f.value.is_finite() {
+            return false;
+        }
+        if f.value == 0.0 {
+            self.answer = Some(x);
+            return false;
+        }
+        if f.value.is_sign_positive() == self.fa.value.is_sign_positive() {
+            self.a = x;
+            self.fa = f;
+            if self.last == 1 {
+                self.fb.value *= 0.5;
+            }
+            self.last = 1;
+        } else {
+            self.b = x;
+            self.fb = f;
+            if self.last == -1 {
+                self.fa.value *= 0.5;
+            }
+            self.last = -1;
+        }
+        true
+    }
+}
+
+// Cold and by value: inline/reference rescaling scalarized the hot loop on x86-64.
 #[cold]
 #[inline(never)]
-fn rescale<const K: usize>(
+fn rescale<const K: usize, const O: usize>(
     mut previous: [f64; K],
     mut current: [f64; K],
-    mut older: [f64; K],
+    mut older: [f64; O],
     mut power: [i32; K],
-) -> ([f64; K], [f64; K], [f64; K], [i32; K]) {
+) -> ([f64; K], [f64; K], [f64; O], [i32; K]) {
     for k in 0..K {
         if current[k].abs() > 1e100 {
             current[k] *= 2_f64.powi(-256);
             previous[k] *= 2_f64.powi(-256);
-            older[k] *= 2_f64.powi(-256);
+            if k < O {
+                older[k] *= 2_f64.powi(-256);
+            }
             power[k] += 256;
         }
     }
@@ -91,7 +151,9 @@ fn shoot_interior<const K: usize>(
     let mut previous = *previous_out;
     let mut current = *current_out;
     let mut power = *power_out;
-    let mut older = [0.0; K];
+    let Some((&last, rows)) = rows.split_first() else {
+        return [0.0; K];
+    };
     for &b in rows.iter().rev() {
         let mut diagonal = [0.0; K];
         let mut next = [0.0; K];
@@ -104,7 +166,6 @@ fn shoot_interior<const K: usize>(
         for k in 0..K {
             next[k] -= previous[k];
         }
-        older = previous;
         previous = current;
         current = next;
         // One combined test per row, where a short-circuiting `any` branched per lane.
@@ -112,8 +173,22 @@ fn shoot_interior<const K: usize>(
             .iter()
             .fold(false, |need, v| need | (v.abs() > 1e100))
         {
-            (previous, current, older, power) = rescale(previous, current, older, power);
+            (previous, current, _, power) = rescale(previous, current, [], power);
         }
+    }
+    // Only the last row needs the two-rows-back value for the boundary derivative.
+    let mut older = previous;
+    let mut next = [0.0; K];
+    for k in 0..K {
+        next[k] = (shift[k] - last) * current[k] - previous[k];
+    }
+    previous = current;
+    current = next;
+    if current
+        .iter()
+        .fold(false, |need, v| need | (v.abs() > 1e100))
+    {
+        (previous, current, older, power) = rescale(previous, current, older, power);
     }
     *previous_out = previous;
     *current_out = current;
@@ -159,6 +234,23 @@ impl Mesh<'_> {
                 power: power[k],
             }
         })
+    }
+
+    fn fluid_dispersion_tail<const K: usize>(&self, x: [f64; K], live: usize) -> [Value; K] {
+        let mut values = [Value {
+            value: 0.0,
+            power: 0,
+        }; K];
+        if K > 4 && live <= 4 {
+            values[..4]
+                .copy_from_slice(&self.fluid_dispersion(std::array::from_fn::<_, 4, _>(|k| x[k])));
+        } else if K > 8 && live <= 8 {
+            values[..8]
+                .copy_from_slice(&self.fluid_dispersion(std::array::from_fn::<_, 8, _>(|k| x[k])));
+        } else {
+            values = self.fluid_dispersion(x);
+        }
+        values
     }
 
     fn isolate_fluid(&self, whole: Interval) -> Result<Vec<Option<Interval>>, DiagnosticReport> {
@@ -245,8 +337,141 @@ impl Mesh<'_> {
         Ok(brackets)
     }
 
-    #[allow(clippy::needless_range_loop)] // Each lane owns its bracket and stopping point.
+    #[allow(clippy::too_many_lines)] // Keep endpoint, queue and certification passes together.
     fn refine_fluid<const K: usize>(
+        &self,
+        intervals: &[Option<Interval>],
+        whole: Interval,
+    ) -> Result<Vec<Option<f64>>, DiagnosticReport> {
+        crate::cancellation::check()?;
+        let mut states: Vec<_> = intervals
+            .iter()
+            .map(|interval| {
+                let bracket = interval.unwrap_or(whole);
+                RootState {
+                    a: bracket.a,
+                    b: bracket.b,
+                    fa: Value {
+                        value: 0.0,
+                        power: 0,
+                    },
+                    fb: Value {
+                        value: 0.0,
+                        power: 0,
+                    },
+                    last: 0,
+                    iteration: 0,
+                    answer: None,
+                }
+            })
+            .collect();
+        // Pack both endpoints together, including across the old group boundaries.
+        let endpoints: Vec<_> = intervals
+            .iter()
+            .enumerate()
+            .filter(|(_, interval)| interval.is_some())
+            .flat_map(|(mode, _)| [2 * mode, 2 * mode + 1])
+            .collect();
+        for chunk in endpoints.chunks(K) {
+            crate::cancellation::check()?;
+            let x = std::array::from_fn(|k| {
+                let endpoint = chunk[k.min(chunk.len() - 1)];
+                let state = &states[endpoint / 2];
+                if endpoint % 2 == 0 { state.a } else { state.b }
+            });
+            let values = self.fluid_dispersion_tail::<K>(x, chunk.len());
+            for (&endpoint, value) in chunk.iter().zip(values) {
+                let state = &mut states[endpoint / 2];
+                if endpoint % 2 == 0 {
+                    state.fa = value;
+                } else {
+                    state.fb = value;
+                }
+            }
+        }
+        let pending: Vec<_> = states
+            .iter()
+            .enumerate()
+            .filter(|(_, state)| state.fa.opposite(state.fb))
+            .map(|(mode, _)| mode)
+            .collect();
+        let mut pending = pending.into_iter();
+        let mut lanes: Vec<usize> = Vec::with_capacity(K);
+        loop {
+            crate::cancellation::check()?;
+            let mut x = [0.0; K];
+            let mut live = 0;
+            lanes.retain(|&mode| {
+                if let Some(trial) = states[mode].trial() {
+                    x[live] = trial;
+                    live += 1;
+                    true
+                } else {
+                    false
+                }
+            });
+            while lanes.len() < K {
+                let Some(mode) = pending.next() else { break };
+                crate::cancellation::check()?;
+                if let Some(trial) = states[mode].trial() {
+                    x[lanes.len()] = trial;
+                    lanes.push(mode);
+                }
+            }
+            if lanes.is_empty() {
+                break;
+            }
+            let padding = x[0];
+            x[lanes.len()..].fill(padding);
+            let values = self.fluid_dispersion_tail(x, lanes.len());
+            let mut k = 0;
+            lanes.retain(|&mode| {
+                let active = states[mode].accept(x[k], values[k]);
+                k += 1;
+                active
+            });
+        }
+        // Keep the original clipping and target check, but pack successful modes.
+        let endpoints: Vec<_> = states
+            .iter()
+            .enumerate()
+            .filter(|(_, state)| state.answer.is_some())
+            .flat_map(|(mode, _)| [2 * mode, 2 * mode + 1])
+            .collect();
+        let mut counts = vec![[0; 2]; states.len()];
+        for chunk in endpoints.chunks(K) {
+            crate::cancellation::check()?;
+            let x = std::array::from_fn(|k| {
+                let endpoint = chunk[k.min(chunk.len() - 1)];
+                let mode = endpoint / 2;
+                let x = states[mode].answer.unwrap();
+                let bracket = intervals[mode].unwrap();
+                if endpoint % 2 == 0 {
+                    (x - x.abs() * RELATIVE_WIDTH).max(bracket.a)
+                } else {
+                    (x + x.abs() * RELATIVE_WIDTH).min(bracket.b)
+                }
+            });
+            let values = self.count_lanes::<K>(x);
+            for (&endpoint, value) in chunk.iter().zip(values) {
+                counts[endpoint / 2][endpoint % 2] = value;
+            }
+        }
+        Ok(states
+            .into_iter()
+            .enumerate()
+            .map(|(mode, state)| {
+                state.answer.filter(|_| {
+                    let bracket = intervals[mode].unwrap();
+                    counts[mode] == [bracket.ca, bracket.cb]
+                })
+            })
+            .collect())
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::needless_range_loop)] // Each lane owns its bracket and stopping point.
+    fn refine_fluid_original<const K: usize>(
         &self,
         intervals: &[Option<Interval>],
         whole: Interval,
@@ -341,7 +566,7 @@ impl Mesh<'_> {
         whole: Interval,
         start: usize,
     ) -> Result<Vec<f64>, DiagnosticReport> {
-        let answers = self.refine_fluid::<ROOT_LANES>(intervals, whole)?;
+        let answers = self.refine_fluid::<SHOOT_LANES>(intervals, whole)?;
         let mut roots = Vec::with_capacity(intervals.len());
         for (k, answer) in answers.into_iter().take(intervals.len()).enumerate() {
             roots.push(if let Some(x) = answer {
@@ -376,20 +601,32 @@ impl Mesh<'_> {
         } else {
             None
         };
-        let groups = count.div_ceil(ROOT_LANES);
+        // One queue for the one-thread workload; otherwise fixed, ordered chunks.
+        let chunk_size = if crate::parallelism::threads() == 1 {
+            count.max(1)
+        } else {
+            REFINE_CHUNK
+        };
+        let groups = count.div_ceil(chunk_size);
         let estimated_work = count.saturating_mul(self.b1.len()).saturating_mul(32);
         let mut roots = Vec::with_capacity(count);
-        // Fixed groups: neither membership nor arithmetic depends on worker splits.
         for result in crate::parallelism::map(groups, estimated_work, |group| {
-            let start = group * ROOT_LANES;
-            let end = count.min(start + ROOT_LANES);
+            let start = group * chunk_size;
+            let end = count.min(start + chunk_size);
             if let Some(isolated) = &isolated {
                 self.fluid_group(&isolated[start..end], whole, start)
             } else {
                 let seeds: Vec<_> = (start..end)
                     .map(|index| refinement.seed(index, self.h).map(|x| x.re))
                     .collect();
-                let brackets = self.seed_fluid::<ROOT_LANES>(&seeds, whole, start)?;
+                let mut brackets = Vec::with_capacity(seeds.len());
+                for (group, chunk) in seeds.chunks(ROOT_LANES).enumerate() {
+                    brackets.extend(self.seed_fluid::<ROOT_LANES>(
+                        chunk,
+                        whole,
+                        start + group * ROOT_LANES,
+                    )?);
+                }
                 self.fluid_group(&brackets, whole, start)
             }
         }) {
@@ -523,6 +760,16 @@ mod tests {
             (0.25, -1.0),
         ];
         let power = check::<ROOT_LANES>(rows, shift, start);
+        check::<12>(
+            rows,
+            std::array::from_fn(|k| shift[k % 8]),
+            std::array::from_fn(|k| start[k % 8]),
+        );
+        check::<16>(
+            rows,
+            std::array::from_fn(|k| shift[k % 8]),
+            std::array::from_fn(|k| start[k % 8]),
+        );
         assert!(power[1] > 0 && power[7] > 0 && power[6] == 0, "{power:?}");
         for k in 0..ROOT_LANES {
             check::<1>(rows, [shift[k]], [start[k]]);
@@ -531,6 +778,364 @@ mod tests {
         for length in [0, 1, 2, 3] {
             check::<ROOT_LANES>(&rows[..length], shift, start);
         }
+    }
+
+    fn oracle(mesh: &Mesh<'_>, brackets: &[Option<Interval>], whole: Interval) -> Vec<Option<f64>> {
+        brackets
+            .chunks(ROOT_LANES)
+            .flat_map(|chunk| {
+                mesh.refine_fluid_original::<ROOT_LANES>(chunk, whole)
+                    .unwrap()
+                    .into_iter()
+                    .take(chunk.len())
+            })
+            .collect()
+    }
+
+    fn assert_oracle(mesh: &Mesh<'_>, brackets: &[Option<Interval>], whole: Interval) {
+        let expected = oracle(mesh, brackets, whole);
+        for threads in [1, 4] {
+            crate::parallelism::with_threads(std::num::NonZeroUsize::new(threads).unwrap(), || {
+                let bits = |values: Vec<Option<f64>>| {
+                    values
+                        .into_iter()
+                        .map(|x| x.map(f64::to_bits))
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(
+                    bits(mesh.refine_fluid::<4>(brackets, whole).unwrap()),
+                    bits(expected.clone())
+                );
+                assert_eq!(
+                    bits(mesh.refine_fluid::<8>(brackets, whole).unwrap()),
+                    bits(expected.clone())
+                );
+                assert_eq!(
+                    bits(mesh.refine_fluid::<12>(brackets, whole).unwrap()),
+                    bits(expected.clone())
+                );
+                assert_eq!(
+                    bits(mesh.refine_fluid::<16>(brackets, whole).unwrap()),
+                    bits(expected.clone())
+                );
+                let actual = mesh.fluid_group(brackets, whole, 0).unwrap();
+                for (mode, (actual, expected)) in actual.into_iter().zip(&expected).enumerate() {
+                    let expected = expected.unwrap_or_else(|| {
+                        mesh.bisect::<1>(whole.a, whole.b, whole.cb, mode..mode + 1)
+                            .unwrap()[0]
+                    });
+                    assert_eq!(
+                        actual.to_bits(),
+                        expected.to_bits(),
+                        "mode {mode}, threads {threads}"
+                    );
+                }
+            });
+        }
+    }
+
+    fn original_fluid_roots(
+        mesh: &Mesh<'_>,
+        whole: Interval,
+        history: &Refinement<f64>,
+    ) -> Vec<f64> {
+        let count = whole.ca - whole.cb;
+        let isolated = history
+            .seed(0, mesh.h)
+            .is_none()
+            .then(|| mesh.isolate_fluid(whole).unwrap());
+        let mut roots = Vec::with_capacity(count);
+        for start in (0..count).step_by(ROOT_LANES) {
+            let end = count.min(start + ROOT_LANES);
+            let brackets = if let Some(isolated) = &isolated {
+                isolated[start..end].to_vec()
+            } else {
+                let seeds: Vec<_> = (start..end)
+                    .map(|mode| history.seed(mode, mesh.h).map(|x| x.re))
+                    .collect();
+                mesh.seed_fluid::<ROOT_LANES>(&seeds, whole, start).unwrap()
+            };
+            let answers = mesh
+                .refine_fluid_original::<ROOT_LANES>(&brackets, whole)
+                .unwrap();
+            for (k, answer) in answers.into_iter().take(brackets.len()).enumerate() {
+                let mode = start + k;
+                roots.push(answer.unwrap_or_else(|| {
+                    mesh.bisect::<1>(whole.a, whole.b, whole.cb, mode..mode + 1)
+                        .unwrap()[0]
+                }));
+            }
+        }
+        roots
+    }
+
+    #[test]
+    fn fluid_roots_dispatch_matches_original_groups_across_chunk_and_seed_boundaries() {
+        let mut definition = load("MunkLossless").into_definition();
+        definition.max_range_m = 1e20;
+        let case = crate::Case::from_definition(definition).unwrap();
+        let meshes = Meshes::new(&case).unwrap();
+        let mut history = Refinement::<f64>::default();
+        let bits = |roots: &[f64]| roots.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        for multiplier in [1, 2, 4] {
+            let mesh = Mesh::new(&meshes, multiplier).unwrap();
+            let full = interval(&mesh);
+            assert_eq!(history.seed(0, mesh.h).is_some(), multiplier == 4);
+            let original = original_fluid_roots(&mesh, full, &history);
+            assert!(original.len() > 3 * REFINE_CHUNK + 1);
+            for count in [
+                REFINE_CHUNK - 1,
+                REFINE_CHUNK,
+                REFINE_CHUNK + 1,
+                3 * REFINE_CHUNK - 1,
+                3 * REFINE_CHUNK,
+                3 * REFINE_CHUNK + 1,
+                original.len(),
+            ] {
+                let whole = if count == original.len() {
+                    full
+                } else {
+                    Interval {
+                        a: original[count - 1].midpoint(original[count]),
+                        ca: full.cb + count,
+                        ..full
+                    }
+                };
+                assert_eq!(mesh.count(whole.a), whole.ca);
+                let expected = original_fluid_roots(&mesh, whole, &history);
+                for threads in [1, 4] {
+                    let actual = crate::parallelism::with_threads(
+                        std::num::NonZeroUsize::new(threads).unwrap(),
+                        || {
+                            mesh.fluid_roots(whole.a, whole.b, whole.cb, count, &history)
+                                .unwrap()
+                        },
+                    );
+                    assert_eq!(
+                        bits(&actual),
+                        bits(&expected),
+                        "mesh {multiplier}, modes {count}, threads {threads}"
+                    );
+                }
+            }
+            history
+                .accept(original, Some(mesh.h), &case, |roots| mesh.modes(roots))
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn refill_matches_original_groups_bit_for_bit() {
+        for name in [
+            "Pekeris",
+            "LayeredFluidThree",
+            "MunkLossless",
+            "SductTrapped",
+            "FluidBoundaryRR",
+        ] {
+            let case = load(name);
+            let meshes = Meshes::new(&case).unwrap();
+            for multiplier in [1, 2, 4] {
+                let mesh = Mesh::new(&meshes, multiplier).unwrap();
+                let whole = interval(&mesh);
+                let isolated = mesh.isolate_fluid(whole).unwrap();
+                let mut seeded = Vec::new();
+                for (group, chunk) in isolated.chunks(ROOT_LANES).enumerate() {
+                    let start = group * ROOT_LANES;
+                    let roots = mesh
+                        .bisect::<ROOT_LANES>(
+                            whole.a,
+                            whole.b,
+                            whole.cb,
+                            start..start + chunk.len(),
+                        )
+                        .unwrap();
+                    let seeds: Vec<_> = roots.into_iter().map(Some).collect();
+                    seeded.extend(mesh.seed_fluid::<ROOT_LANES>(&seeds, whole, start).unwrap());
+                }
+                for brackets in [&isolated, &seeded] {
+                    for count in [1, 2, 3, 7, 8, 9, 15, 16, 17, brackets.len()] {
+                        if count <= brackets.len() {
+                            assert_oracle(&mesh, &brackets[..count], whole);
+                        }
+                    }
+                }
+                // Interleave immediate fallback, narrow seeded and wide isolated modes.
+                let mixed: Vec<_> = isolated
+                    .iter()
+                    .zip(&seeded)
+                    .enumerate()
+                    .map(|(mode, (&a, &b))| match mode % 3 {
+                        0 => None,
+                        1 => b,
+                        _ => a,
+                    })
+                    .collect();
+                assert_oracle(&mesh, &mixed, whole);
+            }
+        }
+    }
+
+    #[test]
+    fn refill_fallbacks_match_original_groups() {
+        let case = load("Pekeris");
+        let meshes = Meshes::new(&case).unwrap();
+        let mut mesh = Mesh::new(&meshes, 1).unwrap();
+        let whole = interval(&mesh);
+        let isolated = mesh.isolate_fluid(whole).unwrap();
+        let bracket = isolated[0].unwrap();
+        for brackets in [
+            vec![None],
+            vec![Some(Interval {
+                a: whole.b.next_down(),
+                b: whole.b,
+                ..bracket
+            })],
+            vec![Some(Interval {
+                ca: bracket.ca + 1,
+                cb: bracket.cb + 1,
+                ..bracket
+            })],
+        ] {
+            assert!(oracle(&mesh, &brackets, whole)[0].is_none());
+            assert_oracle(&mesh, &brackets, whole);
+        }
+        mesh.b1[1] = f64::INFINITY;
+        assert!(oracle(&mesh, &isolated, whole).iter().all(Option::is_none));
+        assert_oracle(&mesh, &isolated, whole);
+    }
+
+    #[test]
+    fn iteration_cap_matches_the_original_loop_with_lane_refills() {
+        let case = load("FluidBoundaryVV");
+        let meshes = Meshes::new(&case).unwrap();
+        let mut mesh = Mesh::new(&meshes, 1).unwrap();
+        mesh.layers[0].intervals = 4;
+        mesh.layers[0].h = 1.0;
+        mesh.h = 1.0;
+        mesh.b1 = vec![2.0; 5];
+        let whole = Interval {
+            a: 0.0,
+            b: 1e90,
+            ca: 3,
+            cb: 0,
+        };
+        let [fa, fb] = mesh.fluid_dispersion([whole.a, whole.b]);
+        assert!(fa.opposite(fb));
+        let mut state = RootState {
+            a: whole.a,
+            b: whole.b,
+            fa,
+            fb,
+            last: 0,
+            iteration: 0,
+            answer: None,
+        };
+        for _ in 0..REFINE_STEPS {
+            let x = state.trial().expect("wide interval still active");
+            assert!(state.accept(x, mesh.fluid_dispersion([x])[0]));
+        }
+        assert!(state.trial().is_none());
+        assert!(state.answer.is_none());
+        assert!(oracle(&mesh, &[Some(whole)], whole)[0].is_none());
+        assert_oracle(&mesh, &[Some(whole)], whole);
+        let zero = Interval {
+            a: 1.0,
+            b: 3.0,
+            ca: mesh.count(1.0),
+            cb: mesh.count(3.0),
+        };
+        assert_eq!(
+            mesh.fluid_dispersion([2.0])[0].value.abs().to_bits(),
+            0.0_f64.to_bits()
+        );
+        // Cap modes outnumber the lanes; first-trial zeros refill beside them and after them.
+        let brackets: Vec<_> = (0..4 * SHOOT_LANES + 2)
+            .map(|mode| match mode % 4 {
+                0 => Some(whole),
+                1 => Some(zero),
+                2 => None,
+                _ => Some(Interval { a: 2.0, ..zero }), // A zero endpoint rejects refinement.
+            })
+            .collect();
+        for (mode, answer) in oracle(&mesh, &brackets, whole).into_iter().enumerate() {
+            assert_eq!(
+                answer.map(f64::to_bits),
+                (mode % 4 == 1).then_some(2.0_f64.to_bits())
+            );
+        }
+        assert_oracle(&mesh, &brackets, whole);
+    }
+
+    #[test]
+    fn nonfinite_interior_values_reject_an_active_refinement() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut state = RootState {
+                a: 1.0,
+                b: 2.0,
+                fa: Value {
+                    value: -f64::MIN_POSITIVE,
+                    power: -1000,
+                },
+                fb: Value {
+                    value: 1.0,
+                    power: 1000,
+                },
+                last: 0,
+                iteration: 0,
+                answer: None,
+            };
+            assert!(state.fa.opposite(state.fb));
+            let x = state.trial().unwrap();
+            // An underflowed secant fraction rounds to a; the guard must pick an interior midpoint.
+            assert_eq!(x.to_bits(), 1.5_f64.to_bits());
+            assert_eq!(state.iteration, 1);
+            assert!(!state.accept(x, Value { value, power: 0 }));
+            assert!(state.answer.is_none());
+            assert_eq!(
+                (state.a.to_bits(), state.b.to_bits(), state.last),
+                (1.0_f64.to_bits(), 2.0_f64.to_bits(), 0)
+            );
+        }
+    }
+
+    #[test]
+    fn last_shooting_step_accepts_zero_but_not_a_newly_narrow_bracket() {
+        let mut state = RootState {
+            a: 1.0,
+            b: 2.0,
+            fa: Value {
+                value: -1.0,
+                power: 0,
+            },
+            fb: Value {
+                value: 1.0,
+                power: 0,
+            },
+            last: 0,
+            iteration: REFINE_STEPS - 1,
+            answer: None,
+        };
+        let x = state.trial().unwrap();
+        assert_eq!(x.to_bits(), 1.5_f64.to_bits());
+        assert!(state.accept(
+            x,
+            Value {
+                value: -0.5,
+                power: 0
+            }
+        ));
+        state.b = state.a.next_up();
+        assert!(state.trial().is_none());
+        assert!(state.answer.is_none());
+        assert!(!state.accept(
+            x,
+            Value {
+                value: 0.0,
+                power: 0
+            }
+        ));
+        assert_eq!(state.answer.unwrap().to_bits(), x.to_bits());
     }
 
     #[test]
@@ -685,6 +1290,18 @@ mod tests {
         let bits = |roots: &[f64]| roots.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
         let mut used = 0;
         let expected = mesh.roots(&Refinement::default(), &mut used).unwrap();
+        let brackets = mesh.isolate_fluid(whole).unwrap();
+        let original_roots: Vec<_> = oracle(&mesh, &brackets, whole)
+            .into_iter()
+            .enumerate()
+            .map(|(mode, answer)| {
+                answer.unwrap_or_else(|| {
+                    mesh.bisect::<1>(whole.a, whole.b, whole.cb, mode..mode + 1)
+                        .unwrap()[0]
+                })
+            })
+            .collect();
+        assert_eq!(bits(&expected), bits(&original_roots));
         assert_eq!(used, original);
         for threads in [1, 2, 4] {
             crate::parallelism::with_threads(std::num::NonZeroUsize::new(threads).unwrap(), || {
@@ -736,6 +1353,8 @@ mod tests {
             let mesh = Mesh::new(&meshes, 1).unwrap();
             let whole = interval(&mesh);
             let roots = mesh.roots(&Refinement::default(), &mut 0).unwrap();
+            let brackets = mesh.isolate_fluid(whole).unwrap();
+            assert_oracle(&mesh, &brackets, whole);
             assert_eq!(roots.len(), whole.ca - whole.cb, "{}", env.display());
             for (group, chunk) in roots.chunks(ROOT_LANES).enumerate() {
                 let start = group * ROOT_LANES;

@@ -7,6 +7,15 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster fluid KRAKEN root refinement.** Up to 16 shooting lanes take the
+  next mode as soon as one finishes, and endpoint evaluations and final count
+  checks are packed across modes. Each mode keeps its original refinement steps,
+  stopping rule and fallback; results are bit-for-bit unchanged. With the
+  x86-64-v3 CLI on an Intel Core i5-14600KF (WSL2), whole
+  `kraken run --threads 1 --no-sync` runs take 0.85–0.86 of their previous time
+  for Munk and surface duct, and 0.94–0.95 for broadband and Gulf. One-thread
+  solver-only runs on an Apple M4 Pro are 1.2–1.5 times faster. Elastic KRAKEN
+  and KRAKENC searches are unchanged.
 - **Faster finite elastic KRAKEN layers.** Their transfer now keeps its state
   in real arithmetic and skips unit rescaling; KRAKENC's complex arithmetic is
   unchanged. On one thread, the elastic-sediment example's solver-only run is
