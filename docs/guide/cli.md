@@ -123,7 +123,7 @@ processes at once, for example from a job array, `xargs -P` or MATLAB `parfor`,
 give each one a share of the CPUs so that they do not compete.
 
 BELLHOP shares the rays of each source between threads. KRAKEN shares the mode
-search, the mode shapes and the FIELD receivers. On eight or more threads, KRAKEN
+search, the mode shapes and the FIELD receivers. On two or more threads, KRAKEN
 frequencies and range-dependent profiles also solve side by side after the first,
 and their results still arrive in order, so about 128 MiB of finished results can
 wait in memory. Fewer solve together if their results are large. If a frequency

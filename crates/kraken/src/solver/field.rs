@@ -18,9 +18,10 @@ const ADIABATIC_RANGE_LANES: usize = 8;
 // Full groups beat scalar rows with many modes on M4; partial groups have little margin.
 const MIN_ADIABATIC_RANGES: usize = ADIABATIC_RANGE_LANES;
 
-// Below this many threads, one solve's own parallelism beats solving side by side,
-// where the slowest solve holds up its whole window. Measured, not fundamental.
-const SOLVE_WINDOW_THREADS: usize = 8;
+// From this many threads, independent solves side by side beat one solve's own
+// parallelism, although the slowest solve holds up its window: measured on Apple M4
+// and Intel i5 at 2, 4 and 8 threads. With one thread, solving ahead only waits.
+const SOLVE_WINDOW_THREADS: usize = 2;
 // Solves per thread in one window: a surplus lets faster cores take more of them.
 const SOLVES_PER_THREAD: usize = 4;
 // Finished results one window may hold, judging each by twice the largest so far.
@@ -1927,8 +1928,8 @@ mod solve_window_tests {
     const SMALL: Option<usize> = Some(1);
 
     #[test]
-    fn windows_scale_with_threads_and_few_threads_solve_one_at_a_time() {
-        for (budget, expected) in [(1, 1), (2, 1), (7, 1), (8, 32), (14, 56), (32, 128)] {
+    fn windows_scale_with_threads_and_one_thread_solves_one_at_a_time() {
+        for (budget, expected) in [(1, 1), (2, 8), (7, 28), (8, 32), (14, 56), (32, 128)] {
             crate::parallelism::with_threads(NonZeroUsize::new(budget).unwrap(), || {
                 assert_eq!(solve_window_len(0, true, SMALL), 0);
                 assert_eq!(solve_window_len(1000, true, SMALL), expected);
