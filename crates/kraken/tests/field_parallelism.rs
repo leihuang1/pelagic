@@ -103,7 +103,7 @@ fn first_and_middle_block_errors_stop_in_input_order() {
         for failed in [0, 1, 9] {
             let mut cases = vec![good.clone(); failed];
             cases.extend([bad.clone(), later_bad.clone(), good.clone()]);
-            for count in [1, 4, 8, 16] {
+            for count in [1, 2, 3, 4, 8, 16] {
                 threads(count, || {
                     let mut results = solve_frequencies(&cases);
                     for _ in 0..failed {
@@ -136,7 +136,7 @@ fn first_and_middle_profile_errors_keep_their_input_index() {
                 expected.diagnostics()[0].field,
                 format!("profiles[{failed}].mesh_points")
             );
-            for count in [4, 8, 16] {
+            for count in [2, 3, 4, 8, 16] {
                 assert_eq!(threads(count, || solve_field(&case).unwrap_err()), expected);
             }
         }
@@ -171,7 +171,7 @@ fn independent_mixed_solvers_are_rejected_before_the_mismatched_solve() {
 }
 
 #[test]
-fn frequency_iteration_is_lazy_and_cancellation_discards_buffered_successes() {
+fn frequency_iteration_is_lazy_and_cancellation_stops_after_successes() {
     for solver in [ModeSolver::Kraken, ModeSolver::Krakenc] {
         let cases = vec![load("Pekeris", solver).remove(0); 12];
         let token = Arc::new(AtomicBool::new(true));
@@ -181,28 +181,32 @@ fn frequency_iteration_is_lazy_and_cancellation_discards_buffered_successes() {
             threads(8, || lazy.next().unwrap()).is_ok(),
             "construction must not solve"
         );
-        threads(8, || {
-            kraken::cancellation::with_token(token.clone(), || {
-                let mut cancelled = solve_frequencies(&cases);
-                assert_eq!(
-                    cancelled.next().unwrap().unwrap_err().diagnostics()[0].code,
-                    "KR0304"
-                );
-                assert!(cancelled.next().is_none());
-                token.store(false, Ordering::Relaxed);
-                let mut results = solve_frequencies(&cases);
-                // The second pull solves ahead, leaving later results buffered.
-                assert!(results.next().unwrap().is_ok());
-                assert!(results.next().unwrap().is_ok());
-                token.store(true, Ordering::Relaxed);
-                assert_eq!(
-                    results.next().unwrap().unwrap_err().diagnostics()[0].code,
-                    "KR0304"
-                );
-                token.store(false, Ordering::Relaxed);
-                assert!(results.next().is_none());
+        for count in [2, 3, 4, 8] {
+            token.store(true, Ordering::Relaxed);
+            threads(count, || {
+                kraken::cancellation::with_token(token.clone(), || {
+                    let mut cancelled = solve_frequencies(&cases);
+                    assert_eq!(
+                        cancelled.next().unwrap().unwrap_err().diagnostics()[0].code,
+                        "KR0304"
+                    );
+                    assert!(cancelled.next().is_none());
+                    token.store(false, Ordering::Relaxed);
+                    let mut results = solve_frequencies(&cases);
+                    // At eight threads, these pulls also leave later successes buffered.
+                    for _ in 0..3 {
+                        assert!(results.next().unwrap().is_ok());
+                    }
+                    token.store(true, Ordering::Relaxed);
+                    assert_eq!(
+                        results.next().unwrap().unwrap_err().diagnostics()[0].code,
+                        "KR0304"
+                    );
+                    token.store(false, Ordering::Relaxed);
+                    assert!(results.next().is_none());
+                });
             });
-        });
+        }
     }
 }
 
