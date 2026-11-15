@@ -108,6 +108,19 @@ If it fails, fix the problem on a new PR and start again from step 2.
 > acceptance with `DEVELOPER_DIR=/Library/Developer/CommandLineTools`, or update
 > Xcode. Note the toolchain used in the release notes.
 
+> **Slow reference archive download.** Every run's image step downloads the
+> pinned Acoustics Toolbox archive from GitHub's codeload, retrying up to 10
+> times with a 900-second limit each, and every retry starts from zero. If the
+> download crawls, you can supply a copy you trust instead, such as one taken
+> from an earlier build of the reference image. Its SHA-256 must match
+> `expected` in `tools/reference/build-image.sh`. Place it as
+> `tools/reference/Acoustics-Toolbox-<commit>.tar.gz` only after the run's
+> `target/acceptance/<UTC>-<pid>/` directory appears. The run creates that
+> directory after its clean-tree check, so placing the file earlier fails that
+> check. `build-image.sh` checks the hash, uses the file and deletes it. If the
+> run stops before the image step, delete the file yourself. Say in the release
+> notes that the archive was supplied.
+
 ## 4. Write the release notes
 
 Use the previous release as a template (`gh release view vA.B.C`). The notes
