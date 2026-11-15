@@ -12,6 +12,10 @@ serde_json = "1"
 [profile.release]
 debug = "line-tables-only"
 
+# Matches the workspace: the shipped BELLHOP is built with one codegen unit.
+[profile.release.package.bellhop]
+codegen-units = 1
+
 [workspace]
 
 [lints.rust]
