@@ -18,6 +18,11 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/leihuang1/pelagic"
 publish = false
 
+# One codegen unit lets LLVM inline across the whole ray tracer, which makes BELLHOP
+# faster, most of all on x86-64. KRAKEN gained nothing from it, so it keeps the default.
+[profile.release.package.bellhop]
+codegen-units = 1
+
 # Optimize numerical kernels, not the adapters/dependencies. Keep test safety checks.
 [profile.test.package.bellhop]
 opt-level = 2

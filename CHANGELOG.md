@@ -7,6 +7,17 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+- **Faster one-thread BELLHOP on x86-64.** Release builds now compile the
+  BELLHOP crate as one codegen unit, so the compiler can inline across the
+  whole ray tracer. With the default x86-64 CLI on an Intel Core i5-14600KF
+  (WSL2), one-thread transmission-loss runs take 0.90–0.92 of their previous
+  time (for example `munk-tl`, `seamount` and `elastic-bottom`); arrivals and
+  rays gain 1–2%. On an Apple M4 Pro the gain is 1–6%. With eight or more
+  threads there is none, so it helps sweeps most: by default `run-many` gives
+  each case one thread when there are at least as many cases as CPUs. Results
+  are bit-for-bit unchanged, and KRAKEN is unaffected. The BELLHOP crate takes
+  about 5 seconds longer to build.
+
 ## 0.6.3 — 2026-11-12
 
 - **Faster fluid KRAKEN root refinement.** Up to 16 shooting lanes take the
