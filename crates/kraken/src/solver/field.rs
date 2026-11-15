@@ -18,8 +18,9 @@ const ADIABATIC_RANGE_LANES: usize = 8;
 // Full groups beat scalar rows with many modes on M4; partial groups have little margin.
 const MIN_ADIABATIC_RANGES: usize = ADIABATIC_RANGE_LANES;
 
-// Below this many threads, one solve's own parallelism beats solving side by side,
-// where the slowest solve holds up its whole window. Measured, not fundamental.
+// Below this many threads, one solve gets every thread. A window divides its threads
+// between items up front, so a heavy item can run on one thread while its siblings'
+// threads sit idle; with few threads that costs more than solving side by side gains.
 const SOLVE_WINDOW_THREADS: usize = 8;
 // Solves per thread in one window: a surplus lets faster cores take more of them.
 const SOLVES_PER_THREAD: usize = 4;
@@ -1927,7 +1928,7 @@ mod solve_window_tests {
     const SMALL: Option<usize> = Some(1);
 
     #[test]
-    fn windows_scale_with_threads_and_few_threads_solve_one_at_a_time() {
+    fn windows_scale_with_threads_and_small_budgets_solve_one_at_a_time() {
         for (budget, expected) in [(1, 1), (2, 1), (7, 1), (8, 32), (14, 56), (32, 128)] {
             crate::parallelism::with_threads(NonZeroUsize::new(budget).unwrap(), || {
                 assert_eq!(solve_window_len(0, true, SMALL), 0);
@@ -1942,6 +1943,21 @@ mod solve_window_tests {
                 crate::parallelism::MAX_WORKERS * SOLVES_PER_THREAD
             );
         });
+    }
+
+    #[test]
+    fn small_budgets_do_not_speculate_on_uneven_or_growing_sequences() {
+        for budget in 2..8 {
+            crate::parallelism::with_threads(NonZeroUsize::new(budget).unwrap(), || {
+                // Two uneven solves, sixteen growing results, or a long queue with one heavy item.
+                for remaining in [2, 16, 32] {
+                    for largest in [None, SMALL, Some(32 * 1024 * 1024)] {
+                        assert_eq!(solve_window_len(remaining, true, largest), 1);
+                    }
+                }
+                assert_eq!(solve_window(1, |_| crate::parallelism::threads()), [budget]);
+            });
+        }
     }
 
     #[test]

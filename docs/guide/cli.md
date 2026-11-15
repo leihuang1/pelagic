@@ -125,8 +125,12 @@ give each one a share of the CPUs so that they do not compete.
 BELLHOP shares the rays of each source between threads. KRAKEN shares the mode
 search, the mode shapes and the FIELD receivers. On eight or more threads, KRAKEN
 frequencies and range-dependent profiles also solve side by side after the first,
-and their results still arrive in order, so about 128 MiB of finished results can
-wait in memory. Fewer solve together if their results are large. If a frequency
+and their results still arrive in order, so finished results wait in memory.
+Pelagic aims to keep them to about 128 MiB, judging by the largest result so far,
+so more can wait when later frequencies give much larger results than the first:
+sixteen large frequencies after a small one peaked at about 540 MiB on eight
+threads. Measure peak memory with the thread count you will use, or use fewer
+than eight threads when memory is tight. If a frequency
 fails, any later ones already solved are discarded. Real KRAKEN with
 finite elastic layers solves them one after another, because each one continues
 from the last. So, conservatively, does real KRAKEN with an elastic surface

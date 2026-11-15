@@ -175,13 +175,17 @@ thread:
   Real KRAKEN's searches with finite elastic layers read it as their first root
   limit, so those sequences run in order. So do those with an elastic surface
   half-space, although that search replaces the count unread, and any sequence
-  below eight threads, where one solve's own parallelism beats solving side by
-  side. Otherwise the first item solves alone, with every thread, and then up to
+  below eight threads. A window divides its threads between items up front, so a
+  heavy item can run on one thread while its siblings' threads sit idle: with
+  three threads, frequencies of 10, 20 and 400 Hz took twice as long side by side.
+  Otherwise the first item solves alone, with every thread, and then up to
   four items per thread together. Results are consumed in order, so diagnostics,
   cumulative limits and cancellation are decided as with one thread; a window can
   only do work that a failure then discards. Twice the largest result so far
   decides how many fit in 128 MiB. That limits speculation, not memory: a later
-  result can be larger, and solver scratch is separate.
+  result can be larger (sixteen 200 Hz blocks after one at 5 Hz peaked at about
+  540 MiB on eight threads), nested profile windows estimate separately, and
+  solver scratch is separate.
 
 `tests/parallelism.rs` in both crates compares every fixture and example, and
 BELLHOP resource-limit failures, across thread counts; KRAKEN's include eight, where
