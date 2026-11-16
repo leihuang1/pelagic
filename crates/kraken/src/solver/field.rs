@@ -17,6 +17,8 @@ const TABLE_VALUES: usize = 1 << 16;
 const ADIABATIC_RANGE_LANES: usize = 8;
 // Full groups beat scalar rows with many modes on M4; partial groups have little margin.
 const MIN_ADIABATIC_RANGES: usize = ADIABATIC_RANGE_LANES;
+// Amortize boundary-projection thread starts over several output modes.
+const PROJECT_CHUNK: usize = 16;
 
 // Below this many threads, one solve gets every thread. A window divides its threads
 // between items up front, so a heavy item can run on one thread while its siblings'
@@ -975,72 +977,84 @@ fn project(
         };
         p.push(h * value);
     }
-    rm.modes
-        .iter()
-        .map(|mode| {
-            crate::cancellation::check()?;
-            let mut sum: Complex32 = p
-                .iter()
-                .enumerate()
-                .map(|(iz, p)| {
-                    let phi = if iz < mode.eigenfunction.len() {
-                        single(mode.eigenfunction[iz])
-                    } else if right.bottom_boundary.is_half_space() {
-                        single(*mode.eigenfunction.last().unwrap())
-                            * (-gamma(right, mode, false) * (z[iz] - bottom)).exp()
-                    } else {
-                        Complex32::new(0.0, 0.0)
-                    };
-                    p * phi
-                })
-                .sum();
-            for (top_side, boundary, density, depth) in [
-                (
-                    true,
-                    &right.surface_boundary,
-                    right.surface_density_g_cm3,
-                    right.fluid_top_depth_m(),
-                ),
-                (
-                    false,
-                    &right.bottom_boundary,
-                    right.bottom_density_g_cm3,
-                    right.fluid_bottom_depth_m(),
-                ),
-            ] {
-                if boundary.is_half_space() {
-                    let edge = if top_side { 0 } else { z.len() - 1 };
-                    let phi_r = single(if top_side {
-                        mode.eigenfunction[0]
-                    } else {
-                        *mode.eigenfunction.last().unwrap()
-                    });
-                    let gr = gamma(right, mode, top_side);
-                    let fr = phi_r / density as f32 * (-gr * (z[edge] - depth as f32)).exp();
-                    let dl = if top_side {
-                        left.fluid_top_depth_m()
-                    } else {
-                        left.fluid_bottom_depth_m()
-                    } as f32;
-                    let tail: Complex32 = a
-                        .iter()
-                        .zip(&lm.modes)
-                        .map(|(a, m)| {
-                            let gl = gamma(left, m, top_side);
-                            let phi_l = single(if top_side {
-                                m.eigenfunction[0]
-                            } else {
-                                *m.eigenfunction.last().unwrap()
-                            });
-                            a * phi_l * (-gl * (z[edge] - dl)).exp() / (gl + gr)
-                        })
-                        .sum();
-                    sum += fr * tail;
-                }
+    let project_mode = |mode: &crate::NormalMode| {
+        crate::cancellation::check()?;
+        let mut sum: Complex32 = p
+            .iter()
+            .enumerate()
+            .map(|(iz, p)| {
+                let phi = if iz < mode.eigenfunction.len() {
+                    single(mode.eigenfunction[iz])
+                } else if right.bottom_boundary.is_half_space() {
+                    single(*mode.eigenfunction.last().unwrap())
+                        * (-gamma(right, mode, false) * (z[iz] - bottom)).exp()
+                } else {
+                    Complex32::new(0.0, 0.0)
+                };
+                p * phi
+            })
+            .sum();
+        for (top_side, boundary, density, depth) in [
+            (
+                true,
+                &right.surface_boundary,
+                right.surface_density_g_cm3,
+                right.fluid_top_depth_m(),
+            ),
+            (
+                false,
+                &right.bottom_boundary,
+                right.bottom_density_g_cm3,
+                right.fluid_bottom_depth_m(),
+            ),
+        ] {
+            if boundary.is_half_space() {
+                let edge = if top_side { 0 } else { z.len() - 1 };
+                let phi_r = single(if top_side {
+                    mode.eigenfunction[0]
+                } else {
+                    *mode.eigenfunction.last().unwrap()
+                });
+                let gr = gamma(right, mode, top_side);
+                let fr = phi_r / density as f32 * (-gr * (z[edge] - depth as f32)).exp();
+                let dl = if top_side {
+                    left.fluid_top_depth_m()
+                } else {
+                    left.fluid_bottom_depth_m()
+                } as f32;
+                let tail: Complex32 = a
+                    .iter()
+                    .zip(&lm.modes)
+                    .map(|(a, m)| {
+                        let gl = gamma(left, m, top_side);
+                        let phi_l = single(if top_side {
+                            m.eigenfunction[0]
+                        } else {
+                            *m.eigenfunction.last().unwrap()
+                        });
+                        a * phi_l * (-gl * (z[edge] - dl)).exp() / (gl + gr)
+                    })
+                    .sum();
+                sum += fr * tail;
             }
-            Ok(sum)
-        })
-        .collect()
+        }
+        Ok::<_, DiagnosticReport>(sum)
+    };
+    let chunks: Vec<_> = rm.modes.chunks(PROJECT_CHUNK).collect();
+    let mut projected = Vec::with_capacity(rm.modes.len());
+    for chunk in crate::parallelism::map(
+        chunks.len(),
+        rm.modes.len().saturating_mul(p.len()),
+        |index| {
+            chunks[index]
+                .iter()
+                .map(project_mode)
+                .collect::<Result<Vec<_>, _>>()
+        },
+    ) {
+        projected.extend(chunk?);
+    }
+    Ok(projected)
 }
 
 #[cfg(test)]

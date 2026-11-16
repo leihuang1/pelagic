@@ -257,14 +257,30 @@ impl Mesh<'_> {
         let mut isolated = vec![None; whole.ca - whole.cb];
         let mut frontier = vec![whole];
         for _ in 0..ROOT_STEPS {
-            let mut next = Vec::new();
-            for chunk in frontier.chunks(ROOT_LANES) {
+            let passes = frontier.chunks(ROOT_LANES);
+            // Charge shared rows, not lanes: small levels do not repay thread starts.
+            let estimated_work = passes.len().saturating_mul(self.b1.len());
+            let count = |chunk: &[Interval]| {
                 crate::cancellation::check()?;
                 let x = std::array::from_fn(|k| {
                     let interval = chunk[k.min(chunk.len() - 1)];
                     interval.a.midpoint(interval.b)
                 });
-                let counts = self.count_lanes::<ROOT_LANES>(x);
+                Ok::<_, DiagnosticReport>((x, self.count_lanes::<ROOT_LANES>(x)))
+            };
+            // Map only when the level can fan out: one-thread solves, such as
+            // broadband's many small ones, then allocate nothing per level.
+            let mut mapped = if passes.len() > 1 && crate::parallelism::threads() > 1 {
+                crate::parallelism::map(passes.len(), estimated_work, |pass| {
+                    count(passes.clone().nth(pass).expect("pass index is in range"))
+                })
+            } else {
+                Vec::new()
+            }
+            .into_iter();
+            let mut next = Vec::new();
+            for chunk in passes {
+                let (x, counts) = mapped.next().unwrap_or_else(|| count(chunk))?;
                 for (k, &interval) in chunk.iter().enumerate() {
                     if interval.ca - interval.cb == 1 {
                         if interval.cb <= counts[k] && counts[k] <= interval.ca {
@@ -669,6 +685,43 @@ mod tests {
             b,
             ca: mesh.count(a),
             cb: mesh.count(b),
+        }
+    }
+
+    #[test]
+    fn isolation_keeps_passes_paired_and_unsplit_targets_missing() {
+        let case = load("SductTrapped");
+        let meshes = Meshes::new(&case).unwrap();
+        let mesh = Mesh::new(&meshes, 1).unwrap();
+        let whole = interval(&mesh);
+        let expected = mesh.isolate_fluid(whole).unwrap();
+        let bits = |brackets: Vec<Option<Interval>>| {
+            brackets
+                .into_iter()
+                .map(|bracket| bracket.map(|i| (i.a.to_bits(), i.b.to_bits(), i.ca, i.cb)))
+                .collect::<Vec<_>>()
+        };
+        for (target, bracket) in expected.iter().enumerate() {
+            let bracket = bracket.expect("separated targets must all be isolated");
+            assert_eq!(mesh.count(bracket.a), whole.cb + target + 1);
+            assert_eq!(mesh.count(bracket.b), whole.cb + target);
+        }
+        let expected = bits(expected);
+        for threads in [1, 2, 4, 14] {
+            crate::parallelism::with_threads(std::num::NonZeroUsize::new(threads).unwrap(), || {
+                assert_eq!(bits(mesh.isolate_fluid(whole).unwrap()), expected);
+                let stalled = Interval {
+                    a: whole.a,
+                    b: whole.a.next_up(),
+                    ..whole
+                };
+                assert!(
+                    mesh.isolate_fluid(stalled)
+                        .unwrap()
+                        .iter()
+                        .all(Option::is_none)
+                );
+            });
         }
     }
 

@@ -147,7 +147,10 @@ thread:
   evaluated. Applied effect buffers are reused, because some allocators keep a
   freshly grown buffer per ray.
 - **Fluid KRAKEN** shares Sturm-count bisections to isolate roots on meshes one
-  and two. Later meshes start from raw earlier-mesh roots, with local brackets
+  and two. Each breadth-first level counts independent eight-interval passes in
+  parallel when their shared mesh rows repay thread starts, then consumes them
+  in pass order; small levels and single passes stay inline.
+  Later meshes start from raw earlier-mesh roots, with local brackets
   certified by current-mesh Sturm counts. Both paths refine signed fluid
   dispersion using safeguarded Illinois steps, refilling up to 16 shooting lanes
   as modes finish. Each mode keeps its own bracket, history and iteration count;
@@ -170,7 +173,10 @@ thread:
   total per range, which the compiler packs without changing any sum. The phase
   and amplitude tables hold about a million modal terms at most, in blocks of
   ranges and sources.
-  Range-dependent FIELD reuses each profile's receiver-depth brackets.
+  Range-dependent FIELD reuses each profile's receiver-depth brackets. Coupled
+  boundary projection maps ordered chunks of 16 output modes when its modal-term
+  work repays thread starts; each mode keeps its depth and tail sums in order.
+  The range march and amplitude advances remain sequential.
 - **KRAKEN frequency blocks and profiles** carry the previous mode count forward.
   Real KRAKEN's searches with finite elastic layers read it as their first root
   limit, so those sequences run in order. So do those with an elastic surface

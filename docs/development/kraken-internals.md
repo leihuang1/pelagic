@@ -109,7 +109,12 @@ Real KRAKEN without finite elastic layers or elastic half-spaces always uses
 `modes/fluid_roots.rs`. Its invariant is that the fluid positive-pivot count
 `C(x)` is nonincreasing in squared wavenumber, and an interval `[a, b]` owns
 exactly the root targets `C(b)..C(a)`. On meshes one and two, shared bisections
-isolate one target per interval. On mesh three onward, Neville interpolation in
+isolate one target per interval. A breadth-first level maps independent
+eight-interval count passes, then applies their results in pass order. The work
+estimate counts shared mesh rows per pass, not per lane, so small levels stay
+inline; a single pass never starts workers. The 64-level cap, cancellation polls
+and unsplit targets' missing brackets are unchanged.
+On mesh three onward, Neville interpolation in
 h² predicts each root from the **raw** earlier-mesh roots, never the Richardson
 rows. A local interval starts at the prediction ± `1e-6` of its magnitude,
 clipped to the current spectral limits, and can widen by four at most seven
