@@ -269,7 +269,7 @@ impl Mesh<'_> {
                 Ok::<_, DiagnosticReport>((x, self.count_lanes::<ROOT_LANES>(x)))
             };
             // Map only when the level can fan out: one-thread solves, such as
-            // broadband's many small ones, then allocate nothing per level.
+            // broadband's many small ones, then need no result buffer per level.
             let mut mapped = if passes.len() > 1 && crate::parallelism::threads() > 1 {
                 crate::parallelism::map(passes.len(), estimated_work, |pass| {
                     count(passes.clone().nth(pass).expect("pass index is in range"))

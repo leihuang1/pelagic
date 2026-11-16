@@ -112,8 +112,9 @@ exactly the root targets `C(b)..C(a)`. On meshes one and two, shared bisections
 isolate one target per interval. A breadth-first level maps independent
 eight-interval count passes, then applies their results in pass order. The work
 estimate counts shared mesh rows per pass, not per lane, so small levels stay
-inline; a single pass never starts workers. The 64-level cap, cancellation polls
-and unsplit targets' missing brackets are unchanged.
+inline; a single pass never starts workers. The 64-level cap, the cancellation
+poll before each pass and unsplit targets' missing brackets are unchanged; a
+mapped level runs all its passes before the first error is returned.
 On mesh three onward, Neville interpolation in
 h² predicts each root from the **raw** earlier-mesh roots, never the Richardson
 rows. A local interval starts at the prediction ± `1e-6` of its magnitude,
