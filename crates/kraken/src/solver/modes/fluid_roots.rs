@@ -981,6 +981,66 @@ mod tests {
     }
 
     #[test]
+    fn a_one_thread_solve_in_a_window_keeps_bits_across_32_root_chunk_boundaries() {
+        let mut definition = load("MunkLossless").into_definition();
+        definition.max_range_m = 1e20;
+        let case = crate::Case::from_definition(definition).unwrap();
+        let meshes = Meshes::new(&case).unwrap();
+        let mut history = Refinement::<f64>::default();
+        let bits = |roots: &[f64]| roots.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        for multiplier in [1, 2, 4] {
+            let mesh = Mesh::new(&meshes, multiplier).unwrap();
+            let full = interval(&mesh);
+            let original = original_fluid_roots(&mesh, full, &history);
+            assert!(original.len() > 33);
+            for count in [31, 32, 33, original.len()] {
+                let whole = if count == original.len() {
+                    full
+                } else {
+                    Interval {
+                        a: original[count - 1].midpoint(original[count]),
+                        ca: full.cb + count,
+                        ..full
+                    }
+                };
+                let expected = original_fluid_roots(&mesh, whole, &history);
+                // The sibling holds its thread until the solve ends, so the solve keeps one.
+                let (done, finished) = std::sync::mpsc::channel();
+                let finished = std::sync::Mutex::new(finished);
+                let actual = crate::parallelism::with_threads(
+                    std::num::NonZeroUsize::new(2).unwrap(),
+                    || {
+                        crate::parallelism::map_window(2, |index| {
+                            if index == 1 {
+                                let finished = finished.lock().unwrap();
+                                finished
+                                    .recv_timeout(std::time::Duration::from_secs(5))
+                                    .unwrap();
+                                return Vec::new();
+                            }
+                            assert_eq!(crate::parallelism::threads(), 1);
+                            assert_eq!(crate::parallelism::thread_limit(), 2);
+                            let roots = mesh
+                                .fluid_roots(whole.a, whole.b, whole.cb, count, &history)
+                                .unwrap();
+                            done.send(()).unwrap();
+                            roots
+                        })
+                    },
+                );
+                assert_eq!(
+                    bits(&actual[0]),
+                    bits(&expected),
+                    "mesh {multiplier}, {count} roots"
+                );
+            }
+            history
+                .accept(original, Some(mesh.h), &case, |roots| mesh.modes(roots))
+                .unwrap();
+        }
+    }
+
+    #[test]
     fn refill_matches_original_groups_bit_for_bit() {
         for name in [
             "Pekeris",

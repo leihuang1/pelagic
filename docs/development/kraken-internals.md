@@ -158,9 +158,11 @@ cap. The old loop's cap semantics are preserved: a zero on the last evaluation
 can succeed, but a bracket that only becomes narrow then is not checked again.
 The tail steps down to eight or four shooting lanes. Successful answers' final
 count checks are packed too, with the original interval clipping and target rule.
-One-thread meshes share one queue; with multiple workers the ordered map uses
-fixed chunks of 16 modes, independent of worker count, so even 62–63-mode
-profiles have four refinement work items. Fallback and error collection remain
+Meshes that can only ever have one thread share one queue; with multiple
+workers the ordered map uses fixed chunks of 16 modes, independent of worker
+count, so even 62–63-mode profiles have four refinement work items. A solve with
+one thread inside a solve window, which may receive lent threads later, uses
+chunks of 32 so they can join between chunks. Fallback and error collection remain
 in mode order. Cancellation is polled at batch boundaries and lane admission;
 a shooting pass can evaluate 16 points, so polling is not identical per lane
 evaluation to the old eight-lane loop. The original eight-lane group loop remains

@@ -297,22 +297,49 @@ mod tests {
     use super::*;
     use std::cell::Cell;
 
-    fn wait_for_threads(expected: usize) {
+    // Gives up after five seconds, so a worker or loan that never arrives fails
+    // the test instead of hanging it.
+    fn wait_until(what: &str, ready: impl Fn() -> bool) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while threads() != expected {
+        while !ready() {
             assert!(
                 std::time::Instant::now() < deadline,
-                "expected {expected} threads, got {}",
-                threads()
+                "timed out waiting for {what}"
             );
             std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    fn wait_for_threads(expected: usize) {
+        wait_until(&format!("{expected} threads"), || threads() == expected);
+    }
+
+    /// A one-use barrier that fails instead of hanging.
+    struct Meeting {
+        parties: usize,
+        arrived: AtomicUsize,
+    }
+
+    impl Meeting {
+        fn new(parties: usize) -> Self {
+            Self {
+                parties,
+                arrived: AtomicUsize::new(0),
+            }
+        }
+
+        fn wait(&self) {
+            self.arrived.fetch_add(1, Ordering::SeqCst);
+            wait_until(&format!("{} parties", self.parties), || {
+                self.arrived.load(Ordering::SeqCst) >= self.parties
+            });
         }
     }
 
     #[test]
     fn a_later_map_uses_a_finished_siblings_thread() {
         with_threads(NonZeroUsize::new(2).unwrap(), || {
-            let started = std::sync::Barrier::new(2);
+            let started = Meeting::new(2);
             let results = map_window(2, |index| {
                 assert_eq!(threads(), 1);
                 started.wait();
@@ -320,7 +347,7 @@ mod tests {
                     return Vec::new();
                 }
                 wait_for_threads(2);
-                let running = std::sync::Barrier::new(2);
+                let running = Meeting::new(2);
                 map(2, usize::MAX, |_| {
                     assert_eq!(threads(), 1);
                     running.wait();
@@ -337,8 +364,8 @@ mod tests {
     fn a_running_map_claims_later_loans_between_items_and_returns_them_on_panic() {
         for panic in [false, true] {
             with_threads(NonZeroUsize::new(2).unwrap(), || {
-                let finish_sibling = std::sync::Barrier::new(2);
-                let running = std::sync::Barrier::new(2);
+                let finish_sibling = Meeting::new(2);
+                let running = Meeting::new(2);
                 let pool = std::sync::Mutex::new(None);
                 let result = std::panic::catch_unwind(|| {
                     map_window(2, |index| {
@@ -356,12 +383,9 @@ mod tests {
                                 assert_eq!(threads(), 1);
                                 if item == 0 {
                                     finish_sibling.wait();
-                                    let deadline = std::time::Instant::now()
-                                        + std::time::Duration::from_secs(5);
-                                    while borrowed.available.load(Ordering::Relaxed) == 0 {
-                                        assert!(std::time::Instant::now() < deadline);
-                                        std::thread::sleep(std::time::Duration::from_millis(1));
-                                    }
+                                    wait_until("a lent thread", || {
+                                        borrowed.available.load(Ordering::Relaxed) > 0
+                                    });
                                 } else {
                                     running.wait();
                                     assert!(!panic || item != 2, "late worker failed");
@@ -494,7 +518,7 @@ mod tests {
                 assert!(now <= budget, "{now} live workers exceed {budget}");
                 Live(&live)
             };
-            let started = std::sync::Barrier::new(budget);
+            let started = Meeting::new(budget);
             with_threads(NonZeroUsize::new(budget).unwrap(), || {
                 map_window(budget * 3, |index| {
                     {

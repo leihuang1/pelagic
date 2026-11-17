@@ -1914,13 +1914,22 @@ mod tests {
         solver::profile::Profile,
     };
     use num_complex::Complex64;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::{cell::Cell, path::Path};
 
     thread_local! {
         static PROBE_SHAPE_ALLOCATION: Cell<bool> = const { Cell::new(false) };
     }
 
+    // Lane scratches allocated on any thread for meshes of `COUNTED_ROWS` rows,
+    // a size only one test uses, so tests running alongside cannot disturb it.
+    static COUNTED_ROWS: AtomicUsize = AtomicUsize::new(0);
+    static COUNTED_LANE_SCRATCHES: AtomicUsize = AtomicUsize::new(0);
+
     pub(super) fn probe_shape_allocation(lanes: usize, rows: usize) {
+        if lanes == SHAPE_LANES && rows == COUNTED_ROWS.load(Ordering::Relaxed) {
+            COUNTED_LANE_SCRATCHES.fetch_add(1, Ordering::Relaxed);
+        }
         if PROBE_SHAPE_ALLOCATION.with(Cell::get) {
             std::panic::panic_any((lanes, rows));
         }
@@ -2287,7 +2296,7 @@ mod tests {
     }
 
     #[test]
-    fn workers_beyond_the_lane_allowance_keep_the_same_bits() {
+    fn workers_beyond_the_lane_allowance_hold_one_mode_and_keep_the_same_bits() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Pekeris");
         let mut input = load_case(root.with_extension("env"), root.with_extension("flp"))
             .unwrap()
@@ -2306,13 +2315,21 @@ mod tests {
         let shared = mesh.shape_off_diagonal().values.len() * size_of::<f64>();
         let worker =
             mesh.b1.len() * ((SHAPE_LANES + 1) * super::SHAPE_ROW_BYTES + 2 * size_of::<f64>());
+        COUNTED_ROWS.store(shared / size_of::<f64>() - 1, Ordering::Relaxed);
+        // Every worker of the nine-batch map starts; only the first ones take lanes.
         for threads in [2, 3, 8] {
-            for lane_workers in [1, 2] {
+            for lane_workers in [1, 2, 9] {
+                COUNTED_LANE_SCRATCHES.store(0, Ordering::Relaxed);
                 let actual = crate::parallelism::with_threads(
                     std::num::NonZeroUsize::new(threads).unwrap(),
                     || mesh.modes_within(&roots, shared + lane_workers * worker),
                 )
                 .unwrap();
+                assert_eq!(
+                    COUNTED_LANE_SCRATCHES.load(Ordering::Relaxed),
+                    lane_workers.min(threads),
+                    "{lane_workers} lane workers, {threads} threads"
+                );
                 assert_eq!(
                     actual.iter().map(mode_bits).collect::<Vec<_>>(),
                     expected.iter().map(mode_bits).collect::<Vec<_>>(),
@@ -2320,6 +2337,7 @@ mod tests {
                 );
             }
         }
+        COUNTED_ROWS.store(0, Ordering::Relaxed);
     }
 
     #[test]
