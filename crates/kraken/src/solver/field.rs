@@ -8,8 +8,6 @@ use crate::{
     ProfileSimulationResult, SourceGeometry,
 };
 use num_complex::{Complex, Complex32, Complex64};
-#[cfg(test)]
-use std::num::NonZeroUsize;
 
 // Range factors, mode amplitudes and finished rows are held for blocks of at
 // most this many values (1 MiB of complex doubles), so memory stays near a
@@ -1099,6 +1097,7 @@ fn table_size_never_changes_the_range_dependent_field() {
 #[cfg(test)]
 mod range_lane_tests {
     use super::*;
+    use std::num::NonZeroUsize;
 
     fn bits(values: &[Complex64]) -> Vec<(u64, u64)> {
         values
@@ -1994,6 +1993,7 @@ mod range_lane_tests {
 #[cfg(test)]
 mod solve_window_tests {
     use super::*;
+    use std::num::NonZeroUsize;
     use std::sync::{Arc, atomic::AtomicBool};
 
     const SMALL: Option<usize> = Some(1);

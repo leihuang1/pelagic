@@ -187,9 +187,11 @@ superdiagonals on non-swapped rows and zero end rows. Lane stopping, failure,
 normalization and modal summation order are unchanged.
 
 Scratch lives only for that mesh's ordered shape map, not in thread-local storage.
-The 64 MiB lane allowance includes all workers, both gather buffers, the shared
-off-diagonal and a scalar remainder alongside retained lane scratch. If it would
-not fit, or for tiny/elastic groups, workers reuse width-one scratch instead.
+The 64 MiB lane allowance covers all workers' lane scratch, each with both gather
+buffers and a scalar remainder alongside it, plus the shared off-diagonal once.
+Workers claim it as they start, because a map in a solve window can gain workers
+later. Workers that would not fit, and tiny or elastic groups, reuse width-one
+scratch instead.
 Shapes still come only from the first refinement mesh.
 
 ### Modal refinement and FIELD

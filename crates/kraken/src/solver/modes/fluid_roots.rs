@@ -617,7 +617,8 @@ impl Mesh<'_> {
         } else {
             None
         };
-        // A serial solve with possible later loans keeps longer refill queues between dispatches.
+        // A one-thread solve in a window splits its roots too, so threads lent later can
+        // join between chunks; longer chunks keep its refill queues long meanwhile.
         let chunk_size = if crate::parallelism::threads() > 1 {
             REFINE_CHUNK
         } else if crate::parallelism::thread_limit() > 1 {

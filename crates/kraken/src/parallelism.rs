@@ -24,11 +24,13 @@ pub(crate) const MAX_WORKERS: usize = 1024;
 /// row per lane or one modal term, so this is a scale, not a duration.
 const INLINE_WORK: usize = 1 << 15;
 
+/// A solve window's threads: its whole budget, and those no worker holds now.
 struct Pool {
     available: AtomicUsize,
     budget: usize,
 }
 
+/// This thread's own threads, and the window pool it may claim more from.
 struct Budget {
     owned: usize,
     lendable: Option<Arc<Pool>>,
@@ -76,7 +78,8 @@ pub fn threads() -> usize {
     })
 }
 
-// Scratch admission must allow for loans arriving between its check and the map.
+/// The most threads this scope can use: inside a solve window, the window's
+/// whole budget, since loans can arrive after a map starts; otherwise [`threads`].
 pub(crate) fn thread_limit() -> usize {
     BUDGET.with(|slot| {
         let budget = slot.borrow();
@@ -396,7 +399,7 @@ mod tests {
             || {
                 let (_, claim) = claim_threads(4);
                 assert_eq!(threads(), 1);
-                assert_eq!(thread_limit(), 4, "scratch must allow for returning loans");
+                assert_eq!(thread_limit(), 4, "later loans can still arrive");
                 assert_eq!(worker_limit(4, usize::MAX), 4);
                 drop(claim);
                 for panic in [false, true] {

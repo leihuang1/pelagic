@@ -133,9 +133,7 @@ a map in a running solve atomically claims available capacity, and its caller
 can add workers between items when more capacity arrives. Its workers remain
 leaves, and all loans return after they join, even on unwind. Nested windows claim
 from their parent and return that capacity when they end; no window exceeds its
-budget. `threads()`
-includes currently lendable capacity, while shape-scratch admission uses the
-scope's ceiling so later loans cannot exceed its estimate. Order-dependent work
+budget. `threads()` includes currently lendable capacity. Order-dependent work
 stays on the calling thread:
 
 - **BELLHOP** traces rays in parallel. Each ray's influence is
@@ -174,8 +172,9 @@ stays on the calling thread:
   See [fluid root search](kraken-internals.md#fluid-root-search) for the invariant,
   tolerance and fallback. First-mesh mode shapes run in parallel too, also in root order. Real fluid
   modes share each pass in fours, each with its own pivots, stopping point and
-  failure, as long as those batches' scratch stays within 64 MiB across all
-  workers; otherwise, and for elastic media, a worker holds one mode at a time.
+  failure. Workers take that lane scratch as they start, while it stays within
+  64 MiB across all of them, including workers that join later; the rest, and all
+  workers for elastic media, hold one mode at a time.
   Range-independent FIELD tabulates each mode's amplitude, receiver offset and
   range phase once, then computes rows of receivers in parallel with the same
   operations per modal term. Eight ranges share each modal loop, with one running
