@@ -125,11 +125,18 @@ Python default to the available CPUs and the server to one thread per request.
 
 Each crate's `parallelism::map` evaluates independent items on scoped threads
 and returns them in item order. Workers inherit the caller's cancellation token,
-and an item never fans out again. A call starts at most 1024 workers, and a
-thread the system refuses leaves its share to the others. KRAKEN's map also takes
-an estimate of its total work and stays on the calling thread when that is too
-small to repay starting workers. Order-dependent work stays on the calling
-thread:
+and ordinary map items never fan out again. A call starts at most 1024 workers,
+and a thread the system refuses leaves its share to the others. KRAKEN's map also
+takes an estimate of its total work and stays on the calling thread when that is
+too small to repay starting workers. Only KRAKEN solve windows lend idle threads:
+a map in a running solve atomically claims available capacity, and its caller
+can add workers between items when more capacity arrives. Its workers remain
+leaves, and all loans return after they join, even on unwind. Nested windows claim
+from their parent and return that capacity when they end; no window exceeds its
+budget. `threads()`
+includes currently lendable capacity, while shape-scratch admission uses the
+scope's ceiling so later loans cannot exceed its estimate. Order-dependent work
+stays on the calling thread:
 
 - **BELLHOP** traces rays in parallel. Each ray's influence is
   recorded as `Effects`: single-precision field contributions, arrival
@@ -154,9 +161,11 @@ thread:
   certified by current-mesh Sturm counts. Both paths refine signed fluid
   dispersion using safeguarded Illinois steps, refilling up to 16 shooting lanes
   as modes finish. Each mode keeps its own bracket, history and iteration count;
-  short tails use eight or four lanes. One-thread meshes share one queue;
-  multiple workers use fixed, ordered chunks of 16 modes, independent of worker
-  count, keeping small profiles parallel too. Endpoint evaluations and final
+  short tails use eight or four lanes. Permanently single-threaded meshes share
+  one queue; otherwise work uses ordered chunks of 16 modes. A solve with one
+  available thread but possible later loans uses 32-mode chunks, retaining longer
+  refill queues while allowing later workers to join between chunks. Chunking
+  never changes a mode's steps or result. Endpoint evaluations and final
   count checks are packed across modes too. Results are bit-for-bit unchanged.
   Invalid brackets or count checks fall back per mode to the original
   full-interval bisection. Each mesh pays the original bisection's fixed work
@@ -180,22 +189,26 @@ thread:
 - **KRAKEN frequency blocks and profiles** carry the previous mode count forward.
   Real KRAKEN's searches with finite elastic layers read it as their first root
   limit, so those sequences run in order. So do those with an elastic surface
-  half-space, although that search replaces the count unread, and any sequence
-  below eight threads. A window divides its threads between items up front, so a
-  heavy item can run on one thread while its siblings' threads sit idle: with
-  three threads, frequencies of 10, 20 and 400 Hz took twice as long side by side.
-  Otherwise the first item solves alone, with every thread, and then up to
-  four items per thread together. Results are consumed in order, so diagnostics,
+  half-space, although that search replaces the count unread. With two or more
+  threads, independent sequences solve their first item alone with every thread,
+  then up to four items per thread together. Each window starts one worker per
+  item, up to its budget, with equal whole-thread reservations. The remainder
+  is lendable immediately; a worker that has run out of items lends its whole
+  reservation. Equal reservations avoid starving balanced profiles, while
+  lending lets still-running solves use finished siblings' threads. Ordinary map
+  workers do not lend or claim. No order-dependent numerical step moves.
+  Results are consumed in order, so diagnostics,
   cumulative limits and cancellation are decided as with one thread; a window can
   only do work that a failure then discards. Twice the largest result so far
   decides how many fit in 128 MiB. That limits speculation, not memory: a later
-  result can be larger (sixteen 200 Hz blocks after one at 5 Hz peaked at about
-  540 MiB on eight threads), nested profile windows estimate separately, and
-  solver scratch is separate.
+  result can be larger (sixteen 200 Hz blocks after one at 5 Hz, with 5001 mode
+  samples per block, peaked at about 270 MiB on two threads, 530 MiB on four and
+  540 MiB on eight in solver-only streaming measurements), nested profile windows
+  estimate separately, and solver scratch is separate.
 
 `tests/parallelism.rs` in both crates compares every fixture and example, and
-BELLHOP resource-limit failures, across thread counts; KRAKEN's include eight, where
-solves first run side by side. Independent cases may
+BELLHOP resource-limit failures, across thread counts; KRAKEN's include two and
+three, exercising solve windows at small budgets too. Independent cases may
 also run concurrently, through Python's `run_many` or the CLI's `run-many`,
 which publishes each case through the same code as `run`. Cancellation is a
 thread-scoped token that the solvers check inside ray tracing, influence,

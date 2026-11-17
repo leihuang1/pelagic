@@ -1,12 +1,14 @@
 //! Range-dependent 2D FIELD propagation.
 use super::{FIELD_RANGE_LANES, MIN_LANE_RANGES};
 use crate::case::MAX_SEQUENCE_VALUES;
+use crate::parallelism::map_window as solve_window;
 use crate::solver::{double, elastic::complex_speed, error, single, source_pattern_scale};
 use crate::{
     Case, DiagnosticReport, FieldCase, FieldPropagation, ModeAddition, ModeSet, PressureField,
     ProfileSimulationResult, SourceGeometry,
 };
 use num_complex::{Complex, Complex32, Complex64};
+#[cfg(test)]
 use std::num::NonZeroUsize;
 
 // Range factors, mode amplitudes and finished rows are held for blocks of at
@@ -20,10 +22,6 @@ const MIN_ADIABATIC_RANGES: usize = ADIABATIC_RANGE_LANES;
 // Amortize boundary-projection thread starts over several output modes.
 const PROJECT_CHUNK: usize = 16;
 
-// Below this many threads, one solve gets every thread. A window divides its threads
-// between items up front, so a heavy item can run on one thread while its siblings'
-// threads sit idle; with few threads that costs more than solving side by side gains.
-const SOLVE_WINDOW_THREADS: usize = 8;
 // Solves per thread in one window: a surplus lets faster cores take more of them.
 const SOLVES_PER_THREAD: usize = 4;
 // Finished results one window may hold, judging each by twice the largest so far.
@@ -51,24 +49,11 @@ fn independent_profiles(case: &FieldCase) -> bool {
 fn solve_window_len(remaining: usize, independent: bool, largest: Option<usize>) -> usize {
     let threads = crate::parallelism::threads().min(crate::parallelism::MAX_WORKERS);
     let admitted = match largest {
-        Some(bytes) if independent && threads >= SOLVE_WINDOW_THREADS => (threads
-            * SOLVES_PER_THREAD)
+        Some(bytes) if independent && threads > 1 => (threads * SOLVES_PER_THREAD)
             .min((SOLVE_AHEAD_BYTES / bytes.saturating_mul(2).max(1)).max(1)),
         _ => 1,
     };
     remaining.min(admitted)
-}
-
-/// Divide this scope's thread budget between `count` solves, in order. With more
-/// solves than threads, each has one thread and the workers take them as they free up.
-fn solve_window<T: Send>(count: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
-    let threads = crate::parallelism::threads().min(crate::parallelism::MAX_WORKERS);
-    // Whole solves are never tiny, and each one gets its share even alone.
-    crate::parallelism::map(count, usize::MAX, |index| {
-        let share = threads / count + usize::from(index < threads % count);
-        let share = NonZeroUsize::new(share).unwrap_or(NonZeroUsize::MIN);
-        crate::parallelism::with_threads(share, || work(index))
-    })
 }
 
 /// Compute every profile's modes and synthesize one range-dependent field.
@@ -81,7 +66,7 @@ pub fn solve_field(case: &FieldCase) -> Result<ProfileSimulationResult, Diagnost
 
 /// Solve ordered frequency blocks, stopping after the first failed block.
 /// Blocks must share one mode solver; a mismatch yields `KR0201` without solving it.
-/// With enough threads, independent blocks after the first solve together on demand,
+/// With two or more threads, independent blocks after the first solve together on demand,
 /// sharing the budget, so a failure or cancellation can discard later blocks already
 /// solved.
 /// Real finite-elastic KRAKEN stays sequential, retaining Solve2's search bound, and
@@ -2014,8 +1999,16 @@ mod solve_window_tests {
     const SMALL: Option<usize> = Some(1);
 
     #[test]
-    fn windows_scale_with_threads_and_small_budgets_solve_one_at_a_time() {
-        for (budget, expected) in [(1, 1), (2, 1), (7, 1), (8, 32), (14, 56), (32, 128)] {
+    fn windows_scale_from_two_threads() {
+        for (budget, expected) in [
+            (1, 1),
+            (2, 8),
+            (3, 12),
+            (7, 28),
+            (8, 32),
+            (14, 56),
+            (32, 128),
+        ] {
             crate::parallelism::with_threads(NonZeroUsize::new(budget).unwrap(), || {
                 assert_eq!(solve_window_len(0, true, SMALL), 0);
                 assert_eq!(solve_window_len(1000, true, SMALL), expected);
@@ -2032,33 +2025,16 @@ mod solve_window_tests {
     }
 
     #[test]
-    fn small_budgets_do_not_speculate_on_uneven_or_growing_sequences() {
-        for budget in 2..8 {
-            crate::parallelism::with_threads(NonZeroUsize::new(budget).unwrap(), || {
-                // Two uneven solves, sixteen growing results, or a long queue with one heavy item.
-                for remaining in [2, 16, 32] {
-                    for largest in [None, SMALL, Some(32 * 1024 * 1024)] {
-                        assert_eq!(solve_window_len(remaining, true, largest), 1);
-                    }
-                }
-                assert_eq!(solve_window(1, |_| crate::parallelism::threads()), [budget]);
-            });
-        }
-    }
-
-    #[test]
-    fn nested_solves_inherit_only_their_share() {
+    fn nested_solves_inherit_cancellation_and_keep_leaf_work_serial() {
         for budget in [3, 5, 14, 32] {
             crate::parallelism::with_threads(NonZeroUsize::new(budget).unwrap(), || {
                 let token = Arc::new(AtomicBool::new(true));
-                let shares = crate::cancellation::with_token(token, || {
-                    solve_window(3, |index| {
-                        let share = crate::parallelism::threads();
-                        assert_eq!(share, budget / 3 + usize::from(index < budget % 3));
+                crate::cancellation::with_token(token, || {
+                    solve_window(3, |_| {
+                        assert!((1..=budget).contains(&crate::parallelism::threads()));
                         assert!(crate::cancellation::cancelled());
-                        let nested = solve_window(share.min(2), |_| {
+                        solve_window(2, |_| {
                             assert!(crate::cancellation::cancelled());
-                            let profile_share = crate::parallelism::threads();
                             crate::solver::refinement::shape_map(3, usize::MAX, |_| {
                                 assert!(crate::cancellation::cancelled());
                                 assert_eq!(crate::parallelism::threads(), 1);
@@ -2072,15 +2048,10 @@ mod solve_window_tests {
                                 Ok(())
                             })
                             .unwrap();
-                            assert_eq!(crate::parallelism::threads(), profile_share);
-                            profile_share
+                            assert!((1..=budget).contains(&crate::parallelism::threads()));
                         });
-                        assert_eq!(nested.iter().sum::<usize>(), share);
-                        assert_eq!(crate::parallelism::threads(), share);
-                        share
                     })
                 });
-                assert_eq!(shares.iter().sum::<usize>(), budget);
                 assert_eq!(crate::parallelism::threads(), budget);
             });
             assert_eq!(crate::parallelism::threads(), 1);
@@ -2089,30 +2060,37 @@ mod solve_window_tests {
     }
 
     #[test]
-    fn more_solves_than_threads_each_get_one_thread_and_keep_their_order() {
+    fn more_solves_than_threads_keep_their_order() {
         crate::parallelism::with_threads(NonZeroUsize::new(3).unwrap(), || {
-            let solves = solve_window(10, |index| (index, crate::parallelism::threads()));
-            assert_eq!(solves, (0..10).map(|index| (index, 1)).collect::<Vec<_>>());
+            let solves = solve_window(10, |index| {
+                assert!((1..=3).contains(&crate::parallelism::threads()));
+                index
+            });
+            assert_eq!(solves, (0..10).collect::<Vec<_>>());
             assert_eq!(crate::parallelism::threads(), 3);
         });
     }
 
     #[test]
     fn a_first_solve_gets_every_thread_because_its_size_is_unknown() {
-        crate::parallelism::with_threads(NonZeroUsize::new(14).unwrap(), || {
-            assert_eq!(solve_window_len(100, true, None), 1);
-            assert_eq!(solve_window(1, |_| crate::parallelism::threads()), [14]);
-        });
+        for budget in [1, 2, 3, 4, 8, 14] {
+            crate::parallelism::with_threads(NonZeroUsize::new(budget).unwrap(), || {
+                assert_eq!(solve_window_len(100, true, None), 1);
+                assert_eq!(solve_window(1, |_| crate::parallelism::threads()), [budget]);
+            });
+        }
     }
 
     #[test]
     fn excessive_thread_requests_are_capped_before_subdivision() {
         crate::parallelism::with_threads(NonZeroUsize::MAX, || {
-            let shares = solve_window(8, |_| crate::parallelism::threads());
             assert_eq!(
-                shares.iter().sum::<usize>(),
-                crate::parallelism::MAX_WORKERS
+                solve_window(1, |_| crate::parallelism::threads()),
+                [crate::parallelism::MAX_WORKERS]
             );
+            for available in solve_window(8, |_| crate::parallelism::threads()) {
+                assert!((1..=crate::parallelism::MAX_WORKERS).contains(&available));
+            }
             assert_eq!(crate::parallelism::threads(), usize::MAX);
         });
     }

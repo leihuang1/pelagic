@@ -1163,7 +1163,7 @@ impl<'a> Mesh<'a> {
         let n = off_diagonal.values.len() - 1;
         // A worker can retain its lanes while finishing a short scalar tail.
         // Charge both scratches (including their gathers), plus the shared e.
-        let lane_bytes = crate::parallelism::threads()
+        let lane_bytes = crate::parallelism::thread_limit()
             .saturating_mul(rows)
             .saturating_mul((SHAPE_LANES + 1) * SHAPE_ROW_BYTES + 2 * size_of::<f64>())
             .saturating_add((n + 1).saturating_mul(size_of::<f64>()));

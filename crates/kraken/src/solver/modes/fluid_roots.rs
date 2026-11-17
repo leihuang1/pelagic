@@ -617,11 +617,13 @@ impl Mesh<'_> {
         } else {
             None
         };
-        // One queue for the one-thread workload; otherwise fixed, ordered chunks.
-        let chunk_size = if crate::parallelism::threads() == 1 {
-            count.max(1)
-        } else {
+        // A serial solve with possible later loans keeps longer refill queues between dispatches.
+        let chunk_size = if crate::parallelism::threads() > 1 {
             REFINE_CHUNK
+        } else if crate::parallelism::thread_limit() > 1 {
+            2 * REFINE_CHUNK
+        } else {
+            count.max(1)
         };
         let groups = count.div_ceil(chunk_size);
         let estimated_work = count.saturating_mul(self.b1.len()).saturating_mul(32);
