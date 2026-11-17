@@ -1921,13 +1921,14 @@ mod tests {
         static PROBE_SHAPE_ALLOCATION: Cell<bool> = const { Cell::new(false) };
     }
 
-    // Lane scratches allocated on any thread for meshes of `COUNTED_ROWS` rows,
-    // a size only one test uses, so tests running alongside cannot disturb it.
+    // Lane scratches allocated on any thread for meshes of `COUNTED_ROWS` rows.
+    // Only the admission test uses 4,003 rows (4,002 mesh points; no fixture
+    // does), so tests running alongside cannot disturb the count. Zero is off.
     static COUNTED_ROWS: AtomicUsize = AtomicUsize::new(0);
     static COUNTED_LANE_SCRATCHES: AtomicUsize = AtomicUsize::new(0);
 
     pub(super) fn probe_shape_allocation(lanes: usize, rows: usize) {
-        if lanes == SHAPE_LANES && rows == COUNTED_ROWS.load(Ordering::Relaxed) {
+        if lanes == SHAPE_LANES && rows != 0 && rows == COUNTED_ROWS.load(Ordering::Relaxed) {
             COUNTED_LANE_SCRATCHES.fetch_add(1, Ordering::Relaxed);
         }
         if PROBE_SHAPE_ALLOCATION.with(Cell::get) {
@@ -2301,7 +2302,7 @@ mod tests {
         let mut input = load_case(root.with_extension("env"), root.with_extension("flp"))
             .unwrap()
             .into_definition();
-        input.mesh_points = 4000;
+        input.mesh_points = 4002;
         let case = Case::from_definition(input).unwrap();
         let mesh = fixture_mesh(&case, 1).unwrap();
         // Enough work for several workers, ending in a short tail.
@@ -2315,6 +2316,7 @@ mod tests {
         let shared = mesh.shape_off_diagonal().values.len() * size_of::<f64>();
         let worker =
             mesh.b1.len() * ((SHAPE_LANES + 1) * super::SHAPE_ROW_BYTES + 2 * size_of::<f64>());
+        assert_eq!(shared / size_of::<f64>() - 1, 4003);
         COUNTED_ROWS.store(shared / size_of::<f64>() - 1, Ordering::Relaxed);
         // Every worker of the nine-batch map starts; only the first ones take lanes.
         for threads in [2, 3, 8] {

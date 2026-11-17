@@ -1014,7 +1014,7 @@ mod tests {
                             if index == 1 {
                                 let finished = finished.lock().unwrap();
                                 finished
-                                    .recv_timeout(std::time::Duration::from_secs(5))
+                                    .recv_timeout(std::time::Duration::from_secs(30))
                                     .unwrap();
                                 return Vec::new();
                             }

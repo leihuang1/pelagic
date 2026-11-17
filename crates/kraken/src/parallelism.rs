@@ -297,10 +297,10 @@ mod tests {
     use super::*;
     use std::cell::Cell;
 
-    // Gives up after five seconds, so a worker or loan that never arrives fails
-    // the test instead of hanging it.
+    // Gives up after 30 seconds, so a worker or loan that never arrives fails
+    // the test instead of hanging it, even on a slow, loaded runner.
     fn wait_until(what: &str, ready: impl Fn() -> bool) {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         while !ready() {
             assert!(
                 std::time::Instant::now() < deadline,
