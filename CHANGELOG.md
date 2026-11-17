@@ -17,6 +17,18 @@ in the [interface contract](docs/development/interface-contract.md).
   each case one thread when there are at least as many cases as CPUs. Results
   are bit-for-bit unchanged, and KRAKEN is unaffected. The BELLHOP crate takes
   about 5 seconds longer to build.
+- **Faster multi-threaded fluid KRAKEN on larger cases.** The bisection that
+  isolates each mode's root now counts a level's independent passes in
+  parallel when the level is large enough, and coupled-mode boundary
+  projections are split across threads too. Solver-only on an Apple M4 Pro,
+  larger cases run 1.03–1.06 times faster at 4 threads and about 1.05–1.15
+  times faster at 8–14 threads (for example `kr-munk-big` 1.14 and surface duct
+  1.08 at 14 threads); on an Intel Core i5-14600KF (WSL2) the 4-thread gain is
+  1.05–1.06. Results are bit-for-bit unchanged. Most other timings, including
+  one-thread runs, are within noise; a few tiny cases measure 2–3% slower in
+  the default build (Pekeris on the M4, the KRAKENC rigid-loss case on the i5).
+  Those cases do not use the new parallel path, and no difference is measurable
+  when both builds use one codegen unit, which points to compiler code layout.
 
 ## 0.6.3 — 2026-11-12
 

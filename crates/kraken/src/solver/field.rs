@@ -17,6 +17,8 @@ const TABLE_VALUES: usize = 1 << 16;
 const ADIABATIC_RANGE_LANES: usize = 8;
 // Full groups beat scalar rows with many modes on M4; partial groups have little margin.
 const MIN_ADIABATIC_RANGES: usize = ADIABATIC_RANGE_LANES;
+// Amortize boundary-projection thread starts over several output modes.
+const PROJECT_CHUNK: usize = 16;
 
 // Below this many threads, one solve gets every thread. A window divides its threads
 // between items up front, so a heavy item can run on one thread while its siblings'
@@ -975,72 +977,84 @@ fn project(
         };
         p.push(h * value);
     }
-    rm.modes
-        .iter()
-        .map(|mode| {
-            crate::cancellation::check()?;
-            let mut sum: Complex32 = p
-                .iter()
-                .enumerate()
-                .map(|(iz, p)| {
-                    let phi = if iz < mode.eigenfunction.len() {
-                        single(mode.eigenfunction[iz])
-                    } else if right.bottom_boundary.is_half_space() {
-                        single(*mode.eigenfunction.last().unwrap())
-                            * (-gamma(right, mode, false) * (z[iz] - bottom)).exp()
-                    } else {
-                        Complex32::new(0.0, 0.0)
-                    };
-                    p * phi
-                })
-                .sum();
-            for (top_side, boundary, density, depth) in [
-                (
-                    true,
-                    &right.surface_boundary,
-                    right.surface_density_g_cm3,
-                    right.fluid_top_depth_m(),
-                ),
-                (
-                    false,
-                    &right.bottom_boundary,
-                    right.bottom_density_g_cm3,
-                    right.fluid_bottom_depth_m(),
-                ),
-            ] {
-                if boundary.is_half_space() {
-                    let edge = if top_side { 0 } else { z.len() - 1 };
-                    let phi_r = single(if top_side {
-                        mode.eigenfunction[0]
-                    } else {
-                        *mode.eigenfunction.last().unwrap()
-                    });
-                    let gr = gamma(right, mode, top_side);
-                    let fr = phi_r / density as f32 * (-gr * (z[edge] - depth as f32)).exp();
-                    let dl = if top_side {
-                        left.fluid_top_depth_m()
-                    } else {
-                        left.fluid_bottom_depth_m()
-                    } as f32;
-                    let tail: Complex32 = a
-                        .iter()
-                        .zip(&lm.modes)
-                        .map(|(a, m)| {
-                            let gl = gamma(left, m, top_side);
-                            let phi_l = single(if top_side {
-                                m.eigenfunction[0]
-                            } else {
-                                *m.eigenfunction.last().unwrap()
-                            });
-                            a * phi_l * (-gl * (z[edge] - dl)).exp() / (gl + gr)
-                        })
-                        .sum();
-                    sum += fr * tail;
-                }
+    let project_mode = |mode: &crate::NormalMode| {
+        crate::cancellation::check()?;
+        let mut sum: Complex32 = p
+            .iter()
+            .enumerate()
+            .map(|(iz, p)| {
+                let phi = if iz < mode.eigenfunction.len() {
+                    single(mode.eigenfunction[iz])
+                } else if right.bottom_boundary.is_half_space() {
+                    single(*mode.eigenfunction.last().unwrap())
+                        * (-gamma(right, mode, false) * (z[iz] - bottom)).exp()
+                } else {
+                    Complex32::new(0.0, 0.0)
+                };
+                p * phi
+            })
+            .sum();
+        for (top_side, boundary, density, depth) in [
+            (
+                true,
+                &right.surface_boundary,
+                right.surface_density_g_cm3,
+                right.fluid_top_depth_m(),
+            ),
+            (
+                false,
+                &right.bottom_boundary,
+                right.bottom_density_g_cm3,
+                right.fluid_bottom_depth_m(),
+            ),
+        ] {
+            if boundary.is_half_space() {
+                let edge = if top_side { 0 } else { z.len() - 1 };
+                let phi_r = single(if top_side {
+                    mode.eigenfunction[0]
+                } else {
+                    *mode.eigenfunction.last().unwrap()
+                });
+                let gr = gamma(right, mode, top_side);
+                let fr = phi_r / density as f32 * (-gr * (z[edge] - depth as f32)).exp();
+                let dl = if top_side {
+                    left.fluid_top_depth_m()
+                } else {
+                    left.fluid_bottom_depth_m()
+                } as f32;
+                let tail: Complex32 = a
+                    .iter()
+                    .zip(&lm.modes)
+                    .map(|(a, m)| {
+                        let gl = gamma(left, m, top_side);
+                        let phi_l = single(if top_side {
+                            m.eigenfunction[0]
+                        } else {
+                            *m.eigenfunction.last().unwrap()
+                        });
+                        a * phi_l * (-gl * (z[edge] - dl)).exp() / (gl + gr)
+                    })
+                    .sum();
+                sum += fr * tail;
             }
-            Ok(sum)
-        })
-        .collect()
+        }
+        Ok::<_, DiagnosticReport>(sum)
+    };
+    let chunks: Vec<_> = rm.modes.chunks(PROJECT_CHUNK).collect();
+    let mut projected = Vec::with_capacity(rm.modes.len());
+    for chunk in crate::parallelism::map(
+        chunks.len(),
+        rm.modes.len().saturating_mul(p.len()),
+        |index| {
+            chunks[index]
+                .iter()
+                .map(project_mode)
+                .collect::<Result<Vec<_>, _>>()
+        },
+    ) {
+        projected.extend(chunk?);
+    }
+    Ok(projected)
 }
 
 #[cfg(test)]
@@ -1756,8 +1770,9 @@ mod range_lane_tests {
     }
 
     /// The coupled field as `57f55a3` computed it, one receiver range at a time,
-    /// crossing every profile midpoint below a range first. It shares only the
-    /// unchanged helpers with `coupled`, so it checks the grouped march itself.
+    /// crossing every profile midpoint below a range first. It shares `project`
+    /// and `advance` with `coupled`, so it checks the grouped march itself;
+    /// `projection_matches_one_output_mode_at_a_time` checks `project`.
     #[allow(clippy::float_cmp)]
     fn sequential_coupled(case: &FieldCase, modes: &[ModeSet], samples: usize) -> Vec<Complex64> {
         let first = &case.profiles[0];
@@ -1837,6 +1852,77 @@ mod range_lane_tests {
             }
         }
         pressure
+    }
+
+    /// Projection maps chunks of output modes; one-mode calls cannot misorder them.
+    /// At 600 Hz each boundary has more than one chunk and a partial last chunk, and
+    /// 1,025 depths make the work large enough to start workers.
+    #[test]
+    fn projection_matches_one_output_mode_at_a_time() {
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ProfilesCm");
+        let field = crate::legacy::load_field_cases(
+            root.with_extension("env"),
+            root.with_extension("flp"),
+            crate::ModeSolver::Kraken,
+        )
+        .unwrap()
+        .remove(0);
+        let profiles: Vec<_> = field
+            .profiles
+            .iter()
+            .map(|profile| {
+                let (top, bottom) = (profile.fluid_top_depth_m(), profile.fluid_bottom_depth_m());
+                let mut input = profile.clone().into_definition();
+                input.frequency_hz = 600.0;
+                input.mode_sample_depths_m = (0..=1024)
+                    .map(|i| top + (bottom - top) * f64::from(i) / 1024.0)
+                    .collect();
+                Case::from_definition(input).unwrap()
+            })
+            .collect();
+        let modes: Vec<_> = profiles
+            .iter()
+            .map(|profile| crate::solver::solve_modes(profile, crate::MAX_MODE_LIMIT).unwrap())
+            .collect();
+        let bits = |values: Vec<Complex32>| {
+            values
+                .into_iter()
+                .map(|v| (v.re.to_bits(), v.im.to_bits()))
+                .collect::<Vec<_>>()
+        };
+        for boundary in 0..profiles.len() - 1 {
+            let (left, right) = (&profiles[boundary], &profiles[boundary + 1]);
+            let (lm, rm) = (&modes[boundary], &modes[boundary + 1]);
+            assert!(rm.modes.len() > PROJECT_CHUNK && rm.modes.len() % PROJECT_CHUNK != 0);
+            #[allow(clippy::cast_precision_loss)]
+            let a: Vec<_> = (0..lm.modes.len())
+                .map(|i| Complex32::new((i + 1) as f32 * 0.125, -(i as f32) * 0.0625))
+                .collect();
+            let expected = bits(
+                rm.modes
+                    .iter()
+                    .map(|mode| {
+                        let one = ModeSet {
+                            modes: vec![mode.clone()],
+                            ..rm.clone()
+                        };
+                        project(left, right, lm, &one, &a).unwrap()[0]
+                    })
+                    .collect(),
+            );
+            for threads in [1, 2, 4, 8, 14] {
+                let projected =
+                    crate::parallelism::with_threads(NonZeroUsize::new(threads).unwrap(), || {
+                        project(left, right, lm, rm, &a).unwrap()
+                    });
+                assert_eq!(
+                    bits(projected),
+                    expected,
+                    "boundary {boundary}, {threads} threads"
+                );
+            }
+        }
     }
 
     #[test]
