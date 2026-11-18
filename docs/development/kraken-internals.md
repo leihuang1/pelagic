@@ -158,9 +158,11 @@ cap. The old loop's cap semantics are preserved: a zero on the last evaluation
 can succeed, but a bracket that only becomes narrow then is not checked again.
 The tail steps down to eight or four shooting lanes. Successful answers' final
 count checks are packed too, with the original interval clipping and target rule.
-One-thread meshes share one queue; with multiple workers the ordered map uses
-fixed chunks of 16 modes, independent of worker count, so even 62–63-mode
-profiles have four refinement work items. Fallback and error collection remain
+Meshes that can only ever have one thread share one queue; with multiple
+workers the ordered map uses fixed chunks of 16 modes, independent of worker
+count, so even 62–63-mode profiles have four refinement work items. A solve with
+one thread inside a solve window, which may receive lent threads later, uses
+chunks of 32 so they can join between chunks. Fallback and error collection remain
 in mode order. Cancellation is polled at batch boundaries and lane admission;
 a shooting pass can evaluate 16 points, so polling is not identical per lane
 evaluation to the old eight-lane loop. The original eight-lane group loop remains
@@ -187,9 +189,11 @@ superdiagonals on non-swapped rows and zero end rows. Lane stopping, failure,
 normalization and modal summation order are unchanged.
 
 Scratch lives only for that mesh's ordered shape map, not in thread-local storage.
-The 64 MiB lane allowance includes all workers, both gather buffers, the shared
-off-diagonal and a scalar remainder alongside retained lane scratch. If it would
-not fit, or for tiny/elastic groups, workers reuse width-one scratch instead.
+The 64 MiB lane allowance covers all workers' lane scratch, each with both gather
+buffers and a scalar remainder alongside it, plus the shared off-diagonal once.
+Workers claim it as they start, because a map in a solve window can gain workers
+later. Workers that would not fit, and tiny or elastic groups, reuse width-one
+scratch instead.
 Shapes still come only from the first refinement mesh.
 
 ### Modal refinement and FIELD

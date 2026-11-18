@@ -29,6 +29,20 @@ in the [interface contract](docs/development/interface-contract.md).
   the default build (Pekeris on the M4, the KRAKENC rigid-loss case on the i5).
   Those cases do not use the new parallel path, and no difference is measurable
   when both builds use one codegen unit, which points to compiler code layout.
+- **Faster multi-frequency and range-dependent KRAKEN on fewer threads.**
+  Independent frequency blocks and range-dependent profiles now solve side by
+  side from two threads instead of eight, and a solve that finishes early lends
+  its threads to those still running. Solver-only on an Apple M4 Pro, the
+  101-frequency broadband example runs 1.8, 2.5, 3.3 and 4.0 times faster at 2,
+  3, 4 and 6 threads, and the Gulf examples 1.1–1.4 times faster. Uneven
+  sequences that used to leave threads idle gain at 8–14 threads too, for
+  example a nine-frequency Munk sweep 1.75 times at 14 threads. On an Intel Core
+  i5-14600KF (WSL2), broadband runs 1.7–3.1 times faster at 2–6 threads. Results
+  are bit-for-bit unchanged, and single-frequency runs are within noise.
+  Finished results now wait in memory from two threads: sixteen deep-water
+  frequencies at 200 Hz after one at 5 Hz peaked at about 270 MiB on two
+  threads, where they took 44 MiB before, so use one thread when memory is
+  tight. Sequences with finite elastic layers still solve in order.
 
 ## 0.6.3 — 2026-11-12
 

@@ -23,7 +23,7 @@ pub(super) fn shape_map_init<T: Send, S>(
     init: impl Fn() -> S + Sync,
     shape: impl Fn(&mut S, usize) -> Result<T, DiagnosticReport> + Sync,
 ) -> Result<Vec<T>, DiagnosticReport> {
-    if parallelism::threads() <= 1 || count <= 1 {
+    if parallelism::thread_limit() <= 1 || count <= 1 {
         // Retain scalar short-circuiting and the single-item calling scope.
         let mut scratch = init();
         (0..count).map(|index| shape(&mut scratch, index)).collect()

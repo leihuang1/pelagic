@@ -1153,6 +1153,14 @@ impl<'a> Mesh<'a> {
     // Shapes at this mesh's roots, in root order. Lane batches run where their
     // scratch fits; a failing root hides nothing before it, as in a serial run.
     fn modes(&self, roots: &[f64]) -> Result<Vec<(NormalMode, Complex64)>, DiagnosticReport> {
+        self.modes_within(roots, SHAPE_LANE_BYTES)
+    }
+
+    fn modes_within(
+        &self,
+        roots: &[f64],
+        lane_bytes: usize,
+    ) -> Result<Vec<(NormalMode, Complex64)>, DiagnosticReport> {
         crate::cancellation::check()?;
         let samples = self.sample_brackets();
         let rows = self.b1.len();
@@ -1161,14 +1169,15 @@ impl<'a> Mesh<'a> {
             .saturating_mul(rows.saturating_add(samples.len()));
         let off_diagonal = self.shape_off_diagonal();
         let n = off_diagonal.values.len() - 1;
-        // A worker can retain its lanes while finishing a short scalar tail.
-        // Charge both scratches (including their gathers), plus the shared e.
-        let lane_bytes = crate::parallelism::threads()
-            .saturating_mul(rows)
-            .saturating_mul((SHAPE_LANES + 1) * SHAPE_ROW_BYTES + 2 * size_of::<f64>())
-            .saturating_add((n + 1).saturating_mul(size_of::<f64>()));
+        // A lane worker can retain its lanes while finishing a short scalar tail:
+        // charge it both scratches (including their gathers); the shared e once.
+        // Workers are counted as they start, since a map can gain workers later.
+        let lane_workers = lane_bytes.saturating_sub((n + 1).saturating_mul(size_of::<f64>()))
+            / rows
+                .saturating_mul((SHAPE_LANES + 1) * SHAPE_ROW_BYTES + 2 * size_of::<f64>())
+                .max(1);
         if roots.len() < SHAPE_LANES
-            || lane_bytes > SHAPE_LANE_BYTES
+            || lane_workers == 0
             || crate::solver::elastic::has_layers(self.case)
             || crate::solver::elastic::has_half_space(self.case)
         {
@@ -1181,21 +1190,30 @@ impl<'a> Mesh<'a> {
                 },
             );
         }
+        let started = std::sync::atomic::AtomicUsize::new(0);
         let batches = crate::solver::refinement::shape_map_init(
             roots.len().div_ceil(SHAPE_LANES),
             estimated_work,
-            || ShapeScratch::<SHAPE_LANES>::new(n),
-            |scratch, index| {
+            || {
+                let worker = started.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                (
+                    (worker < lane_workers).then(|| ShapeScratch::<SHAPE_LANES>::new(n)),
+                    None,
+                )
+            },
+            |(lanes, scalar), index| {
                 let start = index * SHAPE_LANES;
                 let roots = &roots[start..roots.len().min(start + SHAPE_LANES)];
-                if roots.len() < SHAPE_LANES {
-                    let mut scalar = ShapeScratch::<1>::new(n);
-                    return roots
-                        .iter()
-                        .map(|&x| self.mode_with_scratch(x, &samples, &off_diagonal, &mut scalar))
-                        .collect();
+                if let Some(lanes) = lanes
+                    && roots.len() == SHAPE_LANES
+                {
+                    return self.mode_batch(roots, &samples, &off_diagonal, lanes);
                 }
-                self.mode_batch(roots, &samples, &off_diagonal, scratch)
+                let scalar = scalar.get_or_insert_with(|| ShapeScratch::<1>::new(n));
+                roots
+                    .iter()
+                    .map(|&x| self.mode_with_scratch(x, &samples, &off_diagonal, scalar))
+                    .collect()
             },
         )?;
         Ok(batches.into_iter().flatten().collect())
@@ -1896,13 +1914,23 @@ mod tests {
         solver::profile::Profile,
     };
     use num_complex::Complex64;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::{cell::Cell, path::Path};
 
     thread_local! {
         static PROBE_SHAPE_ALLOCATION: Cell<bool> = const { Cell::new(false) };
     }
 
+    // Lane scratches allocated on any thread for meshes of `COUNTED_ROWS` rows.
+    // Only the admission test uses 4,003 rows (4,002 mesh points; no fixture
+    // does), so tests running alongside cannot disturb the count. Zero is off.
+    static COUNTED_ROWS: AtomicUsize = AtomicUsize::new(0);
+    static COUNTED_LANE_SCRATCHES: AtomicUsize = AtomicUsize::new(0);
+
     pub(super) fn probe_shape_allocation(lanes: usize, rows: usize) {
+        if lanes == SHAPE_LANES && rows != 0 && rows == COUNTED_ROWS.load(Ordering::Relaxed) {
+            COUNTED_LANE_SCRATCHES.fetch_add(1, Ordering::Relaxed);
+        }
         if PROBE_SHAPE_ALLOCATION.with(Cell::get) {
             std::panic::panic_any((lanes, rows));
         }
@@ -2240,28 +2268,78 @@ mod tests {
         let case = Case::from_definition(input).unwrap();
         let mesh = fixture_mesh(&case, 1).unwrap();
         assert_eq!(mesh.b1.len(), 59);
-        assert_eq!(super::SHAPE_LANE_BYTES, 67_108_864);
-        // Charges 67,093,923 / 67,109,322 bytes; omitting even shared e admits the latter.
-        for (threads, width) in [(4357, 4), (4358, 1)] {
-            PROBE_SHAPE_ALLOCATION.with(|probe| {
-                probe.set(true);
-                let allocation = std::panic::catch_unwind(|| {
-                    crate::parallelism::with_threads(
-                        std::num::NonZeroUsize::new(threads).unwrap(),
-                        || {
+        // One worker charges 59 × 261 bytes, plus 60 × 8 for the shared e; omitting
+        // even shared e admits the smaller allowance.
+        for threads in [1, 4] {
+            for (lane_bytes, width) in [(15_879, 4), (15_878, 1)] {
+                PROBE_SHAPE_ALLOCATION.with(|probe| {
+                    probe.set(true);
+                    let allocation = std::panic::catch_unwind(|| {
+                        crate::parallelism::with_threads(
+                            std::num::NonZeroUsize::new(threads).unwrap(),
                             // Tiny work stays on the caller; intercept before allocating either scratch.
-                            mesh.modes(&[0.0; 4])
-                        },
-                    )
+                            || mesh.modes_within(&[0.0; 4], lane_bytes),
+                        )
+                    });
+                    probe.set(false);
+                    let actual = allocation
+                        .expect_err("admission must reach scratch initialization")
+                        .downcast::<(usize, usize)>()
+                        .expect("scratch allocation probe");
+                    assert_eq!(
+                        *actual,
+                        (width, 59),
+                        "{lane_bytes} bytes, {threads} threads"
+                    );
                 });
-                probe.set(false);
-                let actual = allocation
-                    .expect_err("admission must reach scratch initialization")
-                    .downcast::<(usize, usize)>()
-                    .expect("scratch allocation probe");
-                assert_eq!(*actual, (width, 59), "{threads} threads");
-            });
+            }
         }
+    }
+
+    #[test]
+    fn workers_beyond_the_lane_allowance_hold_one_mode_and_keep_the_same_bits() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Pekeris");
+        let mut input = load_case(root.with_extension("env"), root.with_extension("flp"))
+            .unwrap()
+            .into_definition();
+        input.mesh_points = 4002;
+        let case = Case::from_definition(input).unwrap();
+        let mesh = fixture_mesh(&case, 1).unwrap();
+        // Enough work for several workers, ending in a short tail.
+        let roots = mesh.roots(&Refinement::default(), &mut 0).unwrap();
+        let roots: Vec<_> = roots
+            .into_iter()
+            .cycle()
+            .take(8 * SHAPE_LANES + 1)
+            .collect();
+        let expected = mesh.modes_within(&roots, 0).unwrap();
+        let shared = mesh.shape_off_diagonal().values.len() * size_of::<f64>();
+        let worker =
+            mesh.b1.len() * ((SHAPE_LANES + 1) * super::SHAPE_ROW_BYTES + 2 * size_of::<f64>());
+        assert_eq!(shared / size_of::<f64>() - 1, 4003);
+        COUNTED_ROWS.store(shared / size_of::<f64>() - 1, Ordering::Relaxed);
+        // Every worker of the nine-batch map starts; only the first ones take lanes.
+        for threads in [2, 3, 8] {
+            for lane_workers in [1, 2, 9] {
+                COUNTED_LANE_SCRATCHES.store(0, Ordering::Relaxed);
+                let actual = crate::parallelism::with_threads(
+                    std::num::NonZeroUsize::new(threads).unwrap(),
+                    || mesh.modes_within(&roots, shared + lane_workers * worker),
+                )
+                .unwrap();
+                assert_eq!(
+                    COUNTED_LANE_SCRATCHES.load(Ordering::Relaxed),
+                    lane_workers.min(threads),
+                    "{lane_workers} lane workers, {threads} threads"
+                );
+                assert_eq!(
+                    actual.iter().map(mode_bits).collect::<Vec<_>>(),
+                    expected.iter().map(mode_bits).collect::<Vec<_>>(),
+                    "{lane_workers} lane workers, {threads} threads"
+                );
+            }
+        }
+        COUNTED_ROWS.store(0, Ordering::Relaxed);
     }
 
     #[test]
@@ -2290,17 +2368,20 @@ mod tests {
                 .take(2 * SHAPE_LANES + 1)
                 .map(|&x| mesh.mode(x, &samples).unwrap())
                 .collect::<Vec<_>>();
-            // The largest budget exceeds SHAPE_LANE_BYTES, so it takes the scalar path.
-            for threads in [1, 2, 5, usize::MAX] {
+            // Without a lane allowance, shapes take the scalar path.
+            for (threads, lane_bytes) in [1, 2, 5]
+                .into_iter()
+                .flat_map(|threads| [(threads, 0), (threads, super::SHAPE_LANE_BYTES)])
+            {
                 crate::parallelism::with_threads(
                     std::num::NonZeroUsize::new(threads).unwrap(),
                     || {
                         for count in 0..=expected.len() {
-                            let actual = mesh.modes(&roots[..count]).unwrap();
+                            let actual = mesh.modes_within(&roots[..count], lane_bytes).unwrap();
                             assert_eq!(
                                 actual.iter().map(mode_bits).collect::<Vec<_>>(),
                                 expected[..count].iter().map(mode_bits).collect::<Vec<_>>(),
-                                "{name}, {count} modes, {threads} threads"
+                                "{name}, {count} modes, {threads} threads, {lane_bytes} lane bytes"
                             );
                         }
                         assert_eq!(crate::parallelism::threads(), threads);

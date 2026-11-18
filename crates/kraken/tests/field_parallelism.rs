@@ -193,7 +193,7 @@ fn frequency_iteration_is_lazy_and_cancellation_stops_after_successes() {
                     assert!(cancelled.next().is_none());
                     token.store(false, Ordering::Relaxed);
                     let mut results = solve_frequencies(&cases);
-                    // At eight threads, these pulls also leave later successes buffered.
+                    // From two threads, these pulls also leave later successes buffered.
                     for _ in 0..3 {
                         assert!(results.next().unwrap().is_ok());
                     }
@@ -291,7 +291,7 @@ fn elastic_frequency_and_profile_sequences_keep_sequential_search_bounds() {
             profile_counts
         );
         // At and above the thread count where windows open.
-        for count in [8, 16] {
+        for count in [2, 3, 4, 8, 16] {
             assert_eq!(
                 format!("{:?}", threads(count, || solve_field(&field).unwrap())),
                 format!("{expected:?}")
