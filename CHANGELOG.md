@@ -39,10 +39,23 @@ in the [interface contract](docs/development/interface-contract.md).
   example a nine-frequency Munk sweep 1.75 times at 14 threads. On an Intel Core
   i5-14600KF (WSL2), broadband runs 1.7–3.1 times faster at 2–6 threads. Results
   are bit-for-bit unchanged, and single-frequency runs are within noise.
-  Finished results now wait in memory from two threads: sixteen deep-water
-  frequencies at 200 Hz after one at 5 Hz peaked at about 270 MiB on two
-  threads, where they took 44 MiB before, so use one thread when memory is
-  tight. Sequences with finite elastic layers still solve in order.
+  Finished results now wait in memory from two threads, aiming at about
+  128 MiB (see the next entry), so use one thread when memory is tight.
+  Sequences with finite elastic layers still solve in order.
+- **KRAKEN memory stays near its target when results grow with frequency.**
+  With two or more threads, KRAKEN decides how many frequencies to solve ahead
+  by predicting each one's result size from the mode counts so far, instead of
+  judging it by the largest result so far. Mode counts grow with frequency, so
+  the old rule let several times the intended 128 MiB of finished results
+  wait in memory. Solver-only on an Apple M4 Pro, sixteen deep-water
+  frequencies at 200 Hz after one at 5 Hz, with 5001 mode sample depths, now
+  peak at about 77 MiB on two threads and 120 MiB on fourteen, down from 272
+  and 562 MiB; a 25–400 Hz sweep peaks at 83–136 MiB, down from 193–616 MiB.
+  Such sequences solve fewer frequencies at once, so they take 1.07–1.10 times
+  as long at 4 threads and 1.23–1.32 times at 14, about as long as sequences of
+  equally large results already took. Falling frequencies run up to 1.05 times
+  faster. Results are bit-for-bit unchanged, and every other input we checked,
+  including all examples and test fixtures, is scheduled exactly as before.
 
 ## 0.6.3 — 2026-11-12
 

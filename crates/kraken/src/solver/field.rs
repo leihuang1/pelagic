@@ -22,20 +22,86 @@ const PROJECT_CHUNK: usize = 16;
 
 // Solves per thread in one window: a surplus lets faster cores take more of them.
 const SOLVES_PER_THREAD: usize = 4;
-// Finished results one window may hold, judging each by twice the largest so far.
-// A later result can be larger, so this limits speculation, not memory.
+// Finished results one window may hold, with a factor of two for estimation error.
+// Solver scratch is separate, so this limits speculation, not process memory.
 const SOLVE_AHEAD_BYTES: usize = 128 * 1024 * 1024;
 
-fn mode_set_bytes(set: &ModeSet) -> usize {
+fn mode_storage_bytes(depths: usize, modes: usize) -> usize {
     size_of::<ModeSet>()
-        + set.sampled_depths_m.len() * size_of::<f64>()
-        + set.modes.len()
-            * (size_of::<crate::NormalMode>() + set.sampled_depths_m.len() * size_of::<Complex64>())
+        .saturating_add(depths.saturating_mul(size_of::<f64>()))
+        .saturating_add(
+            modes.saturating_mul(
+                size_of::<crate::NormalMode>()
+                    .saturating_add(depths.saturating_mul(size_of::<Complex64>())),
+            ),
+        )
 }
 
-fn field_result_bytes(result: &ProfileSimulationResult) -> usize {
-    result.modes.iter().map(mode_set_bytes).sum::<usize>()
-        + result.field.pressure.len() * size_of::<Complex64>()
+fn mode_set_bytes(set: &ModeSet) -> usize {
+    mode_storage_bytes(set.sampled_depths_m.len(), set.modes.len())
+}
+
+// Predicts frequency blocks' result bytes. Mode shapes dominate a result, and in a
+// fixed environment a profile's mode count grows roughly in proportion to frequency,
+// so the largest result so far would underestimate blocks at higher frequencies.
+#[derive(Default)]
+struct FrequencyEstimate {
+    modes_per_hz: Vec<f64>,
+}
+
+impl FrequencyEstimate {
+    #[allow(clippy::cast_precision_loss)]
+    fn observe(&mut self, sets: &[ModeSet]) {
+        for (index, set) in sets.iter().enumerate() {
+            // One mode gives a first, empty spectrum a nonzero growth estimate.
+            let rate = set.modes.len().max(1) as f64 / set.frequency_hz;
+            if let Some(previous) = self.modes_per_hz.get_mut(index) {
+                *previous = previous.max(rate);
+            } else {
+                self.modes_per_hz.push(rate);
+            }
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn bytes(&self, case: &FieldCase) -> usize {
+        let first = &case.profiles[0];
+        let field = first
+            .source_depths_m
+            .len()
+            .saturating_mul(first.receiver_depths_m.len())
+            .saturating_mul(first.receiver_ranges_m.len())
+            .saturating_mul(size_of::<Complex64>());
+        case.profiles
+            .iter()
+            .enumerate()
+            .map(|(index, profile)| {
+                let rate = self
+                    .modes_per_hz
+                    .get(index)
+                    .copied()
+                    .unwrap_or(f64::INFINITY);
+                // mode_limit caps FIELD synthesis, not the modes stored in a result.
+                let modes =
+                    ((rate * profile.frequency_hz).round() as usize).min(crate::MAX_MODE_LIMIT);
+                mode_storage_bytes(profile.mode_sample_depths_m.len(), modes)
+            })
+            .fold(field, usize::saturating_add)
+    }
+
+    // Admits consecutive blocks while their predicted results, doubled for
+    // estimation error, fit in the budget; an oversized block still runs alone.
+    fn window_len(&self, cases: &[FieldCase], independent: bool) -> usize {
+        let cap = window_cap(cases.len(), independent, !self.modes_per_hz.is_empty());
+        let mut bytes = 0_usize;
+        for (index, case) in cases[..cap].iter().enumerate() {
+            bytes = bytes.saturating_add(self.bytes(case).saturating_mul(2));
+            if bytes > SOLVE_AHEAD_BYTES {
+                return index.max(1);
+            }
+        }
+        cap
+    }
 }
 
 fn independent_profiles(case: &FieldCase) -> bool {
@@ -44,14 +110,19 @@ fn independent_profiles(case: &FieldCase) -> bool {
 
 // With nothing solved yet, one solve gets every thread: its size is unknown, and
 // the first result then arrives as soon as it can.
-fn solve_window_len(remaining: usize, independent: bool, largest: Option<usize>) -> usize {
+fn window_cap(remaining: usize, independent: bool, solved: bool) -> usize {
     let threads = crate::parallelism::threads().min(crate::parallelism::MAX_WORKERS);
-    let admitted = match largest {
-        Some(bytes) if independent && threads > 1 => (threads * SOLVES_PER_THREAD)
-            .min((SOLVE_AHEAD_BYTES / bytes.saturating_mul(2).max(1)).max(1)),
-        _ => 1,
-    };
-    remaining.min(admitted)
+    if solved && independent && threads > 1 {
+        remaining.min(threads * SOLVES_PER_THREAD)
+    } else {
+        remaining.min(1)
+    }
+}
+
+// Profile windows judge each result by twice the largest so far.
+fn solve_window_len(remaining: usize, independent: bool, largest: Option<usize>) -> usize {
+    let fits = SOLVE_AHEAD_BYTES / largest.unwrap_or(0).saturating_mul(2).max(1);
+    window_cap(remaining, independent, largest.is_some()).min(fits.max(1))
 }
 
 /// Compute every profile's modes and synthesize one range-dependent field.
@@ -76,7 +147,7 @@ pub fn solve_frequencies(
 ) -> impl Iterator<Item = Result<ProfileSimulationResult, DiagnosticReport>> + '_ {
     let independent = cases.iter().all(independent_profiles);
     let mut root_limit = crate::MAX_MODE_LIMIT;
-    let mut largest_bytes = None;
+    let mut estimate = FrequencyEstimate::default();
     let mut next = 0;
     let mut pending = Vec::new().into_iter();
     let mut stopped = false;
@@ -92,7 +163,7 @@ pub fn solve_frequencies(
             return Some(Err(report));
         }
         if pending.len() == 0 {
-            let count = solve_window_len(cases.len() - next, independent, largest_bytes);
+            let count = estimate.window_len(&cases[next..], independent);
             pending = solve_window(count, |offset| {
                 let case = &cases[next + offset];
                 if case.profiles[0].mode_solver != cases[0].profiles[0].mode_solver {
@@ -112,7 +183,7 @@ pub fn solve_frequencies(
             // Cancellation can also arrive while the window was solving.
             crate::cancellation::check()?;
             root_limit = result.modes.last().unwrap().modes.len();
-            largest_bytes = largest_bytes.max(Some(field_result_bytes(&result)));
+            estimate.observe(&result.modes);
             Ok(result)
         });
         if result.is_err() {
@@ -2129,6 +2200,144 @@ mod solve_window_tests {
             .map(|mode| mode.eigenfunction.len())
             .sum::<usize>();
         assert!(mode_set_bytes(&set) >= shapes * size_of::<Complex64>());
+    }
+
+    fn estimate_fixture(frequency: f64, modes: usize) -> (FieldCase, ModeSet) {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Pekeris");
+        let mut input =
+            crate::legacy::load_case(root.with_extension("env"), root.with_extension("flp"))
+                .unwrap()
+                .into_definition();
+        input.frequency_hz = frequency;
+        input.mode_sample_depths_m = (0..5001).map(|i| f64::from(i) / 50.0).collect();
+        input.source_depths_m = vec![50.0];
+        input.receiver_depths_m = vec![50.0];
+        input.receiver_offsets_m = vec![0.0];
+        input.receiver_ranges_m = vec![1000.0];
+        let case = Case::from_definition(input).unwrap();
+        let set = ModeSet {
+            frequency_hz: frequency,
+            sampled_depths_m: case.mode_sample_depths_m.clone(),
+            modes: vec![
+                crate::NormalMode {
+                    horizontal_wavenumber_rad_per_m: Complex64::default(),
+                    phase_speed_mps: 1500.0,
+                    group_speed_mps: 1500.0,
+                    attenuation_nepers_per_m: 0.0,
+                    eigenfunction: Vec::new(),
+                };
+                modes
+            ],
+        };
+        (
+            FieldCase::new(vec![case], vec![0.0], FieldPropagation::RangeIndependent).unwrap(),
+            set,
+        )
+    }
+
+    #[test]
+    fn frequency_growth_reduces_admission_before_large_results_arrive() {
+        let (_, small) = estimate_fixture(5.0, 10);
+        let (large, _) = estimate_fixture(200.0, 400);
+        let mut estimate = FrequencyEstimate::default();
+        estimate.observe(std::slice::from_ref(&small));
+        crate::parallelism::with_threads(NonZeroUsize::new(4).unwrap(), || {
+            let cases = vec![large; 16];
+            assert_eq!(solve_window_len(16, true, Some(mode_set_bytes(&small))), 16);
+            assert_eq!(estimate.window_len(&cases, true), 2);
+            let (half, _) = estimate_fixture(100.0, 0);
+            let mixed = [half.clone(), cases[0].clone(), half, cases[0].clone()];
+            assert_eq!(estimate.window_len(&mixed, true), 3);
+            let (oversized, _) = estimate_fixture(400.0, 0);
+            assert_eq!(
+                estimate.window_len(&[mixed[0].clone(), oversized, mixed[0].clone()], true),
+                1
+            );
+            assert_eq!(estimate.window_len(&cases, false), 1);
+            assert_eq!(FrequencyEstimate::default().window_len(&cases, true), 1);
+            assert_eq!(estimate.window_len(&[], true), 0);
+        });
+    }
+
+    #[test]
+    fn flat_and_falling_frequencies_admit_at_least_the_old_window() {
+        // 29 / 7 * 7 rounds just above 29 in f64; ceil would shrink a flat window.
+        for (frequency, modes) in [(200.0, 400), (400.0, 400), (7.0, 29)] {
+            let (_, set) = estimate_fixture(frequency, modes);
+            let mut estimate = FrequencyEstimate::default();
+            estimate.observe(std::slice::from_ref(&set));
+            for next_frequency in [frequency, frequency / 2.0] {
+                let (case, _) = estimate_fixture(next_frequency, 0);
+                let cases = vec![case; 56];
+                for threads in [1, 2, 4, 8, 14] {
+                    crate::parallelism::with_threads(NonZeroUsize::new(threads).unwrap(), || {
+                        let old = solve_window_len(56, true, Some(mode_set_bytes(&set) + 16));
+                        assert!(estimate.window_len(&cases, true) >= old);
+                    });
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn predictions_cap_stored_modes_not_the_field_mode_limit() {
+        let (_, set) = estimate_fixture(5.0, 10);
+        let (mut case, _) = estimate_fixture(f64::MAX, 0);
+        let mut input = case.profiles[0].clone().into_definition();
+        input.mode_limit = 1;
+        case.profiles[0] = Case::from_definition(input).unwrap();
+        let mut estimate = FrequencyEstimate::default();
+        estimate.observe(&[set]);
+        let capped = mode_storage_bytes(5001, crate::MAX_MODE_LIMIT);
+        assert_eq!(estimate.bytes(&case), capped + size_of::<Complex64>());
+        crate::parallelism::with_threads(NonZeroUsize::new(14).unwrap(), || {
+            assert_eq!(estimate.window_len(&[case.clone(), case], true), 1);
+        });
+        assert_eq!(mode_storage_bytes(usize::MAX, usize::MAX), usize::MAX);
+    }
+
+    #[test]
+    fn zero_modes_still_predict_growth_and_observations_never_reduce_rates() {
+        let (_, zero) = estimate_fixture(5.0, 0);
+        let (large, _) = estimate_fixture(200.0, 0);
+        let mut estimate = FrequencyEstimate::default();
+        estimate.observe(&[zero]);
+        assert_eq!(estimate.bytes(&large), mode_storage_bytes(5001, 40) + 16);
+        let (_, nonzero) = estimate_fixture(10.0, 20);
+        estimate.observe(&[nonzero]);
+        let bytes = estimate.bytes(&large);
+        assert_eq!(bytes, mode_storage_bytes(5001, 400) + 16);
+        let (_, fewer) = estimate_fixture(20.0, 1);
+        estimate.observe(&[fewer]);
+        assert_eq!(estimate.bytes(&large), bytes);
+    }
+
+    #[test]
+    fn range_dependent_estimates_count_each_profiles_modes_and_one_field() {
+        let (case, first) = estimate_fixture(5.0, 10);
+        let (_, second) = estimate_fixture(5.0, 20);
+        let mut profile = case.profiles[0].clone().into_definition();
+        profile.mode_sample_depths_m = vec![0.0, 100.0];
+        let field = FieldCase::new(
+            vec![
+                case.profiles[0].clone(),
+                Case::from_definition(profile).unwrap(),
+            ],
+            vec![0.0, 500.0],
+            FieldPropagation::Adiabatic,
+        )
+        .unwrap();
+        let mut estimate = FrequencyEstimate::default();
+        estimate.observe(&[first]);
+        assert_eq!(
+            estimate.bytes(&field),
+            mode_storage_bytes(5001, 10) + mode_storage_bytes(2, crate::MAX_MODE_LIMIT) + 16
+        );
+        estimate.observe(&[second.clone(), second]);
+        assert_eq!(
+            estimate.bytes(&field),
+            mode_storage_bytes(5001, 20) + mode_storage_bytes(2, 20) + 16
+        );
     }
 
     #[test]

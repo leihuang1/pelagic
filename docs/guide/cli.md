@@ -127,14 +127,15 @@ search, the mode shapes and the FIELD receivers. On two or more threads, KRAKEN
 frequencies and range-dependent profiles also solve side by side after the first,
 and finished solves lend their threads to those still running. Results still
 arrive in order, so finished results wait in memory.
-Pelagic aims to keep them to about 128 MiB, judging by the largest result so far,
-so more can wait when later frequencies give much larger results than the first:
-sixteen deep-water frequencies at 200 Hz after one at 5 Hz peaked at about
-270 MiB on two threads and 540 MiB on four or eight. Measure peak memory with the
-thread count you will use, or use one thread when memory is tight. If a frequency
-fails, any later ones already solved are discarded. Real KRAKEN with
-finite elastic layers solves them one after another, because each one continues
-from the last. So, conservatively, does real KRAKEN with an elastic surface
+Pelagic aims to keep them to about 128 MiB, predicting each frequency's result
+size from the mode counts so far. That is a target, not a cap: solving needs
+memory of its own, and a prediction can be wrong when the environment changes
+between frequencies. Sixteen deep-water frequencies at 200 Hz after one at 5 Hz
+peaked at about 80 MiB on two threads and 100 MiB on eight in one test. Measure
+peak memory with the thread count you will use, or use one thread when memory is
+tight. If a frequency fails, any later ones already solved are discarded. Real
+KRAKEN with finite elastic layers solves them one after another, because each
+one continues from the last. So, conservatively, does real KRAKEN with an elastic surface
 half-space.
 
 ## Many cases

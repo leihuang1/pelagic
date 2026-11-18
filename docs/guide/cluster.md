@@ -203,10 +203,9 @@ have, use fewer workers with more threads each, for example
 by up to 32 MiB per thread. KRAKEN's mode-shape scratch also grows with threads:
 up to 64 MiB for each solve running at once, then about 60 bytes per mesh row per
 thread. On two or more threads, KRAKEN frequencies and profiles that run side by
-side also hold finished results, aiming at about 128 MiB. When later frequencies give much larger results
-than the first, that can be several times more (about 270 MiB on two threads and
-540 MiB on eight in one test), so measure with the thread count you will use, or
-give each worker one thread when memory is tight.
+side also hold finished results, aiming at about 128 MiB by predicting each
+frequency's result size; that is a target, not a cap. Measure with the thread
+count you will use, or give each worker one thread when memory is tight.
 
 ## When a task stops early
 
