@@ -78,6 +78,11 @@ pub fn threads() -> usize {
     })
 }
 
+/// Reserved threads in this scope, excluding unclaimed solve-window loans.
+pub(crate) fn owned_threads() -> usize {
+    BUDGET.with(|slot| slot.borrow().owned)
+}
+
 /// The most threads this scope can use: inside a solve window, the window's
 /// whole budget, since loans can arrive after a map starts; otherwise [`threads`].
 pub(crate) fn thread_limit() -> usize {
@@ -137,7 +142,7 @@ fn claim_threads(limit: usize) -> (usize, Option<Loan>) {
     })
 }
 
-fn worker_limit(count: usize, estimated_work: usize) -> usize {
+pub(crate) fn worker_limit(count: usize, estimated_work: usize) -> usize {
     if estimated_work.max(count) <= INLINE_WORK {
         1
     } else {

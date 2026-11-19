@@ -105,22 +105,44 @@ growth (at least two passes, within the existing three-pass ceiling).
 
 ### Fluid root search
 
-Real KRAKEN without finite elastic layers or elastic half-spaces always uses
-`modes/fluid_roots.rs`. Its invariant is that the fluid positive-pivot count
-`C(x)` is nonincreasing in squared wavenumber, and an interval `[a, b]` owns
-exactly the root targets `C(b)..C(a)`. On meshes one and two, shared bisections
-isolate one target per interval. A breadth-first level maps independent
-eight-interval count passes, then applies their results in pass order. The work
-estimate counts shared mesh rows per pass, not per lane, so small levels stay
-inline; a single pass never starts workers. The 64-level cap, the cancellation
-poll before each pass and unsplit targets' missing brackets are unchanged; a
-mapped level runs all its passes before the first error is returned.
-On mesh three onward, Neville interpolation in
-h² predicts each root from the **raw** earlier-mesh roots, never the Richardson
-rows. A local interval starts at the prediction ± `1e-6` of its magnitude,
-clipped to the current spectral limits, and can widen by four at most seven
-times. Its endpoint counts must be exactly `above + index + 1` and
-`above + index`: a sign change alone cannot establish mode identity.
+Real KRAKEN without finite elastic layers or elastic half-spaces uses
+`modes/fluid_roots.rs`. The fluid positive-pivot count `C(x)` is nonincreasing
+in squared wavenumber; an interval `[a, b]` owns the targets `C(b)..C(a)`.
+On meshes one and two, shared bisections isolate one target per interval:
+
+- **Lookahead:** seven nested midpoints cover three levels in one eight-lane
+  count pass. With more than four owned threads and at least 32 targets,
+  31 midpoints cover five levels in 32 lanes instead. This applies only to a
+  single starting interval. Counts are matched by float bits and consumed at
+  the original level, never used to replace an earlier single-root bracket.
+- **Level maps:** independent eight-interval passes return in pass order.
+  Their work estimate counts shared mesh rows per pass, not per lane; small
+  levels and single passes stay inline.
+- **Subtree batches:** admission requires
+  `min(owned_threads, ceil(intervals / 8)) > 4` and the level map's shared-row
+  estimate to admit workers. Unclaimed loans cannot satisfy this gate;
+  existing maps may still claim loans normally. Batch size is
+  `ceil(intervals / owned_threads)` clamped to four through eight intervals,
+  with a possibly shorter tail. Map items stay leaves, and each batch keeps
+  only the unused part of the 64-level cap.
+- **Invariants:** batches merge relative to the parent's target offset and
+  preserve its already isolated brackets in gaps. Cancellation is checked
+  before every pass, including cached passes; mapped work joins before its
+  first error is returned. Cancellation is isolation's only error. Counts,
+  brackets and root identities remain bit-for-bit unchanged. Batch results
+  hold at most one extra optional bracket per target (at most 20,000);
+  mode-shape scratch and solve-ahead bounds are unchanged.
+
+The breadth-first oracle covers short caps, stalled and clipped intervals,
+and thread counts 1/2/4/8/14/20. Admission tests cover small levels and a
+solve window with four owned threads plus one unclaimed thread.
+
+On mesh three onward, Neville interpolation in h² predicts each root from the
+**raw** earlier-mesh roots, never the Richardson rows. A local interval starts
+at the prediction ± `1e-6` of its magnitude, clipped to the current spectral
+limits, and can widen by four at most seven times. Its endpoint counts must
+be exactly `above + index + 1` and `above + index`: a sign change alone cannot
+establish mode identity.
 The bottom-up fluid shooting function uses positive power-of-two
 rescaling, carrying the exponent into safeguarded secant/Illinois steps. Its
 lane kernel tests every lane with one combined comparison per row and rescales
