@@ -54,6 +54,7 @@ Warnings report something worth checking without stopping the run. Common ones:
 | `BH1002` | A legacy vector was not sorted; it is sorted before use, as in BELLHOP |
 | `BH1003` | A coherent field may have too few beams; the message suggests a count |
 | `BH1004` | A reflection table's frequency differs from the case frequency |
+| `BH1005` | Boundary shape materials take `ap` and `as` in dB per wavelength, as in BELLHOP, whatever the case's attenuation unit; volume attenuation does not apply to them |
 
 ### "Unsupported" or "not supported" errors
 
