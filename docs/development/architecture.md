@@ -198,12 +198,19 @@ stays on the calling thread:
   workers do not lend or claim. No order-dependent numerical step moves.
   Results are consumed in order, so diagnostics,
   cumulative limits and cancellation are decided as with one thread; a window can
-  only do work that a failure then discards. Twice the largest result so far
-  decides how many fit in 128 MiB. That limits speculation, not memory: a later
-  result can be larger (sixteen 200 Hz blocks after one at 5 Hz, with 5001 mode
-  samples per block, peaked at about 270 MiB on two threads, 530 MiB on four and
-  540 MiB on eight in solver-only streaming measurements), nested profile windows
-  estimate separately, and solver scratch is separate.
+  only do work that a failure then discards. Frequency windows admit consecutive
+  blocks while their predicted results, doubled for estimation error, fit in
+  128 MiB; one oversized block still runs alone. Mode shapes dominate a result,
+  and in a fixed environment the mode count grows roughly in proportion to
+  frequency, so each profile's mode count is predicted from the largest
+  modes-per-hertz seen so far (an empty spectrum counts as one mode), capped at
+  the solver's 20,000-mode limit rather than the FIELD synthesis cap. Profile
+  windows judge each result by twice the largest so far. This limits
+  speculation, not process memory: environments can change between blocks,
+  nested profile windows estimate separately, and solver scratch is separate.
+  Solver-only, sixteen 200 Hz blocks after one at 5 Hz, with 5001 mode sample
+  depths, peaked at about 80 MiB on two threads and 120 MiB on fourteen on an
+  Apple M4 Pro.
 
 `tests/parallelism.rs` in both crates compares every fixture and example, and
 BELLHOP resource-limit failures, across thread counts; KRAKEN's include two and
