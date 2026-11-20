@@ -16,6 +16,7 @@ results, use the [coverage records](../README.md#numerical-evidence).
 | [Official 2026 BELLHOP review](bellhop-official-2026-review.md) | Review of upstream 2026 changes; the pinned oracle was kept |
 | [BELLHOP performance experiments](bellhop-performance-experiments.md) | Three isolated speedup experiments; inlining the contribution recorder was retained |
 | [BELLHOP tracing and scheduling experiments](bellhop-trace-and-scheduling-experiments.md) | Inlined ray steps and a pipelined scheduler were retained; six candidates were rejected |
+| [Comparison with Fortran, November 2026](fortran-comparison-2026-11.md) | v0.6.3 and `main` against Fortran O3 on Linux, WSL, Windows and macOS, end to end |
 
 When an investigation is finished, add its record here, and move any lasting
 conclusion into the page that owns that topic (see the table in
