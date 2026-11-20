@@ -73,8 +73,9 @@ see [KRAKEN JSON input](../kraken/json.md).
 ### `attenuation`
 
 - `unit`: `db_per_wavelength` (default), `db_per_meter_khz`, `db_per_meter`,
-  `nepers_per_meter`, `quality_factor` or `loss_parameter`. It applies to every
-  `ap` and `as`.
+  `nepers_per_meter`, `quality_factor` or `loss_parameter`. It applies to the
+  `ap` and `as` of the sound speed profile and of half-space boundaries, but not
+  to boundary shape materials (see `shape` below).
 - `volume`: `"none"` (default), `"thorp"`,
   `{"type": "francois_garrison", "temperature": 4, "salinity": 35, "ph": 8, "depth": 1000}`
   or `{"type": "biological", "layers": [[top, bottom, resonance_hz, Q, a0], ...]}`.
@@ -112,6 +113,9 @@ Every boundary also takes:
   `{"interpolation": "linear", "points": [[range, depth], ...]}`, with
   `interpolation` set to `linear` (default) or `curvilinear`. For a bottom whose
   material changes with range, use rows of `[range, depth, cp, cs, rho, ap, as]`.
+  As in BELLHOP, these `ap` and `as` are always in dB per wavelength, and volume
+  attenuation does not apply to them. Pelagic warns `BH1005` when the case sets
+  another attenuation unit or a volume model.
 
 ### `source` and `receivers`
 

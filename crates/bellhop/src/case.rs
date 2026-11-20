@@ -1,8 +1,9 @@
 use crate::diagnostic::{Diagnostic, DiagnosticReport, LoadOutcome, SourceLocation};
 use crate::model::LegacyArrivalEncoding;
 use crate::model::{
-    BeamFamily, Boundary, BoundaryCondition, BoundaryMaterial, BoundaryShape, EnvironmentCase,
-    RangeDependentSoundSpeed, ReceiverGrid, ReflectionCoefficientTable, RunKind, SspInterpolation,
+    AttenuationUnit, BeamFamily, Boundary, BoundaryCondition, BoundaryMaterial, BoundaryShape,
+    EnvironmentCase, RangeDependentSoundSpeed, ReceiverGrid, ReflectionCoefficientTable, RunKind,
+    SspInterpolation, VolumeAttenuation,
 };
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -368,6 +369,7 @@ fn validate_definition(
         &location,
         diagnostics,
     );
+    warn_boundary_material_attenuation(case, &location, diagnostics);
 
     validate_reflection_presence(case, &location, diagnostics);
     validate_reflection_table(
@@ -516,8 +518,6 @@ fn validate_volume_attenuation(
     location: &impl Fn(&'static str) -> SourceLocation,
     diagnostics: &mut DiagnosticReport,
 ) {
-    use crate::model::VolumeAttenuation;
-
     let valid = match &environment.top_options.volume_attenuation {
         VolumeAttenuation::None | VolumeAttenuation::Thorp => true,
         VolumeAttenuation::FrancoisGarrison {
@@ -662,6 +662,41 @@ fn validate_boundary_shape(
             field,
             location(field),
         ));
+    }
+}
+
+/// BELLHOP reads range-dependent boundary materials in dB per wavelength, without
+/// volume attenuation, whatever attenuation the case sets for the rest of the
+/// environment. Warn when those settings differ, since they don't apply there.
+fn warn_boundary_material_attenuation(
+    case: &CaseDefinition,
+    location: &impl Fn(&'static str) -> SourceLocation,
+    diagnostics: &mut DiagnosticReport,
+) {
+    let options = &case.environment.top_options;
+    if options.attenuation_unit == AttenuationUnit::DbPerWavelength
+        && options.volume_attenuation == VolumeAttenuation::None
+    {
+        return;
+    }
+    for (shape, field) in [
+        (&case.altimetry, "top_boundary.shape"),
+        (&case.bathymetry, "bottom_boundary.shape"),
+    ] {
+        if shape
+            .iter()
+            .flat_map(|shape| &shape.points)
+            .any(|point| point.material.is_some())
+        {
+            diagnostics.push(Diagnostic::warning(
+                "BH1005",
+                "boundary shape materials take ap and as in dB per wavelength, without volume \
+                 attenuation, as in BELLHOP; the case's attenuation unit and volume \
+                 attenuation apply only to the sound speed profile and half-spaces",
+                field,
+                location(field),
+            ));
+        }
     }
 }
 
@@ -950,5 +985,54 @@ mod tests {
         assert!(fields.contains(&"trace.launch_angles_degrees"));
         assert!(fields.contains(&"sound_speed.range_dependent"));
         assert!(fields.contains(&"positions"));
+    }
+
+    #[test]
+    fn boundary_materials_warn_when_other_attenuation_settings_cannot_apply() {
+        use crate::model::AttenuationUnit::{DbPerMeter, DbPerWavelength};
+        use crate::model::VolumeAttenuation::{None as NoVolume, Thorp};
+        use crate::model::{
+            BoundaryInterpolation, BoundaryMaterial, BoundaryShape, BoundaryShapePoint,
+        };
+
+        let warned = |unit, volume, material: Option<BoundaryMaterial>| {
+            let loaded = crate::json::load_case_document(CASE).unwrap();
+            let mut definition = loaded.value.into_definition();
+            let depth = definition.environment.sound_speed.bottom_depth_m;
+            definition.environment.top_options.attenuation_unit = unit;
+            definition.environment.top_options.volume_attenuation = volume;
+            definition.environment.bottom_boundary.has_shape_file = true;
+            definition.bathymetry = Some(BoundaryShape {
+                interpolation: BoundaryInterpolation::PiecewiseLinear,
+                points: [0.0, 1.0e5]
+                    .map(|range_m| BoundaryShapePoint {
+                        range_m,
+                        depth_m: depth,
+                        material: material.clone(),
+                    })
+                    .to_vec(),
+            });
+            Case::from_definition(definition)
+                .unwrap()
+                .warnings
+                .iter()
+                .filter(|warning| warning.code == "BH1005")
+                .map(|warning| warning.field.clone())
+                .collect::<Vec<_>>()
+        };
+        let material = Some(BoundaryMaterial {
+            compressional_speed_mps: 1600.0,
+            shear_speed_mps: 0.0,
+            density_g_cm3: 1.8,
+            compressional_attenuation: 0.8,
+            shear_attenuation: 0.0,
+        });
+
+        let bottom = vec![Some("bottom_boundary.shape".to_owned())];
+        let none: Vec<Option<String>> = Vec::new();
+        assert_eq!(warned(DbPerWavelength, NoVolume, material.clone()), none);
+        assert_eq!(warned(DbPerMeter, NoVolume, material.clone()), bottom);
+        assert_eq!(warned(DbPerWavelength, Thorp, material), bottom);
+        assert_eq!(warned(DbPerMeter, Thorp, None), none);
     }
 }

@@ -56,6 +56,17 @@ in the [interface contract](docs/development/interface-contract.md).
   equally large results already took. Falling frequencies run up to 1.05 times
   faster. Results are bit-for-bit unchanged, and every other input we checked,
   including all examples and test fixtures, is scheduled exactly as before.
+- **A warning when boundary shape materials ignore the attenuation settings.**
+  As in BELLHOP, the `ap` and `as` of boundary materials that change with range
+  (long-format `.ati`/`.bty` files, or seven-column JSON `shape.points`) are
+  always in dB per wavelength, without volume attenuation. The JSON reference
+  said that `attenuation.unit` applied to every `ap` and `as`; it now names the
+  ones it applies to. BELLHOP cases with boundary materials and another unit or
+  a volume model now warn `BH1005`. Results are unchanged.
+
+**Compatibility**
+
+- New BELLHOP warning `BH1005`. Exit codes and results are unchanged.
 
 ## 0.6.3 — 2026-11-12
 
