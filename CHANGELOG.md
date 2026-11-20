@@ -7,6 +7,8 @@ in the [interface contract](docs/development/interface-contract.md).
 
 ## Unreleased
 
+## 0.6.4 — 2026-11-20
+
 - **Faster one-thread BELLHOP on x86-64.** Release builds now compile the
   BELLHOP crate as one codegen unit, so the compiler can inline across the
   whole ray tracer. With the default x86-64 CLI on an Intel Core i5-14600KF
