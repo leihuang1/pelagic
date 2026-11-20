@@ -29,6 +29,14 @@ in the [interface contract](docs/development/interface-contract.md).
   the default build (Pekeris on the M4, the KRAKENC rigid-loss case on the i5).
   Those cases do not use the new parallel path, and no difference is measurable
   when both builds use one codegen unit, which points to compiler code layout.
+- **Faster fluid KRAKEN root isolation.** The first bisection levels share one
+  count pass, and large solves on more than four threads finish independent
+  subtrees without joining at every level. Solver-only timings (indicative;
+  Intel i5-14600KF under WSL2, then Apple M4 Pro): Pekeris is 1.07 and
+  1.04–1.07 times faster at every thread count and broadband 1.04–1.06 times at
+  one to four threads. At 8/14 threads, Sduct trapped is 1.12/1.08 and
+  1.06/1.09 times faster, and surface duct 1.07/1.07 and 1.05/1.06 times.
+  Results and diagnostics are bit-for-bit unchanged.
 - **Faster multi-frequency and range-dependent KRAKEN on fewer threads.**
   Independent frequency blocks and range-dependent profiles now solve side by
   side from two threads instead of eight, and a solve that finishes early lends

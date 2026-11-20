@@ -22,6 +22,22 @@ struct Interval {
 }
 
 impl Interval {
+    fn midpoints<const K: usize>(self) -> [f64; K] {
+        debug_assert!(K.is_power_of_two());
+        let mut bounds = [(self.a, self.b); K];
+        let mut points = [self.a.midpoint(self.b); K];
+        for index in 0..K - 1 {
+            let (a, b) = bounds[index];
+            let middle = a.midpoint(b);
+            points[index] = middle;
+            if 2 * index + 2 < K - 1 {
+                bounds[2 * index + 1] = (a, middle);
+                bounds[2 * index + 2] = (middle, b);
+            }
+        }
+        points
+    }
+
     fn split(self, x: f64, count: usize) -> Option<[Self; 2]> {
         (self.a < x && x < self.b && self.cb <= count && count <= self.ca).then_some([
             Self {
@@ -253,20 +269,90 @@ impl Mesh<'_> {
         values
     }
 
+    fn split_isolation(&self, intervals: usize) -> bool {
+        let passes = intervals.div_ceil(ROOT_LANES);
+        let workers = crate::parallelism::owned_threads().min(passes);
+        workers > 4
+            && crate::parallelism::worker_limit(passes, passes.saturating_mul(self.b1.len())) > 1
+    }
+
     fn isolate_fluid(&self, whole: Interval) -> Result<Vec<Option<Interval>>, DiagnosticReport> {
+        self.isolate_fluid_steps(&[whole], ROOT_STEPS)
+    }
+
+    fn isolate_fluid_steps(
+        &self,
+        intervals: &[Interval],
+        steps: usize,
+    ) -> Result<Vec<Option<Interval>>, DiagnosticReport> {
+        let last = intervals.last().expect("nonempty isolation batch");
+        let whole = Interval {
+            b: last.b,
+            cb: last.cb,
+            ..intervals[0]
+        };
         let mut isolated = vec![None; whole.ca - whole.cb];
-        let mut frontier = vec![whole];
-        for _ in 0..ROOT_STEPS {
+        let mut frontier = intervals.to_vec();
+        let wide = crate::parallelism::owned_threads() > 4 && whole.ca - whole.cb >= 32;
+        let levels = if wide { 5 } else { 3 };
+        let initial_points = if wide {
+            whole.midpoints::<32>()
+        } else {
+            let points = whole.midpoints::<ROOT_LANES>();
+            std::array::from_fn(|k| points[k.min(ROOT_LANES - 1)])
+        };
+        let initial_counts = std::sync::OnceLock::new();
+        for level in 0..steps {
             let passes = frontier.chunks(ROOT_LANES);
             // Charge shared rows, not lanes: small levels do not repay thread starts.
             let estimated_work = passes.len().saturating_mul(self.b1.len());
+            if self.split_isolation(frontier.len()) {
+                // Keep intervals batched, with enough batches for the reserved workers.
+                let size = frontier
+                    .len()
+                    .div_ceil(crate::parallelism::owned_threads())
+                    .clamp(ROOT_LANES / 2, ROOT_LANES);
+                let batches = frontier.chunks(size);
+                let branches = crate::parallelism::map(batches.len(), estimated_work, |index| {
+                    self.isolate_fluid_steps(batches.clone().nth(index).unwrap(), steps - level)
+                });
+                for (chunk, branch) in batches.zip(branches) {
+                    let branch = branch?;
+                    let start = chunk.last().unwrap().cb - whole.cb;
+                    for (slot, bracket) in isolated[start..].iter_mut().zip(branch) {
+                        // Gaps between pending intervals were already isolated by the parent.
+                        *slot = bracket.or(*slot);
+                    }
+                }
+                return Ok(isolated);
+            }
             let count = |chunk: &[Interval]| {
                 crate::cancellation::check()?;
                 let x = std::array::from_fn(|k| {
                     let interval = chunk[k.min(chunk.len() - 1)];
                     interval.a.midpoint(interval.b)
                 });
-                Ok::<_, DiagnosticReport>((x, self.count_lanes::<ROOT_LANES>(x)))
+                let counts = if intervals.len() == 1 && level < levels {
+                    let counts = initial_counts.get_or_init(|| {
+                        if wide {
+                            self.count_lanes(initial_points)
+                        } else {
+                            let counts = self.count_lanes::<ROOT_LANES>(std::array::from_fn(|k| {
+                                initial_points[k]
+                            }));
+                            std::array::from_fn(|k| counts[k.min(ROOT_LANES - 1)])
+                        }
+                    });
+                    x.map(|point| {
+                        counts[initial_points
+                            .iter()
+                            .position(|p| p.to_bits() == point.to_bits())
+                            .expect("the initial levels use these midpoints")]
+                    })
+                } else {
+                    self.count_lanes::<ROOT_LANES>(x)
+                };
+                Ok::<_, DiagnosticReport>((x, counts))
             };
             // Map only when the level can fan out: one-thread solves, such as
             // broadband's many small ones, then need no result buffer per level.
@@ -725,6 +811,204 @@ mod tests {
                         .all(Option::is_none)
                 );
             });
+        }
+    }
+
+    #[test]
+    fn small_isolation_levels_keep_cross_interval_lanes() {
+        let munk = load("MunkLossless");
+        let munk_meshes = Meshes::new(&munk).unwrap();
+        let munk_mesh = Mesh::new(&munk_meshes, 1).unwrap();
+        let duct = load("SductTrapped");
+        let duct_meshes = Meshes::new(&duct).unwrap();
+        let duct_mesh = Mesh::new(&duct_meshes, 1).unwrap();
+        let fine_duct_mesh = Mesh::new(&duct_meshes, 2).unwrap();
+        for threads in [1, 2, 4, 8, 14, 20] {
+            crate::parallelism::with_threads(std::num::NonZeroUsize::new(threads).unwrap(), || {
+                for frontier in [1, 2, 4, 8, 16, 32, 37] {
+                    assert!(
+                        !munk_mesh.split_isolation(frontier),
+                        "Munk {threads}/{frontier}"
+                    );
+                }
+                assert!(
+                    !duct_mesh.split_isolation(32),
+                    "four duct passes stay inline"
+                );
+                assert!(
+                    !fine_duct_mesh.split_isolation(32),
+                    "four passes cannot use five workers"
+                );
+                assert_eq!(duct_mesh.split_isolation(64), threads > 4);
+            });
+        }
+    }
+
+    #[test]
+    fn isolation_does_not_spend_a_windows_unclaimed_thread() {
+        let case = load("SductTrapped");
+        let meshes = Meshes::new(&case).unwrap();
+        let mesh = Mesh::new(&meshes, 1).unwrap();
+        let (release, wait) = std::sync::mpsc::channel();
+        let wait = std::sync::Mutex::new(wait);
+        let splits =
+            crate::parallelism::with_threads(std::num::NonZeroUsize::new(9).unwrap(), || {
+                crate::parallelism::map_window(2, |index| {
+                    if index == 0 {
+                        wait.lock()
+                            .unwrap()
+                            .recv_timeout(std::time::Duration::from_secs(30))
+                            .unwrap();
+                        false
+                    } else {
+                        // Two reservations of four; the ninth thread is lendable, not owned.
+                        assert_eq!(crate::parallelism::threads(), 5);
+                        let split = mesh.split_isolation(64);
+                        release.send(()).unwrap();
+                        split
+                    }
+                })
+            });
+        assert_eq!(splits, [false, false]);
+    }
+
+    fn original_isolation(
+        mesh: &Mesh<'_>,
+        whole: Interval,
+        steps: usize,
+    ) -> (Vec<Option<Interval>>, usize) {
+        let mut isolated = vec![None; whole.ca - whole.cb];
+        let mut frontier = vec![whole];
+        let mut largest_frontier = 0;
+        for _ in 0..steps {
+            largest_frontier = largest_frontier.max(frontier.len());
+            let mut next = Vec::new();
+            for chunk in frontier.chunks(ROOT_LANES) {
+                let x = std::array::from_fn(|k| {
+                    let interval = chunk[k.min(chunk.len() - 1)];
+                    interval.a.midpoint(interval.b)
+                });
+                let counts = mesh.count_lanes::<ROOT_LANES>(x);
+                for (k, &interval) in chunk.iter().enumerate() {
+                    if interval.ca - interval.cb == 1 {
+                        if interval.cb <= counts[k] && counts[k] <= interval.ca {
+                            isolated[interval.cb - whole.cb] = Some(interval);
+                        }
+                    } else if let Some(parts) = interval.split(x[k], counts[k]) {
+                        for part in parts {
+                            match part.ca - part.cb {
+                                0 => (),
+                                1 => isolated[part.cb - whole.cb] = Some(part),
+                                _ => next.push(part),
+                            }
+                        }
+                    }
+                }
+            }
+            frontier = next;
+            if frontier.is_empty() {
+                break;
+            }
+        }
+        (isolated, largest_frontier)
+    }
+
+    #[test]
+    fn isolation_lookahead_midpoints_follow_breadth_first_order() {
+        let whole = Interval {
+            a: 0.1,
+            b: 0.9,
+            ca: 102,
+            cb: 5,
+        };
+        let mut frontier = vec![(whole.a, whole.b)];
+        let mut expected = Vec::new();
+        for _ in 0..5 {
+            let mut next = Vec::new();
+            for (a, b) in frontier {
+                let middle = a.midpoint(b);
+                expected.push(middle.to_bits());
+                next.extend([(a, middle), (middle, b)]);
+            }
+            frontier = next;
+        }
+        expected.push(whole.a.midpoint(whole.b).to_bits());
+        // Bit-keyed lookup tolerates permutations; check the cache layout separately.
+        assert_eq!(
+            whole.midpoints::<32>().map(f64::to_bits).as_slice(),
+            expected
+        );
+    }
+
+    #[test]
+    fn isolation_lookahead_keeps_the_original_breadth_first_brackets() {
+        let bits = |brackets: Vec<Option<Interval>>| {
+            brackets
+                .into_iter()
+                .map(|bracket| bracket.map(|i| (i.a.to_bits(), i.b.to_bits(), i.ca, i.cb)))
+                .collect::<Vec<_>>()
+        };
+        for (name, c_low) in [
+            ("MunkLossless", None),
+            ("SductTrapped", None),
+            ("Pekeris", None),
+            ("PekerisRigidLoss", None),
+            ("MunkLossless", Some(1530.0)),
+            ("MunkLossless", Some(1505.0)),
+        ] {
+            let mut case = load(name);
+            if let Some(low) = c_low {
+                let mut definition = case.into_definition();
+                definition.c_low_mps = low;
+                definition.mesh_points = 8192;
+                case = crate::Case::from_definition(definition).unwrap();
+            }
+            let meshes = Meshes::new(&case).unwrap();
+            for multiplier in [1, 2, 4] {
+                let mesh = Mesh::new(&meshes, multiplier).unwrap();
+                let whole = interval(&mesh);
+                let (expected, largest_frontier) = original_isolation(&mesh, whole, ROOT_STEPS);
+                if c_low.is_some() {
+                    assert!(whole.cb > 0);
+                }
+                if c_low == Some(1505.0) && multiplier == 1 {
+                    assert_eq!((whole.ca, whole.cb, largest_frontier), (102, 5, 33));
+                    crate::parallelism::with_threads(
+                        std::num::NonZeroUsize::new(8).unwrap(),
+                        || {
+                            assert!(mesh.split_isolation(largest_frontier));
+                            // A single starting interval takes the 32-lane lookahead under this guard.
+                            assert!(
+                                crate::parallelism::owned_threads() > 4
+                                    && whole.ca - whole.cb >= 32
+                            );
+                        },
+                    );
+                }
+                // A single root and a stalled interval must retain the original brackets too.
+                let single = expected.iter().flatten().next().copied().unwrap();
+                let stalled = Interval {
+                    b: whole.a.next_up(),
+                    ..whole
+                };
+                for bracket in [whole, single, stalled] {
+                    for steps in [0, 1, 3, 5, 7, ROOT_STEPS] {
+                        let expected = bits(original_isolation(&mesh, bracket, steps).0);
+                        for threads in [1, 2, 4, 8, 14, 20] {
+                            crate::parallelism::with_threads(
+                                std::num::NonZeroUsize::new(threads).unwrap(),
+                                || {
+                                    assert_eq!(
+                                        bits(mesh.isolate_fluid_steps(&[bracket], steps).unwrap()),
+                                        expected,
+                                        "{name}, c_low {c_low:?}, mesh {multiplier}, threads {threads}, steps {steps}"
+                                    );
+                                },
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -152,9 +152,14 @@ stays on the calling thread:
   evaluated. Applied effect buffers are reused, because some allocators keep a
   freshly grown buffer per ray.
 - **Fluid KRAKEN** shares Sturm-count bisections to isolate roots on meshes one
-  and two. Each breadth-first level counts independent eight-interval passes in
-  parallel when their shared mesh rows repay thread starts, then consumes them
-  in pass order; small levels and single passes stay inline.
+  and two. One count pass covers the first three levels' split points (five
+  levels in 32 lanes for large solves with more than four owned threads), and
+  each level consumes them in the original order. Later levels count
+  independent eight-interval passes in parallel when their shared mesh rows
+  repay thread starts, then consume them in pass order. A large frontier can
+  instead finish batches of subtrees in one ordered map, but only where that
+  level map would start workers and more than four threads are owned, not
+  merely lendable. Small levels and single passes stay inline.
   Later meshes start from raw earlier-mesh roots, with local brackets
   certified by current-mesh Sturm counts. Both paths refine signed fluid
   dispersion using safeguarded Illinois steps, refilling up to 16 shooting lanes
